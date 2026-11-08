@@ -95,7 +95,7 @@ export async function POST(req: Request) {
   }
 
   let lastErr = "ai error";
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const zai = await ZAI.create();
       const completion = await zai.chat.completions.create({
@@ -107,12 +107,9 @@ export async function POST(req: Request) {
       lastErr = "empty reply";
     } catch (e) {
       lastErr = String((e as Error)?.message || e || "ai error");
-      if (/429|rate/i.test(lastErr) && attempt === 0) {
-        await new Promise(r => setTimeout(r, 3000));
-        continue;
-      }
-      break;
     }
+    // upstream busy / throttled / blipped — back off and try again
+    if (attempt < 2) await new Promise(r => setTimeout(r, attempt === 0 ? 5000 : 15000));
   }
   return NextResponse.json({ ok: false, error: lastErr });
 }

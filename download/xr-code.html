@@ -389,6 +389,15 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .msg.a{align-self:flex-start}
 .msg.a .bubble{background:var(--panel-2);border:1px solid var(--line);border-bottom-left-radius:4px}
 .msg .chip{align-self:flex-start}
+.retry-line{display:flex;justify-content:flex-start}
+.retry-btn{
+  display:inline-flex;align-items:center;gap:6px;margin-top:2px;
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.04em;color:var(--text);
+  border:1px solid var(--line);border-radius:999px;padding:6px 14px;background:var(--panel-2);
+  transition:border-color .18s,color .18s,box-shadow .18s;
+}
+.retry-btn:hover{border-color:var(--accent-2);color:var(--accent);box-shadow:var(--shadow)}
+.retry-btn .ic{width:13px;height:13px}
 .msg pre{
   font-family:var(--font-mono);font-size:12px;line-height:1.6;overflow-x:auto;
   background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:13px 15px;
@@ -1156,36 +1165,65 @@ async function askBrain(c, text, atts){
   pen.append(who0, body0);
   if(currentChat().id === c.id) box0.append(pen);
   box0.scrollTop = box0.scrollHeight;
-  try{
-    let last = text;                               // feed file contents to the hosted brain
-    (atts || []).forEach(a => {
-      if(a.txt) last += '\n\n[attached file: ' + a.n + ']\n' + String(a.txt).slice(0, 6000);
-      else if((a.ty || '').indexOf('image/') === 0) last += '\n\n[attached image: ' + a.n + ' — ' + window.fmtSz(a.sz) + ']';
-      else last += '\n\n[attached file: ' + a.n + ' — ' + window.fmtSz(a.sz) + ']';
-    });
-    const ctx = brainContext(c);
-    if(ctx.length) ctx[ctx.length - 1].content = last;
-    const res = await fetch(API_BASE + '/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: ctx, mode: S.mode || 'coder' })
-    });
-    const d = await res.json().catch(() => null);
-    if(!d || !d.ok) throw new Error(d && d.error ? d.error : 'HTTP ' + res.status);
-    const t = (d.text || '').trim();
-    if(!t) throw new Error('empty reply');
-    chip.textContent = 'engine: live · ' + (window.modeLabel ? window.modeLabel() : 'Coder Mode');
-    NET.live = true; renderStatus();
-    typeReply(c, splitFence(t), true, pen);
-  }catch(err){
-    chip.textContent = 'engine: XR CODE AI · ' + (window.modeLabel ? window.modeLabel() : 'Coder Mode');
-    if(!API_BASE){
-      typeReply(c, genReply(text), false, pen);          // local file preview — built-in fallback replies
-      toast('Local preview — the hosted brain answers on the live site');
-    } else {
-      typeReply(c, { text: 'The AI server is unreachable right now — check your connection and try again in a moment.' }, false, pen);
+  let last = text;                               // feed file contents to the hosted brain
+  (atts || []).forEach(a => {
+    if(a.txt) last += '\n\n[attached file: ' + a.n + ']\n' + String(a.txt).slice(0, 6000);
+    else if((a.ty || '').indexOf('image/') === 0) last += '\n\n[attached image: ' + a.n + ' — ' + window.fmtSz(a.sz) + ']';
+    else last += '\n\n[attached file: ' + a.n + ' — ' + window.fmtSz(a.sz) + ']';
+  });
+  const ctx = brainContext(c);
+  if(ctx.length) ctx[ctx.length - 1].content = last;
+  const call = () => fetch(API_BASE + '/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages: ctx, mode: S.mode || 'coder' })
+  });
+  let d = null, failed = null;
+  for(let attempt = 0; attempt < 2; attempt++){        // one quiet auto-retry for connection drops
+    failed = null;
+    try{
+      const res = await call();
+      d = await res.json().catch(() => null);
+      if(d && d.ok && (d.text || '').trim()) break;
+      failed = new Error(d && d.error ? d.error : 'HTTP ' + res.status);
+      break;                                           // server already retried upstream — surface it
+    }catch(e){
+      failed = e;
+      if(attempt === 0){
+        chip.textContent = 'engine: busy · retrying…';
+        await new Promise(r => setTimeout(r, 4000));
+      }
     }
   }
+  if(!failed){
+    chip.textContent = 'engine: live · ' + (window.modeLabel ? window.modeLabel() : 'Coder Mode');
+    NET.live = true; renderStatus();
+    typeReply(c, splitFence((d.text || '').trim()), true, pen);
+    return;
+  }
+  chip.textContent = 'engine: XR CODE AI · ' + (window.modeLabel ? window.modeLabel() : 'Coder Mode');
+  if(!API_BASE){
+    typeReply(c, genReply(text), false, pen);          // local file preview — built-in fallback replies
+    toast('Local preview — the hosted brain answers on the live site');
+    return;
+  }
+  pen.remove();                                        // never a dead end — offer a visible retry
+  const el = document.createElement('div'); el.className = 'msg a';
+  const who = document.createElement('span'); who.className = 'who'; who.textContent = 'XR CODE';
+  const body = document.createElement('div'); body.className = 'bubble';
+  body.textContent = 'The AI server is unreachable right now — check your connection and try again in a moment.';
+  const ch = document.createElement('span'); ch.className = 'chip'; ch.textContent = 'engine: offline';
+  const re = document.createElement('button'); re.className = 'retry-btn'; re.type = 'button';
+  re.innerHTML = '<svg class="ic small"><use href="#i-sync"/></svg>Try again';
+  re.onclick = () => {
+    const lm = c.messages[c.messages.length - 1];
+    if(!lm || lm.r !== 'u' || lm.t !== text){ toast('Context moved on — send your message again'); el.remove(); return; }
+    el.remove(); askBrain(c, text, atts);
+  };
+  const line = document.createElement('div'); line.className = 'retry-line'; line.append(re);
+  el.append(who, body, ch, line);
+  if(currentChat().id === c.id) box0.append(el);
+  box0.scrollTop = box0.scrollHeight;
 }
 
 /* ---------- accounts / sync UI ---------- */
