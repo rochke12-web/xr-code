@@ -10,7 +10,7 @@ import ZAI from "z-ai-web-dev-sdk";
 // POST /api/chat → { messages } → { ok, text } | { ok:false, error }
 
 const SYSTEM =
-  "You are XR-Space, the built-in AI of the XR-Space app by YUX FF — one highly capable agent. " +
+  "You are XR Code, the AI of the XR-Space app by YUX FF — one highly capable agent. " +
   "There are no modes: read every message and automatically respond in the most helpful way. " +
   "Core behavior: " +
   "• Think before answering — silently plan the solution, weigh edge cases, then answer. " +
@@ -34,6 +34,8 @@ const SYSTEM =
 function wantsWeb(q: string): boolean {
   const s = q.toLowerCase();
   if (s.length < 4) return false;
+  // identity / meta questions about the AI itself — answer directly, never search
+  if (/(who are you|what are you|your name|who made you|who created you|who built you|about yourself|who are u)/.test(s)) return false;
   const questionWord = /^(who|what|when|where|why|how|which|whose|is|are|was|were|do|does|did|can|could|should|define|explain|tell me about)\b/.test(s);
   const currentInfo = /(latest|current|today|right now|news|price of|net worth|population|how old|release date|who is|what is)/.test(s);
   const followUp = /^(and|also|his|her|its|their|what about|how about)\b/.test(s) && s.includes("?");
