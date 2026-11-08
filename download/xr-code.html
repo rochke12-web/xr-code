@@ -988,7 +988,7 @@ function genReply(text){
   if(/python|script|function|code|rename/.test(t)){
     return { text: "Here is a compact script that does exactly that:", code: "from pathlib import Path\n\nfolder = Path(\"./my_files\")\n\nfor p in folder.iterdir():\n    if p.is_file():\n        p.rename(p.with_name(p.name.lower()))\n\nprint(\"Renamed\", len(list(folder.iterdir())), \"files\")" };
   }
-  return { text: "Good question. The shortest path:\n\n1. Break the goal into 3 small steps.\n2. Solve the first one end to end before touching the rest.\n3. Keep everything in one project so I can continue it.\n\nAsk me to generate, debug or build — I pick the right model for every step and do the work for you." };
+  return { text: "Demo mode — XR Core only previews simple things here. Connect Z.ai in AI Models (sidebar) and GLM-4.6 will answer this for real." };
 }
 
 /* ---------- sending ---------- */
@@ -1061,9 +1061,10 @@ async function zaiChat(c, text, model){
     if(!t) throw new Error('empty reply');
     typeReply(c, { text: t }, model, 0);
   }catch(err){
-    const fb = genReply(text);
-    typeReply(c, { text: 'Z.ai call failed (' + err.message + ') — XR Core fallback:\n\n' + fb.text },
-      { id: 'core', name: 'XR Core (fallback)' }, 0);
+    const hint = /40[13]/.test(err.message)
+      ? 'The key looks invalid or expired — click Connect key in AI Models to update it.'
+      : 'Check your connection, then send the message again.';
+    typeReply(c, { text: 'Z.ai error — ' + err.message + '. ' + hint }, model, 0);
   }
 }
 
