@@ -23,8 +23,9 @@ const SYSTEM =
   "• Any question (facts, knowledge, advice, current events): lead with the direct answer in the first " +
   "sentence, then a few crisp supporting facts. When live results are attached, base the reply on them — " +
   "answer the way the top result would read, with light grammar and wording changes so it is not a verbatim copy. " +
-  "When LIVE WEB RESULTS are attached and you use them, end with a final line 'Sources:' followed " +
-  "by up to 3 of the result URLs. If no live results were attached, never add a Sources line. " +
+  "When LIVE WEB RESULTS are attached, use them to ground factual replies, but keep the reply clean — " +
+  "do NOT add any Sources line by default. Only when the user explicitly asks for sources, references " +
+  "or links, end with a final line 'Sources:' followed by up to 3 of the result URLs. " +
   "Match the user's language and calibrate depth: short question → short crisp answer; " +
   "big task → structured, thorough answer. Plain text, no markdown headings; " +
   "short lists and fenced code blocks are fine. ";
@@ -83,7 +84,7 @@ async function googleContext(q: string): Promise<string> {
       "Give the answer the way the top Google result would read — same facts, " +
       "but with light grammar and wording changes so it is not a verbatim copy. " +
       "Be direct and concise, no markdown headings. " +
-      "End with a final line 'Sources:' followed by up to 3 of the result URLs."
+      "Do not add a Sources line unless the user explicitly asked for sources."
     );
   } catch {
     return ""; // search down → answer from the model itself, never block the chat
@@ -118,6 +119,10 @@ export async function POST(req: Request) {
   const lastUser = [...safe].reverse().find(m => m.role === "user");
   if (lastUser && wantsWeb(lastUser.content)) {
     sys += await googleContext(searchQuery(safe));
+    if (/\b(sources?|cite|citations?|references?|links?|urls?)\b/i.test(lastUser.content)) {
+      sys += "\n\nThe user explicitly asked for sources: end your reply with a final line 'Sources:' " +
+             "followed by up to 3 of the LIVE WEB RESULTS URLs above.";
+    }
   }
 
   let lastErr = "ai error";
