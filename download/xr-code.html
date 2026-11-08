@@ -718,7 +718,7 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
   <div class="startup" role="dialog" aria-modal="true" aria-label="Select a model to start">
     <div class="st-brand">XR CODE</div>
     <h2>Select a model to start</h2>
-    <p class="st-sub">XR CODE runs on Z.ai. Connect your API key once &mdash; it stays in this browser only.</p>
+    <p class="st-sub">XR CODE runs on Z.ai. Enter the API key once &mdash; it is saved in the XR CODE server database and every visitor gets the full engine.</p>
     <div id="stBody"></div>
   </div>
 </div>
@@ -749,10 +749,8 @@ function defaults(){
   return {
     theme: 'dark',
     user: null,              // optional Google/Discord link — only marks chats as synced
-    zaiKey: null,            // Z.ai API key — the engine that runs the app; never leaves this browser
-    startupDone: false,      // the "Select a model" window shows only once, then never again
+    startupDone: false,      // the "Select a model" window shows once per browser until the key is hosted
     gemini: null,            // {model:'gemini-2.5-pro'} when a Gemini key is connected (key stays local only)
-    zai: null,               // {model:'glm-4.6'} when a Z.ai key is connected
     local: { lfm: true, parallel: true, pickle: true, kimi: true },  // free local models (Step 3)
     routing: true,           // smart model routing
     models: { flash: true, pro: true, glm: true },
@@ -766,10 +764,9 @@ let S = load() || defaults();
 (function migrate(){
   if(!('flash' in (S.models || {}))) S.models = { flash: true, pro: true, glm: true };
   if(S.gemini === undefined) S.gemini = null;
-  if(S.zai === undefined) S.zai = null;
   if(!S.local) S.local = { lfm: true, parallel: true, pickle: true, kimi: true };
-  if(!('zaiKey' in S)) S.zaiKey = null;
   if(!('startupDone' in S)) S.startupDone = false;
+  delete S.zai; delete S.zaiKey;    // keys are hosted on the server — never stored in the browser anymore
   if(S.user && S.user.provider === 'api') S.user = null;
   delete S.api;
 })();
@@ -804,8 +801,56 @@ function applyTheme(){
 }
 function setTheme(th){ S.theme = th; save(); applyTheme(); toast(th === 'dark' ? 'Dark mode on' : 'Light mode on'); }
 
+/* ---------- hosted engine (the server keeps the key in its database) ---------- */
+const API_BASE = (function(){
+  try{
+    if(window.parent && window.parent !== window){
+      const o = window.parent.location.origin;
+      if(/^https?:/i.test(o)) return o;                               // running in the XR CODE site iframe
+    }
+  }catch(e){}
+  return /^https?:/i.test(location.protocol) ? location.origin : '';  // standalone on a server — or file:// (no server)
+})();
+const HOST = { checked: false, hosted: false, model: 'glm-4.6' };
+async function hostCheck(){                          // ask the server once: is a Z.ai key hosted?
+  if(API_BASE){
+    try{
+      const r = await fetch(API_BASE + '/api/host', { cache: 'no-store' });
+      const d = await r.json();
+      const was = zaiReady();
+      HOST.hosted = !!(d && d.hosted);
+      if(d && d.model) HOST.model = d.model;
+      if(HOST.hosted && !was) toast('Hosted engine found — GLM-4.6 · Z.ai is live for everyone');
+    }catch(e){ HOST.hosted = false; }
+  }
+  HOST.checked = true;
+  applyEngineUI();
+  if(!zaiReady() && !S.startupDone) openStartup();   // one time only — once the key is on the server, no window for anyone
+}
+async function hostSaveKey(key){                     // save the key once in the server database
+  if(!API_BASE) return false;
+  try{
+    const r = await fetch(API_BASE + '/api/host', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey: key })
+    });
+    const d = await r.json();
+    if(d && d.ok){ HOST.hosted = true; HOST.checked = true; return true; }
+  }catch(e){}
+  return false;
+}
+function applyEngineUI(){                            // paint every engine-dependent UI from server truth
+  const b = $('#zaiToggle');
+  if(zaiReady()){ b.textContent = 'Connected'; b.classList.add('ok'); }
+  else { b.textContent = 'Connect key'; b.classList.remove('ok'); }
+  renderModels(); renderStatus(); renderZaiLine(); updateSyncUI();
+  if($('#view-chat').classList.contains('active')) renderChat();
+  $('#chatInput').placeholder = zaiReady() ? 'Message XR CODE...' : 'Ask anything — XR Core answers until Z.ai is hosted...';
+}
+
 /* ---------- auth & engine status ---------- */
-function zaiReady(){ return !!(S.zai && S.zaiKey); }
+function zaiReady(){ return !!HOST.hosted; }         // true once a Z.ai key is saved in the server database
 function login(provider){                            // optional account link (chat sync only)
   S.user = provider === 'google'
     ? { provider: 'google',   name: 'YUX FF (Google)' }
@@ -814,21 +859,22 @@ function login(provider){                            // optional account link (c
   save(); renderAccounts(); renderChat(); updateSyncUI();
   toast('Linked ' + provider.charAt(0).toUpperCase() + provider.slice(1) + ' — chats are marked as synced');
 }
-function connectEngine(which, e){                    // Z.ai only — the one main engine
+function connectEngine(which, e){                    // Z.ai only — saves the key once on the server
   e.preventDefault();
   const raw = $('#zaiKey').value.trim();
   const key = zaiKeyClean(raw);
   if(!key){ toast('Paste your Z.ai API key first'); return; }
   if(!zaiKeyValid(key)){ toast('That does not look like a Z.ai API key — copy just the key from the z.ai key page (no quotes or spaces)'); return; }
   if(raw !== key) toast('Hidden characters removed from the key');
-  S.zai = { model: 'glm-4.6' };
-  S.zaiKey = key;                                   // stays in this browser only
-  $('#zaiKey').value = '';
-  $('#zaiForm').classList.remove('open');
   const btn = $('#zaiToggle');
-  btn.textContent = 'Connected'; btn.classList.add('ok');
-  save(); renderModels(); renderChat(); renderStatus(); renderZaiLine();
-  toast('Z.ai connected — GLM-4.6 now runs every answer');
+  btn.textContent = 'Saving…';
+  hostSaveKey(key).then(ok => {
+    $('#zaiKey').value = '';
+    $('#zaiForm').classList.remove('open');
+    applyEngineUI();
+    toast(ok ? 'Z.ai key saved on the server — XR CODE is hosted for everyone'
+             : 'Could not save the key — XR CODE must run on its own server to host it');
+  });
 }
 function logout(){
   S.user = null; S.lastSync = null;
@@ -875,20 +921,21 @@ function stStep2(){                                   // step 2 — key page red
   inp.placeholder = 'sk-... — paste your Z.ai API key here';
   const go = document.createElement('button'); go.className = 'st-go-btn'; go.type = 'button';
   go.textContent = '2 · Enter key & start XR CODE';
-  const start = () => {
+  const start = async () => {
     const raw = inp.value.trim();
     const k = zaiKeyClean(raw);
     if(!k){ toast('Paste the Z.ai API key first — step 1 opens the z.ai key page'); inp.focus(); return; }
     if(!zaiKeyValid(k)){ toast('That does not look like a Z.ai API key — copy just the key from the z.ai key page (no quotes or spaces)'); inp.focus(); return; }
     if(raw !== k) toast('Hidden characters removed from the key');
-    S.zai = { model: 'glm-4.6' };
-    S.zaiKey = k;                                     // stays in this browser only
+    go.disabled = true; go.textContent = 'Saving the key on the server…';
+    const ok = await hostSaveKey(k);
+    go.disabled = false; go.textContent = '2 · Enter key & start XR CODE';
+    if(!ok){ toast('Could not save the key — open XR CODE on its hosted site and try again'); inp.focus(); return; }
     S.startupDone = true;
     save();
-    const btn = $('#zaiToggle'); btn.textContent = 'Connected'; btn.classList.add('ok');
-    renderModels(); renderChat(); renderStatus(); renderZaiLine(); updateSyncUI();
+    applyEngineUI();
     closeStartup();
-    toast('Z.ai connected — GLM-4.6 now runs every answer');
+    toast('Z.ai key hosted — saved once in the database, live for everyone');
   };
   go.onclick = start;
   inp.addEventListener('keydown', e => { if(e.key === 'Enter') start(); });
@@ -950,14 +997,14 @@ function renderChat(){
   $('#chatTitle').textContent = c.title;
   const inp = $('#chatInput');
   inp.disabled = false;
-  inp.placeholder = zaiReady() ? 'Message XR CODE...' : 'Ask anything — XR Core answers until you connect Z.ai...';
+  inp.placeholder = zaiReady() ? 'Message XR CODE...' : 'Ask anything — XR Core answers until Z.ai is hosted...';
   const box = $('#msgs'); box.innerHTML = '';
   if(!c.messages.length){
     const e = document.createElement('div');
     e.className = 'empty-state';
     e.innerHTML = zaiReady()
       ? '<span class="big">XR CODE</span>Ask anything — GLM-4.6 via Z.ai runs every answer: it plans, codes and reviews on its own.'
-      : '<span class="big">XR CODE</span>Running on the built-in XR Core demo brain. Connect Z.ai in the sidebar (AI Models) to run the real engine.';
+      : '<span class="big">XR CODE</span>Running on the built-in XR Core demo brain. Host the Z.ai key once in the sidebar (AI Models) — it is saved on the server for everyone.';
     box.append(e); return;
   }
   c.messages.forEach(m => box.append(msgEl(m, c)));
@@ -981,7 +1028,7 @@ function msgEl(m, c){
 /* ---------- engine (Z.ai only) ---------- */
 function enginePool(){
   const pool = [];
-  if(S.zai) pool.push({ id: 'glm', name: 'GLM-4.6 · Z.ai', heavy: true });
+  if(zaiReady()) pool.push({ id: 'glm', name: 'GLM-4.6 · Z.ai', heavy: true });
   return pool;
 }
 function routeModel(text){
@@ -1008,7 +1055,7 @@ function genReply(text){
   if(/python|script|function|code|rename/.test(t)){
     return { text: "Here is a compact script that does exactly that:", code: "from pathlib import Path\n\nfolder = Path(\"./my_files\")\n\nfor p in folder.iterdir():\n    if p.is_file():\n        p.rename(p.with_name(p.name.lower()))\n\nprint(\"Renamed\", len(list(folder.iterdir())), \"files\")" };
   }
-  return { text: "Demo mode — XR Core only previews simple things here. Connect Z.ai in AI Models (sidebar) and GLM-4.6 will answer this for real." };
+  return { text: "Demo mode — XR Core only previews simple things here. Host the Z.ai key once in AI Models (sidebar): it saves on the server and GLM-4.6 answers for real, for everyone." };
 }
 
 /* ---------- sending ---------- */
@@ -1023,10 +1070,10 @@ function sendMsg(text){
 
   const model = routeModel(text);
   $('#chatModelChip').textContent = 'engine: ' + model.name + (model.id === 'glm' ? ' · live' : ' · demo');
-  if(model.id === 'glm' && S.zaiKey){
+  if(model.id === 'glm' && zaiReady()){
     zaiChat(c, text, model);
   } else {
-    if(model.id === 'core') toast('Demo mode — connect Z.ai in AI Models to run the real engine');
+    if(model.id === 'core') toast('Demo mode — host the Z.ai key once (AI Models) to run the real engine');
     typeReply(c, genReply(text), model, 0);
   }
 }
@@ -1068,45 +1115,33 @@ function zaiContext(c){
   return c.messages.slice(-12).map(m => ({ role: m.r === 'u' ? 'user' : 'assistant', content: m.t }));
 }
 async function zaiChat(c, text, model){
-  const waits = [3000, 8000];                         // auto-retry pauses for HTTP 429 (rate limit)
   const chip = $('#chatModelChip');
-  for(let attempt = 0; ; attempt++){
-    try{
-      const res = await fetch('https://api.z.ai/api/paas/v4/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + zaiKeyClean(S.zaiKey) },
-        body: JSON.stringify({ model: 'glm-4.6', messages: zaiContext(c), stream: false })
-      });
-      if(res.status === 429 && attempt < waits.length){
-        chip.textContent = 'engine: GLM-4.6 · Z.ai · retrying ' + (attempt + 1) + '/' + waits.length + '…';
-        toast('Z.ai rate limit (429) — retrying automatically in ' + Math.round(waits[attempt] / 1000) + 's');
-        await new Promise(r => setTimeout(r, waits[attempt]));
-        continue;
-      }
-      if(!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-      const out = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-      const t = (out || '').trim();
-      if(!t) throw new Error('empty reply');
-      chip.textContent = 'engine: GLM-4.6 · Z.ai · live';
-      typeReply(c, { text: t }, model, 0);
-      return;
-    }catch(err){
-      chip.textContent = 'engine: GLM-4.6 · Z.ai · live';
-      let hint;
-      if(/40[13]/.test(err.message))
-        hint = 'The key looks invalid or expired — click Connect key in AI Models to update it.';
-      else if(/429/.test(err.message))
-        hint = 'Rate limit reached — your key works, but the plan quota is busy. Wait a few seconds and send again.';
-      else if(/empty reply/.test(err.message))
-        hint = 'Z.ai returned nothing — send the message once more.';
-      else if(/ISO-8859-1|headers' property/i.test(err.message))
-        hint = 'The stored key contains unsupported characters — click Connect key in AI Models and paste it again.';
-      else
-        hint = 'Z.ai is unreachable right now — check your connection and try again.';
-      typeReply(c, { text: 'Z.ai error — ' + err.message + '. ' + hint }, model, 0);
-      return;
-    }
+  chip.textContent = 'engine: GLM-4.6 · Z.ai · live';   // the server auto-retries 429 (rate limit) for us
+  try{
+    const res = await fetch(API_BASE + '/api/host/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: zaiContext(c) })
+    });
+    const d = await res.json().catch(() => null);
+    if(!d || !d.ok) throw new Error(d && d.error ? d.error : 'HTTP ' + res.status);
+    const t = (d.text || '').trim();
+    if(!t) throw new Error('empty reply');
+    typeReply(c, { text: t }, model, 0);
+    return;
+  }catch(err){
+    chip.textContent = 'engine: GLM-4.6 · Z.ai · error';
+    let hint;
+    if(/HTTP 40[13]/.test(err.message))
+      hint = 'The hosted key looks invalid or expired — click Connect key in AI Models and paste a fresh one (it replaces the key saved on the server).';
+    else if(/HTTP 429/.test(err.message))
+      hint = 'Rate limit reached — the key works, but the plan quota is busy. The server already retried twice; wait a few seconds and send again.';
+    else if(/empty reply/.test(err.message))
+      hint = 'Z.ai returned nothing — send the message once more.';
+    else
+      hint = 'XR CODE server or Z.ai is unreachable right now — check your connection and try again.';
+    typeReply(c, { text: 'Z.ai error — ' + err.message + '. ' + hint }, model, 0);
+    return;
   }
 }
 
@@ -1115,9 +1150,9 @@ function renderModels(){
   const p = $('#modelsPanel'); if(!p) return; p.innerHTML = '';
   const rows = [
     { name: 'GLM-4.6 · Z.ai',
-      role: zaiReady() ? 'Main engine — runs the whole app: planning, code, review'
-                       : 'Connect your Z.ai API key (sidebar — AI Models) to run the real engine',
-      tag: zaiReady() ? 'main' : 'key needed', cls: 'heavy' }
+      role: zaiReady() ? 'Main engine — key hosted on this server: planning, code, review'
+                       : 'One-time setup: paste a Z.ai key (sidebar — AI Models) to host the real engine',
+      tag: zaiReady() ? 'main' : 'host needed', cls: 'heavy' }
   ];
   rows.forEach(r => {
     const row = document.createElement('div'); row.className = 'model-row';
@@ -1184,8 +1219,8 @@ function renderZaiLine(){
   use.setAttribute('href', '#i-cpu'); ic.append(use);
   const span = document.createElement('span');
   span.innerHTML = zaiReady()
-    ? '<b>GLM-4.6 live</b> — Z.ai runs planning, code and review'
-    : '<b>Demo mode</b> — XR Core answers until a Z.ai key is connected';
+    ? '<b>GLM-4.6 hosted</b> — key saved in the server database, live for every visitor'
+    : '<b>Demo mode</b> — XR Core answers until a Z.ai key is hosted once';
   el.append(ic, span);
 }
 function renderStatus(){
@@ -1194,7 +1229,7 @@ function renderStatus(){
   const on = zaiReady() || S.user;
   const d = document.createElement('span'); d.className = 'dot' + (on ? ' on' : '');
   el.append(d, document.createTextNode(
-    zaiReady() ? 'Z.ai connected · GLM-4.6'
+    zaiReady() ? 'Hosted · GLM-4.6 · Z.ai'
     : S.user   ? 'Linked · ' + S.user.name + ' · demo engine'
                : 'Z.ai not connected — demo mode'));
 }
@@ -1267,11 +1302,9 @@ updateSyncUI();
 renderStatus();
 $('#tokSaved').textContent = S.tokensSaved.toLocaleString();
 $$('.routingToggle').forEach(t => t.checked = S.routing);
-if(S.zai){ const b = $('#zaiToggle'); b.textContent = 'Connected'; b.classList.add('ok'); }
-renderZaiLine();
-if(!zaiReady() && !S.startupDone) openStartup();   // one time only, then saved
+applyEngineUI();                                    // first paint from local state
+hostCheck();                                        // ask the server if a key is hosted — opens the one-time window if not
 $('#chatInput').disabled = false;
-$('#chatInput').placeholder = zaiReady() ? 'Message XR CODE...' : 'Ask anything — XR Core answers until you connect Z.ai...';
 </script>
 </body>
 </html>
