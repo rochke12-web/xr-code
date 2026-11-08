@@ -926,13 +926,13 @@ function msgEl(m, c){
   if(m.code){ const pre = document.createElement('pre'); pre.textContent = m.code; w.append(pre); }
   if(m.r === 'a' && m.m){
     const chip = document.createElement('span'); chip.className = 'chip';
-    chip.textContent = 'engine: ' + (m.m === 'XR Core' || m.m === 'demo' ? 'Prime AI' : 'live');
+    chip.textContent = 'engine: ' + (m.m === 'XR Core' || m.m === 'demo' ? 'XR CODE AI' : 'live');
     w.append(chip);
   }
   return w;
 }
 
-/* ---------- canned replies (Prime AI fallback) ---------- */
+/* ---------- canned replies (offline fallback) ---------- */
 function genReply(text){
   const t = text.toLowerCase();
   if(/debug|error|bug|fix/.test(t)){
@@ -969,7 +969,7 @@ function typeReply(c, reply, live, pen){
   const who = document.createElement('span'); who.className = 'who'; who.textContent = 'XR CODE';
   const body = document.createElement('div'); body.className = 'bubble';
   const chip = document.createElement('span'); chip.className = 'chip';
-  chip.textContent = 'engine: ' + (live ? 'live' : 'Prime AI');
+  chip.textContent = 'engine: ' + (live ? 'live' : 'XR CODE AI');
   el.append(who, body, chip);
   if(currentChat().id === c.id) box.append(el);  // only show when this chat is on screen
   box.scrollTop = box.scrollHeight;
@@ -1031,9 +1031,9 @@ async function askBrain(c, text){
     NET.live = true; renderStatus();
     typeReply(c, { text: t }, true, pen);
   }catch(err){
-    chip.textContent = 'engine: Prime AI';
+    chip.textContent = 'engine: XR CODE AI';
     if(!API_BASE){
-      typeReply(c, genReply(text), false, pen);          // local file preview — built-in Prime AI
+      typeReply(c, genReply(text), false, pen);          // local file preview — built-in fallback replies
       toast('Local preview — the hosted brain answers on the live site');
     } else {
       typeReply(c, { text: 'The AI server is unreachable right now — check your connection and try again in a moment.' }, false, pen);
@@ -1051,7 +1051,7 @@ function renderAccounts(){
     const s = document.createElement('div'); s.className = 'as';
     s.textContent = 'Chats sync to ' + providerLabel(S.user.provider) +
       (S.lastSync ? ' · last sync ' + agoFull(S.lastSync) : '') +
-      ' · engine: ' + (NET.live ? 'XR CODE AI (live)' : 'Prime AI');
+      ' · engine: ' + (NET.live ? 'XR CODE AI (live)' : 'XR CODE AI (offline)');
     i.append(n, s);
     const b = document.createElement('button'); b.className = 'mini-btn danger'; b.type = 'button'; b.textContent = 'Unlink';
     b.onclick = logout;
@@ -1090,7 +1090,7 @@ function renderStatus(){
   const d = document.createElement('span'); d.className = 'dot' + (NET.live ? ' on' : '');
   const txt = !NET.checked ? 'AI brain connecting…'
             : NET.live     ? 'AI online — hosted brain'
-                           : 'Prime AI';
+                           : 'AI offline';
   el.append(d, document.createTextNode(txt));
 }
 
