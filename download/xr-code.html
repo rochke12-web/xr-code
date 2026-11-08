@@ -1005,10 +1005,21 @@ function codeExt(code){
   if(/<\/?[a-z][\w-]*[\s>]/i.test(c)) return 'html';
   return 'txt';
 }
-function splitFence(t){                           // '```py\ncode```' -> { text, code }
-  const m = t.match(/```[\w+-]*\r?\n([\s\S]*?)```/);
-  if(!m) return { text: t };
-  return { text: (t.slice(0, m.index) + t.slice(m.index + m[0].length)).trim(), code: m[1].replace(/\s+$/, '') };
+function splitFence(t){                           // ALL '```py\ncode```' -> ordered parts
+  const parts = [];
+  const re = /```[\w+-]*\r?\n([\s\S]*?)```/g;
+  let last = 0, m;
+  while((m = re.exec(t))){
+    const before = t.slice(last, m.index).trim();
+    if(before) parts.push({ t: before });
+    parts.push({ code: m[1].replace(/\s+$/, '') });
+    last = m.index + m[0].length;
+  }
+  const tail = t.slice(last).trim();
+  if(tail || !parts.length) parts.push({ t: tail || t });
+  const firstText = parts.find(p => p.t !== undefined) || {};
+  const firstCode = parts.find(p => p.code !== undefined);
+  return { parts, text: firstText.t !== undefined ? firstText.t : '', code: firstCode ? firstCode.code : undefined };
 }
 function codeBlock(code){
   const ext = codeExt(code);
@@ -1045,8 +1056,7 @@ function msgEl(m, c){
   const w = document.createElement('div'); w.className = 'msg ' + (m.r === 'u' ? 'u' : 'a');
   const who = document.createElement('span'); who.className = 'who';
   who.textContent = m.r === 'u' ? 'You' : 'XR CODE';
-  const b = document.createElement('div'); b.className = 'bubble'; b.textContent = m.t;
-  w.append(who, b);
+  w.append(who);
   if(m.att && m.att.length){
     const line = document.createElement('div'); line.className = 'att-line';
     m.att.forEach(a => {
@@ -1065,7 +1075,16 @@ function msgEl(m, c){
     });
     w.append(line);
   }
-  if(m.code){ w.append(codeBlock(m.code)); }
+  if(m.parts && m.parts.length){
+    m.parts.forEach(p => {
+      if(p.code !== undefined) w.append(codeBlock(p.code));
+      else { const nb = document.createElement('div'); nb.className = 'bubble'; nb.textContent = p.t; w.append(nb); }
+    });
+  } else {
+    const b = document.createElement('div'); b.className = 'bubble'; b.textContent = m.t;
+    w.append(b);
+    if(m.code){ w.append(codeBlock(m.code)); }
+  }
   if(m.r === 'a' && m.m){
     const chip = document.createElement('span'); chip.className = 'chip';
     chip.textContent = 'engine: ' + (m.m === 'XR Core' || m.m === 'demo' ? 'XR CODE AI' : 'live');
@@ -1127,7 +1146,7 @@ function typeReply(c, reply, live, pen){
   const iv = setInterval(() => {
     if(!document.contains(el)){           // user switched chats while typing
       clearInterval(iv);
-      c.messages.push({ r: 'a', t: reply.text, code: reply.code, m: live ? 'live' : 'demo' });
+      c.messages.push({ r: 'a', t: reply.text, code: reply.code, parts: reply.parts, m: live ? 'live' : 'demo' });
       save(); return;
     }
     i += (reply.text.length > 900 ? 2 : 1);   // slow, human-like typing
@@ -1138,10 +1157,12 @@ function typeReply(c, reply, live, pen){
       clearInterval(iv);
       cur.remove();
       body.textContent = reply.text;
-      if(reply.code){
-        el.append(codeBlock(reply.code));
-      }
-      c.messages.push({ r: 'a', t: reply.text, code: reply.code, m: live ? 'live' : 'demo' });
+      (reply.parts || []).forEach((p, ix) => {
+        if(ix === 0 && p.t !== undefined) return;      // first text part is the typed bubble
+        if(p.code !== undefined){ el.append(codeBlock(p.code)); }
+        else { const nb = document.createElement('div'); nb.className = 'bubble'; nb.textContent = p.t; el.append(nb); }
+      });
+      c.messages.push({ r: 'a', t: reply.text, code: reply.code, parts: reply.parts, m: live ? 'live' : 'demo' });
       c.ts = now();
       save();
     }
