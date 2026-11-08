@@ -753,10 +753,15 @@ function setTheme(th){
   const rootEl = document.documentElement;
   S.theme = th; save();
   const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if(document.startViewTransition && !reduce){  // radial wipe expanding from the toggle button
-    let x = innerWidth / 2, y = 28;
-    const btn = document.getElementById('themeQuick');
-    if(btn){ const r = btn.getBoundingClientRect(); x = r.left + r.width / 2; y = r.top + r.height / 2; }
+  if(document.startViewTransition && !reduce){  // directional radial wipe
+    let x, y;                                    // -> light: top right (button) | -> dark: bottom left
+    if(th === 'light'){
+      x = innerWidth; y = 0;
+      const btn = document.getElementById('themeQuick');
+      if(btn){ const r = btn.getBoundingClientRect(); x = r.left + r.width / 2; y = r.top + r.height / 2; }
+    }else{
+      x = 0; y = innerHeight;
+    }
     const R = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y)) + 40;
     const vt = document.startViewTransition(applyTheme);
     vt.ready.then(() => {
