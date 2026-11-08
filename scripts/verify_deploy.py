@@ -32,11 +32,16 @@ async def main():
         ok("no google login btn", (await fr.query_selector("#loginGoogle")) is None)
         ok("no gemini toggle", (await fr.query_selector("#gemToggle")) is None)
 
-        # connect Z.ai -> send -> live mocked reply
-        await fr.click("#zaiToggle"); await pg.wait_for_timeout(200)
-        await fr.fill("#zaiKey", "sk-DEPLOY-TEST")
-        await fr.click("#zaiForm .api-connect"); await pg.wait_for_timeout(400)
-        ok("zai connected", (await fr.text_content("#zaiToggle")).strip() == "Connected")
+        # startup gate: fresh browser -> modal must show -> click Z.ai -> enter key -> start
+        ok("startup modal open", await fr.is_visible("#startModal.open"))
+        ok("only Z.ai card", len(await fr.query_selector_all("#stBody .st-card")) == 1)
+        await fr.click("#stBody .st-card"); await pg.wait_for_timeout(300)
+        ok("redirect link", (await fr.get_attribute("#stBody .st-open", "href")) == "https://z.ai/manage-apikey/apikey-list")
+        await fr.fill("#stKey", "sk-DEPLOY-TEST")
+        await fr.click("#stBody .st-go-btn"); await pg.wait_for_timeout(400)
+        ok("modal closed after start", not (await fr.is_visible("#startModal.open")))
+
+        # send -> live mocked reply
         await fr.fill("#homeInput", "hello deployed engine")
         await fr.evaluate("document.getElementById('homeForm').dispatchEvent(new Event('submit'))")
         await pg.wait_for_timeout(2500)
@@ -54,7 +59,9 @@ async def main():
         await fr.evaluate("setTheme('dark')")
         mob = await b.new_page(viewport={"width": 390, "height": 844})
         await mob.goto(URL, wait_until="networkidle"); await mob.wait_for_timeout(1500)
-        await pg.wait_for_timeout(200)
+        ok("mobile: startup modal shows", await mob.frames[-1].is_visible("#startModal.open"))
+        await mob.screenshot(path="/tmp/render/deployed-mobile-modal.png", full_page=False)
+        await mob.frames[-1].click("#stBody .st-skip"); await mob.wait_for_timeout(400)
         await mob.screenshot(path="/tmp/render/deployed-mobile.png", full_page=False)
 
         ok("zero JS errors", not errs)
