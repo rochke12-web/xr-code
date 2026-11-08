@@ -58,4 +58,5 @@ b64 = base64.b64encode(out.encode('utf-8')).decode('ascii')
 open(f'{ROOT}/src/app/payload.ts', 'w').write(
     '// XR CODE - private build (obfuscated). Do not edit by hand.\n'
     'export const APP_B64 = "' + b64 + '";\n')
+open(f'{ROOT}/download/xr-code-private.html', 'w').write(out)
 print('private HTML:', len(out) // 1024, 'KB  |  payload.ts:', len(b64) // 1024, 'KB base64')
