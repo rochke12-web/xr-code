@@ -1040,6 +1040,13 @@ function runSearch(q){
 
 /* ---------- wire up ---------- */
 document.addEventListener('contextmenu', e => e.preventDefault());   // right click: no browser menu — native app feel
+/* block casual "peek at source" shortcuts (deterrent — devtools can never be fully blocked) */
+document.addEventListener('keydown', e => {
+  const k = (e.key || '').toLowerCase();
+  const dev = e.key === 'F12' || (e.ctrlKey && e.shiftKey && (k === 'i' || k === 'j' || k === 'c'));
+  const src = (e.ctrlKey || e.metaKey) && !e.shiftKey && (k === 'u' || k === 's');
+  if (dev || src){ e.preventDefault(); e.stopPropagation(); toast('Source is protected 🔒'); }
+}, true);
 $('#homeForm').addEventListener('submit', e => {
   e.preventDefault();
   S.active = null;                       // fresh chat from home
