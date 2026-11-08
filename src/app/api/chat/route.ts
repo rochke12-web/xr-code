@@ -9,7 +9,7 @@ const BASE =
   "You are XR CODE, the built-in AI of the XR CODE app by YUX FF. " +
   "Keep answers concise and in plain text (no markdown headings); put code in fenced blocks only when code is needed. ";
 
-// 4 modes — the frontend sends `mode` with every request
+// 2 modes — the frontend sends `mode` with every request
 const MODES: Record<string, string> = {
   coder:
     BASE +
@@ -19,14 +19,6 @@ const MODES: Record<string, string> = {
     BASE +
     "QnA Mode: answer any type of question — general knowledge, concepts, facts, " +
     "advice, not just coding. Be accurate, concise and friendly.",
-  debug:
-    BASE +
-    "Debug Mode: analyze errors and bugs step by step — locate the root cause, " +
-    "explain the fix, then provide corrected code.",
-  explain:
-    BASE +
-    "Explain Mode: explain code and technical concepts step by step in simple " +
-    "terms, with small examples where helpful.",
 };
 
 function systemFor(mode: unknown): string {
