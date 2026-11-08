@@ -30,14 +30,3 @@ model Post {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
-
-// Hosted engine config — the Z.ai API key is entered ONCE and stored here,
-// so every visitor of XR CODE gets the live GLM-4.6 engine with zero setup.
-model HostConfig {
-  id        String   @id @default(cuid())
-  provider  String   @unique // "zai"
-  apiKey    String           // never returned to any client
-  model     String   @default("glm-4.6")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
