@@ -1,4 +1,4 @@
-"""Build the PRIVATE (obfuscated) payload of XR CODE:
+"""Build the PRIVATE (obfuscated) payload of XR-Space:
 1. extract <script> -> javascript-obfuscator (control-flow + string array)
 2. minify CSS (clean-css) + strip comments/blank lines from markup
 3. reassemble -> base64 -> src/app/payload.ts consumed by page.tsx (iframe loader)
@@ -53,12 +53,12 @@ out = re.sub(r'\n\s*\n+', '\n', out)                      # collapse blank lines
 out = out.replace('   Made by YUX FF  |  v1.0.0\n', '')   # header comment remnant
 
 # sanity: app must still contain the key markers
-for marker in ('XR CODE', 'big-search', 'data:image'):
+for marker in ('XR-Space', 'big-search', 'data:image'):
     assert marker in out, 'missing marker ' + marker
 
 b64 = base64.b64encode(out.encode('utf-8')).decode('ascii')
 open(f'{ROOT}/src/app/payload.ts', 'w').write(
-    '// XR CODE - private build (obfuscated). Do not edit by hand.\n'
+    '// XR-Space - private build (obfuscated). Do not edit by hand.\n'
     'export const APP_B64 = "' + b64 + '";\n')
 open(f'{ROOT}/download/xr-code-private.html', 'w').write(out)
 print('private HTML:', len(out) // 1024, 'KB  |  payload.ts:', len(b64) // 1024, 'KB base64')
