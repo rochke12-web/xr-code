@@ -5,19 +5,42 @@ import ZAI from "z-ai-web-dev-sdk";
 // GET  /api/chat → health probe { ok: true } for the status bar
 // POST /api/chat → one hosted AI brain answers every visitor (server-side SDK)
 
-const SYSTEM =
+const BASE =
   "You are XR CODE, the built-in AI of the XR CODE app by YUX FF. " +
-  "Answer directly and helpfully: plan, write, explain and debug code. " +
-  "Keep answers concise and in plain text (no markdown headings); put code in fenced blocks only when code is needed.";
+  "Keep answers concise and in plain text (no markdown headings); put code in fenced blocks only when code is needed. ";
 
-type Msg = { role: string; content: string };
+// 4 modes — the frontend sends `mode` with every request
+const MODES: Record<string, string> = {
+  coder:
+    BASE +
+    "Coder Mode: focus on writing, refactoring and optimizing code. " +
+    "Plan briefly, then give complete, runnable code with short explanations.",
+  qna:
+    BASE +
+    "QnA Mode: answer any type of question — general knowledge, concepts, facts, " +
+    "advice, not just coding. Be accurate, concise and friendly.",
+  debug:
+    BASE +
+    "Debug Mode: analyze errors and bugs step by step — locate the root cause, " +
+    "explain the fix, then provide corrected code.",
+  explain:
+    BASE +
+    "Explain Mode: explain code and technical concepts step by step in simple " +
+    "terms, with small examples where helpful.",
+};
+
+function systemFor(mode: unknown): string {
+  return MODES[typeof mode === "string" ? mode : ""] || MODES.coder;
+}
+
+type Msg = { role: string; content: string; };
 
 export async function GET() {
   return NextResponse.json({ ok: true, engine: "xr-code-hosted" });
 }
 
 export async function POST(req: Request) {
-  let body: { messages?: Msg[] } | null = null;
+  let body: { messages?: Msg[]; mode?: string } | null = null;
   try {
     body = await req.json();
   } catch {
@@ -39,7 +62,7 @@ export async function POST(req: Request) {
     try {
       const zai = await ZAI.create();
       const completion = await zai.chat.completions.create({
-        messages: [{ role: "assistant", content: SYSTEM }, ...safe],
+        messages: [{ role: "assistant", content: systemFor(body?.mode) }, ...safe],
         thinking: { type: "disabled" },
       });
       const text = String(completion?.choices?.[0]?.message?.content ?? "").trim();
