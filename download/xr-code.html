@@ -816,8 +816,11 @@ function login(provider){                            // optional account link (c
 }
 function connectEngine(which, e){                    // Z.ai only — the one main engine
   e.preventDefault();
-  const key = $('#zaiKey').value.trim();
+  const raw = $('#zaiKey').value.trim();
+  const key = zaiKeyClean(raw);
   if(!key){ toast('Paste your Z.ai API key first'); return; }
+  if(!zaiKeyValid(key)){ toast('That does not look like a Z.ai API key — copy just the key from the z.ai key page (no quotes or spaces)'); return; }
+  if(raw !== key) toast('Hidden characters removed from the key');
   S.zai = { model: 'glm-4.6' };
   S.zaiKey = key;                                   // stays in this browser only
   $('#zaiKey').value = '';
@@ -834,6 +837,16 @@ function logout(){
 }
 function providerLabel(p){
   return p === 'google' ? 'your Google account' : 'your Discord account';
+}
+
+/* ---------- key sanitizing (Authorization headers must be plain ASCII) ---------- */
+function zaiKeyClean(raw){
+  return String(raw || '')
+    .replace(/\s+/g, '')            // spaces, tabs, NBSP…
+    .replace(/[^\x21-\x7E]/g, ''); // zero-width chars, BOM, curly quotes, CJK…
+}
+function zaiKeyValid(k){
+  return /^[A-Za-z0-9._:~\/+=-]{10,}$/.test(k);
 }
 
 /* ---------- startup — select a model to start ---------- */
@@ -863,8 +876,11 @@ function stStep2(){                                   // step 2 — key page red
   const go = document.createElement('button'); go.className = 'st-go-btn'; go.type = 'button';
   go.textContent = '2 · Enter key & start XR CODE';
   const start = () => {
-    const k = inp.value.trim();
+    const raw = inp.value.trim();
+    const k = zaiKeyClean(raw);
     if(!k){ toast('Paste the Z.ai API key first — step 1 opens the z.ai key page'); inp.focus(); return; }
+    if(!zaiKeyValid(k)){ toast('That does not look like a Z.ai API key — copy just the key from the z.ai key page (no quotes or spaces)'); inp.focus(); return; }
+    if(raw !== k) toast('Hidden characters removed from the key');
     S.zai = { model: 'glm-4.6' };
     S.zaiKey = k;                                     // stays in this browser only
     S.startupDone = true;
@@ -1058,7 +1074,7 @@ async function zaiChat(c, text, model){
     try{
       const res = await fetch('https://api.z.ai/api/paas/v4/chat/completions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.zaiKey },
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + zaiKeyClean(S.zaiKey) },
         body: JSON.stringify({ model: 'glm-4.6', messages: zaiContext(c), stream: false })
       });
       if(res.status === 429 && attempt < waits.length){
@@ -1084,6 +1100,8 @@ async function zaiChat(c, text, model){
         hint = 'Rate limit reached — your key works, but the plan quota is busy. Wait a few seconds and send again.';
       else if(/empty reply/.test(err.message))
         hint = 'Z.ai returned nothing — send the message once more.';
+      else if(/ISO-8859-1|headers' property/i.test(err.message))
+        hint = 'The stored key contains unsupported characters — click Connect key in AI Models and paste it again.';
       else
         hint = 'Z.ai is unreachable right now — check your connection and try again.';
       typeReply(c, { text: 'Z.ai error — ' + err.message + '. ' + hint }, model, 0);
