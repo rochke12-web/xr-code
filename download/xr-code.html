@@ -1136,7 +1136,7 @@ function typeReply(c, reply, live, pen){
 
 /* ---------- hosted brain ---------- */
 function brainContext(c){
-  return c.messages.slice(-12).map(m => ({ role: m.r === 'u' ? 'user' : 'assistant', content: m.t }));
+  return c.messages.slice(-20).map(m => ({ role: m.r === 'u' ? 'user' : 'assistant', content: m.t }));
 }
 async function askBrain(c, text, atts){
   const chip = $('#chatModelChip');
