@@ -750,6 +750,7 @@ function defaults(){
     theme: 'dark',
     user: null,              // optional Google/Discord link — only marks chats as synced
     zaiKey: null,            // Z.ai API key — the engine that runs the app; never leaves this browser
+    startupDone: false,      // the "Select a model" window shows only once, then never again
     gemini: null,            // {model:'gemini-2.5-pro'} when a Gemini key is connected (key stays local only)
     zai: null,               // {model:'glm-4.6'} when a Z.ai key is connected
     local: { lfm: true, parallel: true, pickle: true, kimi: true },  // free local models (Step 3)
@@ -768,6 +769,7 @@ let S = load() || defaults();
   if(S.zai === undefined) S.zai = null;
   if(!S.local) S.local = { lfm: true, parallel: true, pickle: true, kimi: true };
   if(!('zaiKey' in S)) S.zaiKey = null;
+  if(!('startupDone' in S)) S.startupDone = false;
   if(S.user && S.user.provider === 'api') S.user = null;
   delete S.api;
 })();
@@ -846,7 +848,8 @@ function stStep1(){                                   // step 1 — pick the mod
   card.onclick = stStep2;
   const skip = document.createElement('button'); skip.className = 'st-skip'; skip.type = 'button';
   skip.textContent = 'Skip for now — try the XR Core demo';
-  skip.onclick = () => { closeStartup(); toast('Demo mode — connect Z.ai anytime in AI Models'); };
+  skip.onclick = () => { S.startupDone = true; save(); closeStartup();
+    toast('Demo mode — this window will not open again; connect Z.ai anytime in AI Models'); };
   b.append(card, skip);
 }
 function stStep2(){                                   // step 2 — key page redirect + enter key
@@ -864,6 +867,7 @@ function stStep2(){                                   // step 2 — key page red
     if(!k){ toast('Paste the Z.ai API key first — step 1 opens the z.ai key page'); inp.focus(); return; }
     S.zai = { model: 'glm-4.6' };
     S.zaiKey = k;                                     // stays in this browser only
+    S.startupDone = true;
     save();
     const btn = $('#zaiToggle'); btn.textContent = 'Connected'; btn.classList.add('ok');
     renderModels(); renderChat(); renderStatus(); renderZaiLine(); updateSyncUI();
@@ -1227,7 +1231,7 @@ $('#tokSaved').textContent = S.tokensSaved.toLocaleString();
 $$('.routingToggle').forEach(t => t.checked = S.routing);
 if(S.zai){ const b = $('#zaiToggle'); b.textContent = 'Connected'; b.classList.add('ok'); }
 renderZaiLine();
-if(!zaiReady()) openStartup();
+if(!zaiReady() && !S.startupDone) openStartup();   // one time only, then saved
 $('#chatInput').disabled = false;
 $('#chatInput').placeholder = zaiReady() ? 'Message XR CODE...' : 'Ask anything — XR Core answers until you connect Z.ai...';
 </script>
