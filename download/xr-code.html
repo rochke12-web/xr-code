@@ -266,25 +266,6 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .nav button:hover{background:var(--panel-2)}
 .nav button.current{background:var(--panel-2);color:var(--accent);box-shadow:inset 0 0 0 1px var(--line)}
 .nav .ic{flex:none}
-.chat-search{padding:8px 16px 4px;display:none}
-.chat-search.open{display:block}
-.chat-search input{
-  width:100%;background:var(--bg2);border:1px solid var(--line);border-radius:10px;
-  padding:8px 12px;font-size:12.5px;outline:none;
-}
-.chat-search input:focus{border-color:var(--accent)}
-
-.chat-list{flex:1;overflow-y:auto;min-height:60px;padding:6px 10px;display:flex;flex-direction:column;gap:2px}
-.chat-item{
-  display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;
-  padding:8px 11px;border-radius:10px;font-size:12.5px;text-align:left;color:var(--text);
-}
-.chat-item:hover{background:var(--panel-2)}
-.chat-item.active{background:var(--panel-2);box-shadow:inset 0 0 0 1px var(--line)}
-.chat-item .ct{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.chat-item .cm{font-size:10.5px;color:var(--muted);white-space:nowrap;font-family:var(--font-mono)}
-.list-empty{padding:14px;font-size:12px;color:var(--muted);text-align:center}
-
 /* login box */
 .login-box{border-top:1px solid var(--line);padding:14px 16px 16px;background:var(--panel-2)}
 .login-box h3{
@@ -528,7 +509,6 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 <!-- ============ SVG ICON LIBRARY ============ -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></symbol>
-  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
   <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
@@ -664,18 +644,10 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
     <div class="side-head">Workspace</div>
     <nav class="nav">
       <button id="btnHome" class="current" type="button"><svg class="ic"><use href="#i-home"/></svg> Home</button>
-      <button id="btnSearch" type="button"><svg class="ic"><use href="#i-search"/></svg> Search chats</button>
       <button id="btnProject" type="button"><svg class="ic"><use href="#i-plus"/></svg> Make a project</button>
       <button id="btnSettings" type="button"><svg class="ic"><use href="#i-gear"/></svg> Settings</button>
       <!-- No Library tab, as requested -->
     </nav>
-
-    <div class="chat-search" id="chatSearchWrap">
-      <input id="chatSearch" autocomplete="off" placeholder="Search your chats...">
-    </div>
-
-    <div class="side-head" style="padding-top:10px">Recent chats</div>
-    <div class="chat-list" id="chatList"></div>
 
   </aside>
 </div>
@@ -701,20 +673,11 @@ const now = () => Date.now();
 
 /* ---------- state ---------- */
 const LSKEY = 'xrcode.v1';
-function seedChats(){
-  return [
-    { id: uid(), title: 'Python Script Help',   ts: now() - 2 * 36e5,  messages: [] },
-    { id: uid(), title: 'C++ Optimization',     ts: now() - 26 * 36e5, messages: [] },
-    { id: uid(), title: 'Build a Website Plan', ts: now() - 2 * 864e5, messages: [] },
-    { id: uid(), title: 'Code Explain',         ts: now() - 3 * 864e5, messages: [] },
-    { id: uid(), title: 'Website Project',      ts: now() - 4 * 864e5, messages: [] }
-  ];
-}
 function defaults(){
   return {
     theme: 'dark',
     user: null,              // optional Google/Discord link — only marks chats as synced
-    chats: seedChats(),
+    chats: [],
     active: null,
     lastSync: null
   };
@@ -743,9 +706,8 @@ function toast(msg){
 const VIEWS = ['home', 'chat', 'settings'];
 function showView(name){
   VIEWS.forEach(v => $('#view-' + v).classList.toggle('active', v === name));
-  $$('#btnHome,#btnSearch,#btnProject,#btnSettings').forEach(b => b.classList.remove('current'));
+  $$('#btnHome,#btnProject,#btnSettings').forEach(b => b.classList.remove('current'));
   if(name === 'home') $('#btnHome').classList.add('current');
-  if(name === 'chat') $('#btnSearch').classList.add('current');
   if(name === 'settings') $('#btnSettings').classList.add('current');
   if(name === 'chat') renderChat();
 }
@@ -799,7 +761,7 @@ function providerLabel(p){
   return p === 'google' ? 'your Google account' : 'your Discord account';
 }
 
-/* ---------- chat list (with search) ---------- */
+/* ---------- time labels ---------- */
 function ago(ts){
   const m = (now() - ts) / 6e4;
   if(m < 1) return 'now';
@@ -812,30 +774,6 @@ function agoFull(ts){
   const a = ago(ts);
   return a === 'now' ? 'just now' : a + ' ago';
 }
-function renderChats(q){
-  q = (q || '').toLowerCase();
-  const list = $('#chatList'); list.innerHTML = '';
-  const items = S.chats
-    .filter(c => c.title.toLowerCase().includes(q))
-    .sort((a, b) => b.ts - a.ts);
-  if(!items.length){
-    const d = document.createElement('div');
-    d.className = 'list-empty';
-    d.textContent = q ? 'No chats match "' + q + '"' : 'No chats yet — make a project';
-    list.append(d); return;
-  }
-  items.forEach(c => {
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = 'chat-item' + (c.id === S.active ? ' active' : '');
-    const t = document.createElement('span'); t.className = 'ct'; t.textContent = c.title;
-    const m = document.createElement('span'); m.className = 'cm';
-    m.textContent = ago(c.ts) + (S.user ? ' \u2601' : '');
-    b.append(t, m);
-    b.onclick = () => { S.active = c.id; save(); showView('chat'); };
-    list.append(b);
-  });
-}
-
 /* ---------- chat view ---------- */
 function currentChat(){
   let c = S.chats.find(x => x.id === S.active);
@@ -902,7 +840,7 @@ function sendMsg(text){
   c.messages.push({ r: 'u', t: text });
   c.ts = now();
   showView('chat');
-  renderChat(); save(); renderChats($('#chatSearch').value);
+  renderChat(); save();
 
   askBrain(c, text);
 }
@@ -934,7 +872,7 @@ function typeReply(c, reply, live){
       }
       c.messages.push({ r: 'a', t: reply.text, code: reply.code, m: live ? 'live' : 'demo' });
       c.ts = now();
-      save(); renderChats($('#chatSearch').value);
+      save();
     }
   }, 14);
 }
@@ -1037,7 +975,7 @@ function exportChats(){
 }
 function clearAll(){
   localStorage.removeItem(LSKEY);
-  S = defaults(); applyTheme(); renderChats(); renderChat(); renderAccounts();
+  S = defaults(); applyTheme(); renderChat(); renderAccounts();
   toast('All data cleared');
 }
 
@@ -1052,17 +990,10 @@ $$('#quickCards .card').forEach(c => c.onclick = () => { S.active = null; sendMs
 $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('#chatInput').value); $('#chatInput').value = ''; });
 
 $('#btnHome').onclick = () => showView('home');
-$('#btnSearch').onclick = () => {
-  const w = $('#chatSearchWrap');
-  w.classList.toggle('open');
-  if(w.classList.contains('open')){ showView('chat'); $('#chatSearch').focus(); }
-};
-$('#btnProject').onclick = () => { S.active = null; save(); showView('chat'); renderChats(); $('#chatInput').focus(); toast('New project started'); };
+$('#btnProject').onclick = () => { S.active = null; save(); showView('chat'); $('#chatInput').focus(); toast('New project started'); };
 $('#btnSettings').onclick = () => showView('settings');
 $('#brandTitle').onclick = () => showView('home');
 $('#themeQuick').onclick = () => setTheme(S.theme === 'dark' ? 'light' : 'dark');
-
-$('#chatSearch').addEventListener('input', e => renderChats(e.target.value));
 
 $$('#themeSeg button').forEach(b => b.onclick = () => setTheme(b.dataset.th));
 $('#syncNowBtn').onclick = () => {
@@ -1075,7 +1006,6 @@ $('#clearBtn').onclick = clearAll;
 
 /* ---------- init ---------- */
 applyTheme();
-renderChats();
 renderAccounts();
 updateSyncUI();
 renderStatus();
