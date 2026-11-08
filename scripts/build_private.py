@@ -28,6 +28,8 @@ r = subprocess.run([
     '--string-array-encoding', 'base64',
     '--string-array-threshold', '0.8',
     '--transform-object-keys', 'true',
+    '--self-defending', 'true',        # resists de-obfuscation / beautify
+    '--debug-protection', 'true',      # fights devtools inspection of the payload
     '--unicode-escape-sequence', 'false',
 ], capture_output=True, text=True)
 assert r.returncode == 0, r.stderr

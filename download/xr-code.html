@@ -400,12 +400,23 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
   font-family:var(--font-mono);font-size:10.5px;color:var(--muted);
 }
 .code-wrap pre{border-radius:0 0 12px 12px}
-.code-save{
-  display:inline-flex;align-items:center;gap:5px;margin-left:auto;
-  font-family:var(--font-mono);font-size:10.5px;color:var(--muted);
-  padding:3px 8px;border-radius:7px;transition:color .15s,background .15s;
+.code-fold{
+  display:inline-flex;align-items:center;justify-content:center;margin-left:auto;
+  width:26px;height:22px;border-radius:7px;color:var(--muted);
+  transition:color .15s,background .15s;
 }
-.code-save:hover{color:var(--accent);background:var(--panel)}
+.code-fold:hover{color:var(--accent);background:var(--panel)}
+.code-fold svg{transform:rotate(90deg)}
+.code-wrap.folded .code-fold svg{transform:rotate(0deg)}
+.code-body{display:grid;grid-template-rows:1fr;overflow:hidden}
+.code-body>pre{min-height:0}
+.code-wrap.folded .code-body{grid-template-rows:0fr}
+.code-wrap.folded .code-body>pre{padding-top:0;padding-bottom:0;border-top-width:0;border-bottom-width:0}
+.code-wrap.folded .code-bar{border-bottom:1px solid var(--line);border-radius:12px}
+@media (prefers-reduced-motion:no-preference){
+  .code-body{transition:grid-template-rows .32s ease}
+  .code-fold svg{transition:transform .28s cubic-bezier(.3,1.25,.35,1)}
+}
 .empty-state{
   margin:auto;text-align:center;color:var(--muted);font-size:13.5px;max-width:380px;line-height:1.7;
 }
@@ -969,7 +980,7 @@ function currentChat(){
   }
   return c;
 }
-/* ---------- AI file write: save code replies as real files ---------- */
+/* ---------- AI code replies: fence split + foldable code blocks ---------- */
 function codeExt(code){
   const c = (code || '').slice(0, 500);
   if(/^\s*<!doctype html/i.test(c) || /<html[\s>]/i.test(c)) return 'html';
@@ -985,17 +996,6 @@ function codeExt(code){
   if(/<\/?[a-z][\w-]*[\s>]/i.test(c)) return 'html';
   return 'txt';
 }
-function saveCodeFile(code, ext){
-  const a = document.createElement('a');
-  const blob = new Blob([code], { type: 'text/plain' });
-  a.href = URL.createObjectURL(blob);
-  a.download = 'xr-code.' + ext;
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-  toast('Saved xr-code.' + ext);
-}
 function splitFence(t){                           // '```py\ncode```' -> { text, code }
   const m = t.match(/```[\w+-]*\r?\n([\s\S]*?)```/);
   if(!m) return { text: t };
@@ -1006,12 +1006,14 @@ function codeBlock(code){
   const wrap = document.createElement('div'); wrap.className = 'code-wrap';
   const bar = document.createElement('div'); bar.className = 'code-bar';
   const name = document.createElement('span'); name.className = 'code-name'; name.textContent = 'xr-code.' + ext;
-  const save = document.createElement('button'); save.className = 'code-save'; save.type = 'button'; save.title = 'Download this file';
-  save.innerHTML = '<svg class="ic small"><use href="#i-down"/></svg>save';
-  save.onclick = () => saveCodeFile(code, ext);
-  bar.append(name, save);
+  const fold = document.createElement('button'); fold.className = 'code-fold'; fold.type = 'button'; fold.title = 'Fold / unfold this code';
+  fold.innerHTML = '<svg class="ic small"><use href="#i-chev"/></svg>';
+  fold.onclick = () => wrap.classList.toggle('folded');
+  bar.append(name, fold);
+  const body = document.createElement('div'); body.className = 'code-body';
   const pre = document.createElement('pre'); pre.textContent = code;
-  wrap.append(bar, pre);
+  body.append(pre);
+  wrap.append(bar, body);
   return wrap;
 }
 function renderChat(){
@@ -1337,15 +1339,15 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
 (function(){
   const row = $('#modeRow');
   if(!row) return;
-  const LABELS = { coder: 'Coder Mode', qna: 'QnA' };
-  const ICONS = { coder: 'i-cpu', qna: 'i-qna' };
-  const SUBS = { coder: 'writes & fixes code', qna: 'answers anything' };
+  const LABELS = { coder: 'Coder Mode', qna: 'QnA', debug: 'Debug Mode', explain: 'Explain Mode' };
+  const ICONS = { coder: 'i-cpu', qna: 'i-qna', debug: 'i-bug', explain: 'i-book' };
+  const SUBS = { coder: 'writes & fixes code', qna: 'answers anything', debug: 'finds & fixes bugs', explain: 'explains step by step' };
   window.MODE_LABELS = LABELS;
   window.modeLabel = () => LABELS[S.mode] || 'Coder Mode';
   const menu = document.createElement('div');
   menu.className = 'mode-menu';
   menu.setAttribute('role', 'listbox');
-  ['coder', 'qna'].forEach(id => {
+  ['coder', 'qna', 'debug', 'explain'].forEach(id => {
     const o = document.createElement('button');
     o.type = 'button'; o.className = 'mode-opt'; o.dataset.mode = id;
     o.innerHTML = '<svg class="ic small"><use href="#' + ICONS[id] + '"/></svg>' +

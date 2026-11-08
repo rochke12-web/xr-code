@@ -14,22 +14,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "XR CODE — by YUX FF",
-  description: "XR CODE — Code Smarter. Build Faster. AI coding workspace with an agent that switches models to save tokens.",
-  icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
-  },
+  title: "XR-Code",
+  description: "Ai agent",
   openGraph: {
-    title: "Z.ai Code Scaffold",
-    description: "AI-powered development with modern React stack",
-    url: "https://chat.z.ai",
-    siteName: "Z.ai",
+    title: "XR-Code",
+    description: "Ai agent",
+    siteName: "XR-Space",
     type: "website",
   },
   twitter: {
-    card: "summary_large_image",
-    title: "Z.ai Code Scaffold",
-    description: "AI-powered development with modern React stack",
+    card: "summary",
+    title: "XR-Code",
+    description: "Ai agent",
   },
 };
 
