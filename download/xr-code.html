@@ -980,6 +980,7 @@ function clearAll(){
 }
 
 /* ---------- wire up ---------- */
+document.addEventListener('contextmenu', e => e.preventDefault());   // right click: no browser menu — native app feel
 $('#homeForm').addEventListener('submit', e => {
   e.preventDefault();
   S.active = null;                       // fresh chat from home
