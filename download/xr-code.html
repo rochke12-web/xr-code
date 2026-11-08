@@ -1052,23 +1052,43 @@ function zaiContext(c){
   return c.messages.slice(-12).map(m => ({ role: m.r === 'u' ? 'user' : 'assistant', content: m.t }));
 }
 async function zaiChat(c, text, model){
-  try{
-    const res = await fetch('https://api.z.ai/api/paas/v4/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.zaiKey },
-      body: JSON.stringify({ model: 'glm-4.6', messages: zaiContext(c), stream: false })
-    });
-    if(!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    const out = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    const t = (out || '').trim();
-    if(!t) throw new Error('empty reply');
-    typeReply(c, { text: t }, model, 0);
-  }catch(err){
-    const hint = /40[13]/.test(err.message)
-      ? 'The key looks invalid or expired — click Connect key in AI Models to update it.'
-      : 'Check your connection, then send the message again.';
-    typeReply(c, { text: 'Z.ai error — ' + err.message + '. ' + hint }, model, 0);
+  const waits = [3000, 8000];                         // auto-retry pauses for HTTP 429 (rate limit)
+  const chip = $('#chatModelChip');
+  for(let attempt = 0; ; attempt++){
+    try{
+      const res = await fetch('https://api.z.ai/api/paas/v4/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + S.zaiKey },
+        body: JSON.stringify({ model: 'glm-4.6', messages: zaiContext(c), stream: false })
+      });
+      if(res.status === 429 && attempt < waits.length){
+        chip.textContent = 'engine: GLM-4.6 · Z.ai · retrying ' + (attempt + 1) + '/' + waits.length + '…';
+        toast('Z.ai rate limit (429) — retrying automatically in ' + Math.round(waits[attempt] / 1000) + 's');
+        await new Promise(r => setTimeout(r, waits[attempt]));
+        continue;
+      }
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const out = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+      const t = (out || '').trim();
+      if(!t) throw new Error('empty reply');
+      chip.textContent = 'engine: GLM-4.6 · Z.ai · live';
+      typeReply(c, { text: t }, model, 0);
+      return;
+    }catch(err){
+      chip.textContent = 'engine: GLM-4.6 · Z.ai · live';
+      let hint;
+      if(/40[13]/.test(err.message))
+        hint = 'The key looks invalid or expired — click Connect key in AI Models to update it.';
+      else if(/429/.test(err.message))
+        hint = 'Rate limit reached — your key works, but the plan quota is busy. Wait a few seconds and send again.';
+      else if(/empty reply/.test(err.message))
+        hint = 'Z.ai returned nothing — send the message once more.';
+      else
+        hint = 'Z.ai is unreachable right now — check your connection and try again.';
+      typeReply(c, { text: 'Z.ai error — ' + err.message + '. ' + hint }, model, 0);
+      return;
+    }
   }
 }
 
