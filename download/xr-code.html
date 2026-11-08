@@ -861,7 +861,7 @@ function typeReply(c, reply, live, pen){
       c.messages.push({ r: 'a', t: reply.text, code: reply.code, m: live ? 'live' : 'demo' });
       save(); return;
     }
-    i += 3;
+    i += (reply.text.length > 900 ? 2 : 1);   // slow, human-like typing
     body.textContent = reply.text.slice(0, i);
     body.append(cur);
     box.scrollTop = box.scrollHeight;
@@ -876,7 +876,7 @@ function typeReply(c, reply, live, pen){
       c.ts = now();
       save();
     }
-  }, 14);
+  }, 16);
 }
 
 /* ---------- hosted brain ---------- */
