@@ -240,6 +240,22 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
   background:linear-gradient(135deg,var(--accent),var(--accent-2));color:var(--accent-ink);
   transition:transform .15s ease, filter .15s;
 }
+.file-btn{
+  display:grid;place-items:center;width:44px;height:44px;border-radius:12px;flex:none;
+  background:var(--panel-2);color:var(--muted);box-shadow:inset 0 0 0 1px var(--line);
+  transition:color .15s,box-shadow .15s;
+}
+.file-btn:hover{color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.attach-row{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;padding:2px 2px 0}
+.attach-row:empty{display:none}
+.att-chip{display:inline-flex;align-items:center;gap:7px;max-width:100%;font-size:12px;color:var(--text);background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:5px 9px}
+.att-chip .nm{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.att-chip .sz{color:var(--muted);font-size:10.5px;white-space:nowrap}
+.att-chip .rm{display:grid;place-items:center;width:16px;height:16px;border-radius:50%;color:var(--muted);flex:none;font-size:13px;line-height:1}
+.att-chip .rm:hover{color:var(--danger);background:var(--panel)}
+.att-chip img{width:26px;height:26px;object-fit:cover;border-radius:6px;flex:none}
+.msg .att-line{display:flex;flex-wrap:wrap;gap:6px}
+.composer.drop{box-shadow:inset 0 0 0 2px var(--accent)}
 .send-btn:hover{transform:translateY(-1px);filter:brightness(1.08)}
 
 .hero .ver{font-family:var(--font-mono);font-size:11px;color:var(--muted);letter-spacing:.12em}
@@ -359,7 +375,7 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
   display:block;margin-bottom:8px;
 }
 .composer{
-  display:flex;gap:10px;padding:14px 24px 18px;border-top:1px solid var(--line);
+  display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:14px 24px 18px;border-top:1px solid var(--line);
   background:var(--panel);backdrop-filter:blur(12px);
 }
 .composer input{
@@ -556,6 +572,8 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
     @keyframes xr-view-bck{from{opacity:0;transform:translateX(-30px)}to{opacity:1;transform:none}}
     .view.slide-fwd{animation:xr-view-fwd .36s cubic-bezier(.3,.7,.3,1)}
     .view.slide-bck{animation:xr-view-bck .36s cubic-bezier(.3,.7,.3,1)}
+    .att-chip{animation:xr-chipin .28s cubic-bezier(.3,.7,.3,1) backwards}
+    @keyframes xr-chipin{from{opacity:0;transform:translateY(6px) scale(.92)}to{opacity:1;transform:none}}
     .scene{animation:xr-scene .9s cubic-bezier(.25,.7,.3,1) both}
     .hero > *:not(.scene){animation:xr-rise .55s cubic-bezier(.2,.7,.2,1) backwards}
     .hero > *:not(.scene):nth-child(3){animation-delay:.06s}
@@ -624,6 +642,7 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
       <form class="composer" id="chatForm">
         <input id="chatInput" autocomplete="off" placeholder="Message XR CODE...">
         <button class="send-btn" type="submit" title="Send"><i class="ic" data-ic="i-send"></i></button>
+        <button class="file-btn" id="fileBtn" type="button" title="Attach files"><i class="ic" data-ic="i-clip"></i></button>
       </form>
     </section>
 
@@ -699,7 +718,7 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
     im.src = ASSETS[im.dataset.asset] || '';
     im.decoding = 'async';
   });
-  document.body.insertAdjacentHTML('afterbegin', '<svg width="0" height="0" style="position:absolute" aria-hidden="true">\n  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></symbol>\n  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>\n  <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>\n  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></symbol>\n  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>\n  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></symbol>\n  <symbol id="i-key" viewBox="0 0 24 24"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></symbol>\n  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></symbol>\n  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></symbol>\n  <symbol id="i-trash" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>\n  <symbol id="i-down" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>\n  <symbol id="i-sync" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></symbol>\n  <symbol id="i-chev" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></symbol><symbol id="i-send" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></symbol>\n  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></symbol>\n  <symbol id="i-discord" viewBox="0 0 24 24">\n    <path fill="#5865F2" stroke="none" d="M20.32 4.37a19.8 19.8 0 0 0-4.89-1.52.07.07 0 0 0-.08.04c-.21.38-.44.87-.6 1.25a18.3 18.3 0 0 0-5.5 0 12.6 12.6 0 0 0-.61-1.25.08.08 0 0 0-.08-.04 19.7 19.7 0 0 0-4.88 1.52.07.07 0 0 0-.04.03C.53 9.05-.32 13.58.1 18.06a.08.08 0 0 0 .03.05 19.9 19.9 0 0 0 6 3.03.08.08 0 0 0 .08-.03c.46-.63.87-1.3 1.22-2a.08.08 0 0 0-.04-.11 13 13 0 0 1-1.87-.89.08.08 0 0 1-.01-.13c.13-.09.25-.19.37-.29a.07.07 0 0 1 .08-.01c3.93 1.8 8.18 1.8 12.06 0a.07.07 0 0 1 .08.01c.12.1.25.2.38.29a.08.08 0 0 1-.01.13c-.6.35-1.22.64-1.87.88a.08.08 0 0 0-.04.12c.36.7.77 1.36 1.22 1.99a.08.08 0 0 0 .08.03 19.8 19.8 0 0 0 6.02-3.03.08.08 0 0 0 .03-.05c.5-5.18-.84-9.68-3.55-13.66a.06.06 0 0 0-.03-.03zM8.02 15.33c-1.18 0-2.16-1.08-2.16-2.42 0-1.33.96-2.42 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.34-.96 2.42-2.16 2.42zm7.97 0c-1.18 0-2.15-1.08-2.15-2.42 0-1.33.95-2.42 2.15-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.34-.95 2.42-2.16 2.42z"/>\n  </symbol>\n</svg>');
+  document.body.insertAdjacentHTML('afterbegin', '<svg width="0" height="0" style="position:absolute" aria-hidden="true">\n  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></symbol>\n  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>\n  <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>\n  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></symbol>\n  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>\n  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></symbol>\n  <symbol id="i-key" viewBox="0 0 24 24"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></symbol>\n  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></symbol>\n  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></symbol>\n  <symbol id="i-trash" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>\n  <symbol id="i-down" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>\n  <symbol id="i-sync" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></symbol>\n  <symbol id="i-clip" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>\n  <symbol id="i-file" viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></symbol>\n  <symbol id="i-chev" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></symbol><symbol id="i-send" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></symbol>\n  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></symbol>\n  <symbol id="i-discord" viewBox="0 0 24 24">\n    <path fill="#5865F2" stroke="none" d="M20.32 4.37a19.8 19.8 0 0 0-4.89-1.52.07.07 0 0 0-.08.04c-.21.38-.44.87-.6 1.25a18.3 18.3 0 0 0-5.5 0 12.6 12.6 0 0 0-.61-1.25.08.08 0 0 0-.08-.04 19.7 19.7 0 0 0-4.88 1.52.07.07 0 0 0-.04.03C.53 9.05-.32 13.58.1 18.06a.08.08 0 0 0 .03.05 19.9 19.9 0 0 0 6 3.03.08.08 0 0 0 .08-.03c.46-.63.87-1.3 1.22-2a.08.08 0 0 0-.04-.11 13 13 0 0 1-1.87-.89.08.08 0 0 1-.01-.13c.13-.09.25-.19.37-.29a.07.07 0 0 1 .08-.01c3.93 1.8 8.18 1.8 12.06 0a.07.07 0 0 1 .08.01c.12.1.25.2.38.29a.08.08 0 0 1-.01.13c-.6.35-1.22.64-1.87.88a.08.08 0 0 0-.04.12c.36.7.77 1.36 1.22 1.99a.08.08 0 0 0 .08.03 19.8 19.8 0 0 0 6.02-3.03.08.08 0 0 0 .03-.05c.5-5.18-.84-9.68-3.55-13.66a.06.06 0 0 0-.03-.03zM8.02 15.33c-1.18 0-2.16-1.08-2.16-2.42 0-1.33.96-2.42 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.34-.96 2.42-2.16 2.42zm7.97 0c-1.18 0-2.15-1.08-2.15-2.42 0-1.33.95-2.42 2.15-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.34-.95 2.42-2.16 2.42z"/>\n  </symbol>\n</svg>');
   document.querySelectorAll('i[data-ic]').forEach(function(el){
     el.outerHTML = '<svg class="' + el.className + '"><use href="#' + el.dataset.ic + '"/></svg>';
   });
@@ -923,6 +942,24 @@ function msgEl(m, c){
   who.textContent = m.r === 'u' ? 'You' : 'XR CODE';
   const b = document.createElement('div'); b.className = 'bubble'; b.textContent = m.t;
   w.append(who, b);
+  if(m.att && m.att.length){
+    const line = document.createElement('div'); line.className = 'att-line';
+    m.att.forEach(a => {
+      const chip = document.createElement('span'); chip.className = 'att-chip';
+      if(a.d && (a.ty || '').indexOf('image/') === 0){
+        const im = document.createElement('img'); im.src = a.d; im.alt = a.n; chip.append(im);
+      }else{
+        const ic = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        ic.setAttribute('class', 'ic small'); ic.innerHTML = '<use href="#i-file"/>';
+        chip.append(ic);
+      }
+      const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = a.n; nm.title = a.n;
+      chip.append(nm);
+      if(window.fmtSz){ const sz = document.createElement('span'); sz.className = 'sz'; sz.textContent = window.fmtSz(a.sz); chip.append(sz); }
+      line.append(chip);
+    });
+    w.append(line);
+  }
   if(m.code){ const pre = document.createElement('pre'); pre.textContent = m.code; w.append(pre); }
   if(m.r === 'a' && m.m){
     const chip = document.createElement('span'); chip.className = 'chip';
@@ -955,12 +992,18 @@ function sendMsg(text){
   text = (text || '').trim(); if(!text) return;
   const c = currentChat();
   if(c.title === 'New Project') c.title = text.slice(0, 34) + (text.length > 34 ? '...' : '');
-  c.messages.push({ r: 'u', t: text });
+  const live = window.__takeAtts ? window.__takeAtts() : [];
+  const atts = live.map(a => {                     // persist light metadata only (storage quota)
+    const o = { n: a.n, sz: a.sz, ty: a.ty };
+    if(a.d && a.d.length < 110000) o.d = a.d;      // small image previews survive reload
+    return o;
+  });
+  c.messages.push({ r: 'u', t: text, att: atts });
   c.ts = now();
   showView('chat');
   renderChat(); save();
 
-  askBrain(c, text);
+  askBrain(c, text, live);
 }
 function typeReply(c, reply, live, pen){
   const box = $('#msgs');
@@ -1004,7 +1047,7 @@ function typeReply(c, reply, live, pen){
 function brainContext(c){
   return c.messages.slice(-12).map(m => ({ role: m.r === 'u' ? 'user' : 'assistant', content: m.t }));
 }
-async function askBrain(c, text){
+async function askBrain(c, text, atts){
   const chip = $('#chatModelChip');
   chip.textContent = 'engine: live · thinking…';
   const box0 = $('#msgs');                               // animated thinking bubble (like modern AI chats)
@@ -1018,10 +1061,18 @@ async function askBrain(c, text){
   if(currentChat().id === c.id) box0.append(pen);
   box0.scrollTop = box0.scrollHeight;
   try{
+    let last = text;                               // feed file contents to the hosted brain
+    (atts || []).forEach(a => {
+      if(a.txt) last += '\n\n[attached file: ' + a.n + ']\n' + String(a.txt).slice(0, 6000);
+      else if((a.ty || '').indexOf('image/') === 0) last += '\n\n[attached image: ' + a.n + ' — ' + window.fmtSz(a.sz) + ']';
+      else last += '\n\n[attached file: ' + a.n + ' — ' + window.fmtSz(a.sz) + ']';
+    });
+    const ctx = brainContext(c);
+    if(ctx.length) ctx[ctx.length - 1].content = last;
     const res = await fetch(API_BASE + '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: brainContext(c) })
+      body: JSON.stringify({ messages: ctx })
     });
     const d = await res.json().catch(() => null);
     if(!d || !d.ok) throw new Error(d && d.error ? d.error : 'HTTP ' + res.status);
@@ -1187,6 +1238,82 @@ $('#homeForm').addEventListener('submit', e => {
   $('#homeInput').value = '';
 });
 $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('#chatInput').value); $('#chatInput').value = ''; });
+
+/* ---------- file attach (paperclip right of send) ---------- */
+(function(){
+  const MAX_FILES = 4, MAX_BYTES = 8 * 1024 * 1024;
+  window.fmtSz = b => b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
+  const TXT_RE = /\.(txt|md|markdown|json|js|mjs|ts|tsx|jsx|py|rb|go|rs|java|kt|c|h|cpp|cs|php|sh|bash|yml|yaml|toml|ini|cfg|csv|tsv|html|htm|css|scss|xml|sql|log|env)$/i;
+  let ATT = [];
+  const form = $('#chatForm');
+  const pick = document.createElement('input');
+  pick.type = 'file'; pick.multiple = true; pick.hidden = true;
+  form.appendChild(pick);
+  const row = document.createElement('div');
+  row.className = 'attach-row';
+  form.prepend(row);
+  const readText = f => new Promise(res => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result || '').slice(0, 24000));
+    r.onerror = () => res('');
+    r.readAsText(f.slice(0, 200000));
+  });
+  const readDataURL = f => new Promise(res => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result || ''));
+    r.onerror = () => res('');
+    r.readAsDataURL(f);
+  });
+  async function addFiles(list){
+    for(const f of Array.from(list || [])){
+      if(ATT.length >= MAX_FILES){ toast('Up to ' + MAX_FILES + ' files at once'); break; }
+      if(f.size > MAX_BYTES){ toast(f.name + ' is too large (max 8 MB)'); continue; }
+      const a = { n: f.name, sz: f.size, ty: f.type || '' };
+      if((f.type || '').indexOf('image/') === 0 && f.size <= 300000){
+        a.d = await readDataURL(f);
+      }else if((f.type || '').indexOf('text/') === 0 || (f.type || '').indexOf('json') > -1 || TXT_RE.test(f.name)){
+        a.txt = await readText(f);
+      }
+      ATT.push(a);
+      draw();
+    }
+  }
+  function draw(){
+    row.innerHTML = '';
+    ATT.forEach((a, i) => {
+      const chip = document.createElement('span'); chip.className = 'att-chip';
+      if(a.d){
+        const im = document.createElement('img'); im.src = a.d; im.alt = a.n; chip.append(im);
+      }else{
+        const ic = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        ic.setAttribute('class', 'ic small'); ic.innerHTML = '<use href="#i-file"/>';
+        chip.append(ic);
+      }
+      const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = a.n; nm.title = a.n;
+      const sz = document.createElement('span'); sz.className = 'sz'; sz.textContent = window.fmtSz(a.sz);
+      const rm = document.createElement('button'); rm.className = 'rm'; rm.type = 'button'; rm.title = 'Remove'; rm.textContent = '\u00d7';
+      rm.onclick = () => { ATT.splice(i, 1); draw(); };
+      chip.append(nm, sz, rm);
+      row.append(chip);
+    });
+  }
+  window.__takeAtts = () => { const out = ATT.slice(); ATT = []; draw(); return out; };
+  $('#fileBtn').onclick = () => pick.click();
+  pick.onchange = () => { addFiles(pick.files); pick.value = ''; };
+  const view = $('#view-chat');                    // drag & drop anywhere on the chat
+  ['dragover', 'dragenter'].forEach(ev => view.addEventListener(ev, e => {
+    e.preventDefault();
+    if(e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf('Files') > -1) form.classList.add('drop');
+  }));
+  view.addEventListener('dragleave', e => {
+    if(!e.relatedTarget || !view.contains(e.relatedTarget)) form.classList.remove('drop');
+  });
+  view.addEventListener('drop', e => {
+    e.preventDefault();
+    form.classList.remove('drop');
+    if(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+  });
+})();
 
 $('#btnHome').onclick = () => showView('home');
 $('#btnProject').onclick = () => { S.active = null; save(); showView('chat'); $('#chatInput').focus(); toast('New project started'); };
