@@ -354,7 +354,6 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .msgs{flex:1;overflow-y:auto;padding:22px 24px;display:flex;flex-direction:column;gap:14px;min-height:0}
 .msg{max-width:76%;display:flex;flex-direction:column;gap:6px}
 .msg .who{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
-.msg .who .eng{font-family:var(--font-mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;font-style:normal;color:var(--accent);margin-left:8px;padding:1px 7px;border:1px solid var(--line);border-radius:999px}
 .msg .bubble{
   border-radius:14px;padding:12px 15px;font-size:14px;line-height:1.6;white-space:pre-wrap;
   word-wrap:break-word;
@@ -417,37 +416,6 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
   padding:13px 16px;font-size:14px;outline:none;min-width:0;
 }
 .composer input:focus{border-color:var(--accent)}
-.model-wrap{position:relative;flex:none}
-.model-btn{
-  display:inline-flex;align-items:center;gap:7px;height:44px;max-width:200px;
-  padding:0 13px;border-radius:12px;flex:none;cursor:pointer;border:none;
-  background:var(--panel-2);color:var(--text);box-shadow:inset 0 0 0 1px var(--line);
-  transition:color .15s,box-shadow .15s;
-}
-.model-btn:hover{color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
-.model-btn .ml{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-size:11.5px;letter-spacing:.02em}
-.model-btn .caret{flex:none;font-size:9px;color:var(--muted);transition:transform .18s ease}
-.model-wrap.open .model-btn .caret{transform:rotate(180deg)}
-.model-wrap.open .model-btn{color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
-.model-menu{
-  position:absolute;right:0;bottom:52px;min-width:250px;z-index:60;
-  background:var(--panel);border:1px solid var(--line);border-radius:14px;
-  box-shadow:0 18px 44px rgba(0,0,0,.45);padding:6px;
-  display:none;flex-direction:column;
-}
-.model-wrap.open .model-menu{display:flex}
-.model-wrap.down .model-menu{bottom:auto;top:52px}
-.model-menu .mh{font-size:10px;letter-spacing:.14em;color:var(--muted);padding:6px 10px 5px;text-transform:uppercase}
-.model-item{
-  display:flex;align-items:center;gap:8px;width:100%;text-align:left;
-  padding:9px 10px;border-radius:9px;color:var(--text);font-size:12.5px;cursor:pointer;border:none;background:none;
-}
-.model-item:hover{background:var(--panel-2)}
-.model-item .mi{font-family:var(--font-mono);font-size:11.5px}
-.model-item .mt{margin-left:auto;font-size:9.5px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
-.model-item.on .mi,.model-item.on .mt{color:var(--accent)}
-@media (max-width:600px){.model-btn{max-width:124px;padding:0 10px}}
-
 /* ============================================================
    AI ENGINE (lives in Settings now)
    ============================================================ */
@@ -476,13 +444,6 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 }
 .switch input:checked + .tr{background:var(--accent)}
 .switch input:checked + .tr::before{transform:translateX(17px)}
-.model-row{
-  display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:11px;
-  padding:10px 12px;background:var(--bg2);
-}
-.model-row .mi{flex:1;min-width:0}
-.model-row .mn{font-family:var(--font-mono);font-size:12.5px;font-weight:600}
-.model-row .mr{font-size:11px;color:var(--muted)}
 .tagm{
   font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;border-radius:999px;padding:2.5px 8px;
   border:1px solid var(--line);color:var(--muted);white-space:nowrap;
@@ -677,10 +638,6 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
           <img class="bs-logo dark-only" data-asset="wordmark" alt="XR logo" draggable="false"><img class="bs-logo light-only" data-asset="tile-light" alt="XR logo" draggable="false">
           <button class="file-btn" id="homeFileBtn" type="button" title="Attach files"><i class="ic" data-ic="i-clip"></i></button>
           <input id="homeInput" autocomplete="off" placeholder="What would you like to do with XR-Code?">
-          <div class="model-wrap" id="homeModelWrap">
-            <button class="model-btn" id="homeModelBtn" type="button" title="AI model"><span class="ml">prime-v1-flash</span><span class="caret">&#9662;</span></button>
-            <div class="model-menu" id="homeModelMenu"></div>
-          </div>
           <button class="send-btn" type="submit" title="Send"><i class="ic" data-ic="i-chev"></i></button>
         </form>
 
@@ -691,16 +648,12 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
     <section id="view-chat" class="view">
       <div class="chat-head">
         <span class="cht" id="chatTitle">New Project</span>
-        <span class="chip" id="chatModelChip">engine: live</span>
+        <span class="chip" id="chatModelChip">online</span>
       </div>
       <div class="msgs" id="msgs"></div>
       <form class="composer" id="chatForm">
         <button class="file-btn" id="fileBtn" type="button" title="Attach files"><i class="ic" data-ic="i-clip"></i></button>
         <input id="chatInput" autocomplete="off" placeholder="Message XR Code...">
-        <div class="model-wrap" id="modelWrap">
-          <button class="model-btn" id="modelBtn" type="button" title="AI model"><span class="ml">prime-v1-flash</span><span class="caret">&#9662;</span></button>
-          <div class="model-menu" id="modelMenu"></div>
-        </div>
         <button class="send-btn" type="submit" title="Send"><i class="ic" data-ic="i-send"></i></button>
       </form>
     </section>
@@ -1066,30 +1019,7 @@ function msgEl(m, c){
     w.append(b);
     if(m.code){ w.append(codeBlock(m.code)); }
   }
-  if(m.r === 'a' && m.m){
-    const chip = document.createElement('span'); chip.className = 'chip';
-    chip.textContent = 'engine: ' + (m.e || (m.m === 'XR Core' || m.m === 'demo' ? 'XR Code AI' : 'live'));
-    w.append(chip);
-  }
   return w;
-}
-
-/* ---------- canned replies (offline fallback) ---------- */
-function genReply(text){
-  const t = text.toLowerCase();
-  if(/debug|error|bug|fix/.test(t)){
-    return { text: "I reviewed the problem step by step:\n\n1. The value is used before the async call resolves.\n2. Move the code that reads the result inside the .then() / after await.\n3. Add a guard clause so undefined input fails fast.\n\nTip: log the type right before the crash line — it usually exposes the culprit immediately." };
-  }
-  if(/idea/.test(t)){
-    return { text: "Here are three ideas you can build this weekend:\n\n1. A CLI habit tracker that stores data in a JSON file.\n2. A browser start page with widgets (weather, notes, links).\n3. A tiny API that shortens URLs and tracks clicks.\n\nPick one and I will scaffold it with you." };
-  }
-  if(/build|website|landing|portfolio/.test(t)){
-    return { text: "Plan for the build:\n\n1. Structure — header, hero, features, footer.\n2. Style — one accent color, generous whitespace, mobile first.\n3. Interactions — smooth scroll and a contact form.\n4. Deploy — static hosting is enough for v1.\n\nWant me to generate the starter files?" };
-  }
-  if(/python|script|function|code|rename/.test(t)){
-    return { text: "Here is a compact script that does exactly that:", code: "from pathlib import Path\n\nfolder = Path(\"./my_files\")\n\nfor p in folder.iterdir():\n    if p.is_file():\n        p.rename(p.with_name(p.name.lower()))\n\nprint(\"Renamed\", len(list(folder.iterdir())), \"files\")" };
-  }
-  return { text: "Local preview — XR Code answers for real when it runs on its hosted site." };
 }
 
 /* ---------- sending ---------- */
@@ -1112,19 +1042,13 @@ function sendMsg(text){
 
   askBrain(c, text, live);
 }
-function typeReply(c, reply, live, pen, eng){
+function typeReply(c, reply, pen){
   const box = $('#msgs');
   if(pen && pen.parentNode) pen.remove();       // clear the thinking-dots bubble
   const el = document.createElement('div'); el.className = 'msg a';
   const who = document.createElement('span'); who.className = 'who'; who.textContent = 'XR Code';
-  if(live && eng){                              // live engine badge — the model that answered
-    const tg = document.createElement('i'); tg.className = 'eng'; tg.textContent = eng;
-    who.append(tg);
-  }
   const body = document.createElement('div'); body.className = 'bubble';
-  const chip = document.createElement('span'); chip.className = 'chip';
-  chip.textContent = 'engine: ' + (eng || (live ? 'live' : 'XR Code AI'));
-  el.append(who, body, chip);
+  el.append(who, body);
   if(currentChat().id === c.id) box.append(el);  // only show when this chat is on screen
   box.scrollTop = box.scrollHeight;
 
@@ -1133,7 +1057,7 @@ function typeReply(c, reply, live, pen, eng){
   const iv = setInterval(() => {
     if(!document.contains(el)){           // user switched chats while typing
       clearInterval(iv);
-      c.messages.push({ r: 'a', t: reply.text, code: reply.code, parts: reply.parts, m: live ? 'live' : 'demo', e: live ? (eng || '') : '' });
+      c.messages.push({ r: 'a', t: reply.text, code: reply.code, parts: reply.parts, m: 'live' });
       save(); return;
     }
     i += (reply.text.length > 900 ? 2 : 1);   // slow, human-like typing
@@ -1149,7 +1073,7 @@ function typeReply(c, reply, live, pen, eng){
         if(p.code !== undefined){ el.append(codeBlock(p.code)); }
         else { const nb = document.createElement('div'); nb.className = 'bubble'; nb.textContent = p.t; el.append(nb); }
       });
-      c.messages.push({ r: 'a', t: reply.text, code: reply.code, parts: reply.parts, m: live ? 'live' : 'demo', e: live ? (eng || '') : '' });
+      c.messages.push({ r: 'a', t: reply.text, code: reply.code, parts: reply.parts, m: 'live' });
       c.ts = now();
       save();
     }
@@ -1185,7 +1109,7 @@ function brainContext(c){
 }
 async function askBrain(c, text, atts){
   const chip = $('#chatModelChip');
-  chip.textContent = 'engine: thinking…';
+  chip.textContent = 'thinking…';
   const box0 = $('#msgs');                               // animated thinking bubble (like modern AI chats)
   const pen = document.createElement('div'); pen.className = 'msg a';
   const who0 = document.createElement('span'); who0.className = 'who'; who0.textContent = 'XR Code';
@@ -1222,13 +1146,11 @@ async function askBrain(c, text, atts){
       ctx[ctx.length - 1].content = last;
     }
   }
-  const model = window.__xrModel ? window.__xrModel() : '';
-  chip.textContent = 'engine: ' + (model || 'XR Code') +
-    (vids.length ? ' · watching your video…' : vision.length ? ' · looking at your image…' : ' · thinking…');
+  chip.textContent = vids.length ? 'watching your video…' : vision.length ? 'looking at your image…' : 'thinking…';
   const call = () => fetch(API_BASE + '/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: ctx, model: model })
+    body: JSON.stringify({ messages: ctx })          // no model field — the hosted brain picks its one engine
   });
   let d = null, failed = null;
   for(let attempt = 0; attempt < 2; attempt++){        // one quiet auto-retry for connection drops
@@ -1242,31 +1164,24 @@ async function askBrain(c, text, atts){
     }catch(e){
       failed = e;
       if(attempt === 0){
-        chip.textContent = 'engine: busy · retrying…';
+        chip.textContent = 'busy · retrying…';
         await new Promise(r => setTimeout(r, 4000));
       }
     }
   }
   if(!failed){
-    const eng = String(d.engine || '').trim();
-    const shown = eng && eng.indexOf('zai') !== 0 ? eng : 'XR Code AI';   // never leak fallback internals
-    chip.textContent = 'engine: ' + shown;             // the engine that ACTUALLY answered
+    chip.textContent = 'online';                       // one brain — no model names shown
     NET.live = true; renderStatus();
-    typeReply(c, splitFence((d.text || '').trim()), true, pen, shown);
+    typeReply(c, splitFence((d.text || '').trim()), pen);
     return;
   }
-  chip.textContent = 'engine: XR Code AI';
-  if(!API_BASE){
-    typeReply(c, genReply(text), false, pen);          // local file preview — built-in fallback replies
-    toast('Local preview — the hosted brain answers on the live site');
-    return;
-  }
+  chip.textContent = 'offline';
   pen.remove();                                        // never a dead end — offer a visible retry
   const el = document.createElement('div'); el.className = 'msg a';
   const who = document.createElement('span'); who.className = 'who'; who.textContent = 'XR Code';
   const body = document.createElement('div'); body.className = 'bubble';
   body.textContent = 'The AI server is unreachable right now — check your connection and try again in a moment.';
-  const ch = document.createElement('span'); ch.className = 'chip'; ch.textContent = 'engine: offline';
+  const ch = document.createElement('span'); ch.className = 'chip'; ch.textContent = 'offline';
   const re = document.createElement('button'); re.className = 'retry-btn'; re.type = 'button';
   re.innerHTML = '<svg class="ic small"><use href="#i-sync"/></svg>Try again';
   re.onclick = () => {
@@ -1287,7 +1202,7 @@ function renderAccounts(){
   const i = document.createElement('div'); i.className = 'ai2';
   const n = document.createElement('div'); n.className = 'an'; n.textContent = 'This browser';
   const s = document.createElement('div'); s.className = 'as';
-  s.textContent = 'Chats save automatically on this device · engine: ' + (NET.live ? 'XR Code AI (live)' : 'XR Code AI (offline)');
+  s.textContent = 'Chats save automatically on this device · XR Code AI ' + (NET.live ? 'online' : 'offline');
   i.append(n, s);
   r.append(i); box.append(r);
 }
@@ -1402,65 +1317,7 @@ $('#homeForm').addEventListener('submit', e => {
 });
 $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('#chatInput').value); $('#chatInput').value = ''; });
 
-/* ---------- model selector (prime ai) ---------- */
-(function(){
-  const MODELS = [
-    { id: 'prime-v1-flash', tag: 'default' },
-    { id: 'prime-v1-vision', tag: 'vision' },
-    { id: 'glm-5.3', tag: 'flagship' },
-    { id: 'glm-5.2' },
-    { id: 'glm-5.3-flash', tag: 'fast' },
-  ];
-  const KEY = 'xr_model';
-  function cur(){
-    let m = '';
-    try{ m = localStorage.getItem(KEY) || ''; }catch(e){}
-    return MODELS.some(x => x.id === m) ? m : MODELS[0].id;
-  }
-  const WIRED = [];
-  function wire(sel){
-    const wrap = $(sel[0]), btn = $(sel[1]), menu = $(sel[2]);
-    if(!wrap || !btn || !menu) return;
-    if(sel[3]) wrap.classList.add(sel[3]);            // 'down' — drop the menu below the pill
-    const label = btn.querySelector('.ml');
-    function drawBtn(){ label.textContent = cur(); }
-    function drawMenu(){
-      menu.innerHTML = '';
-      const h = document.createElement('div'); h.className = 'mh'; h.textContent = 'Prime AI models';
-      menu.append(h);
-      const c = cur();
-      MODELS.forEach(m => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'model-item' + (m.id === c ? ' on' : '');
-        const i = document.createElement('span'); i.className = 'mi'; i.textContent = m.id;
-        b.append(i);
-        const t = document.createElement('span'); t.className = 'mt'; t.textContent = m.id === c ? 'selected' : (m.tag || '');
-        b.append(t);
-        b.onclick = () => {
-          try{ localStorage.setItem(KEY, m.id); }catch(e){}
-          WIRED.forEach(w => { w.drawBtn(); w.drawMenu(); w.wrap.classList.remove('open'); });
-          toast('Model: ' + m.id);
-        };
-        menu.append(b);
-      });
-    }
-    btn.onclick = e => {
-      e.stopPropagation();
-      drawMenu();
-      WIRED.forEach(w => { if(w.wrap !== wrap) w.wrap.classList.remove('open'); });
-      wrap.classList.toggle('open');
-    };
-    document.addEventListener('click', e => {
-      if(!wrap.contains(e.target)) wrap.classList.remove('open');
-    });
-    drawBtn();
-    WIRED.push({ wrap, drawBtn, drawMenu });
-  }
-  wire(['#modelWrap', '#modelBtn', '#modelMenu']);
-  wire(['#homeModelWrap', '#homeModelBtn', '#homeModelMenu', 'down']);
-  window.__xrModel = cur;                        // the brain reads this on every send
-})();
+
 
 /* ---------- file attach (paperclip right of send) ---------- */
 (function(){
