@@ -116,7 +116,7 @@ const PRIME_BASE = process.env.PRIME_BASE_URL || "https://r1de49ege2k1-d.space-z
 const PRIME_KEY = process.env.PRIME_API_KEY || "";
 const PRIME_TEXT_MODEL = process.env.PRIME_TEXT_MODEL || "prime-v1-flash";
 
-async function primeChat(sys: string, msgs: { role: string; content: string }[]): Promise<string | null> {
+async function primeChat(sys: string, msgs: { role: string; content: string }[], model: string): Promise<string | null> {
   if (!PRIME_KEY) return null;
   try {
     // Anthropic-style messages: must alternate and start with a user turn.
@@ -141,7 +141,7 @@ async function primeChat(sys: string, msgs: { role: string; content: string }[])
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${PRIME_KEY}` },
       body: JSON.stringify({
-        model: PRIME_TEXT_MODEL,
+        model: model,
         max_tokens: 4096,
         system: sys,
         messages: clean,
@@ -193,7 +193,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  let body: { messages?: RawMsg[] } | null = null;
+  let body: { messages?: RawMsg[]; model?: string } | null = null;
   try {
     body = await req.json();
   } catch {
@@ -223,6 +223,12 @@ export async function POST(req: Request) {
   let sys = SYSTEM;
   const lastUser = [...safe].reverse().find(m => m.role === "user");
   const hasImages = !!lastUser?.imgs?.length;
+  // the model picker in the composer — whitelist only, no arbitrary ids
+  const ALLOWED_MODELS = new Set([
+    "prime-v1-flash", "prime-v1-vision", "glm-5.3", "glm-5.2", "glm-5.3-flash",
+  ]);
+  const wanted = typeof body?.model === "string" ? body.model.trim() : "";
+  const chosen = ALLOWED_MODELS.has(wanted) ? wanted : PRIME_TEXT_MODEL;
   // the user is talking about THEIR image — web search would only distract
   if (lastUser && !hasImages && wantsWeb(lastUser.content)) {
     sys += await googleContext(searchQuery(safe));
@@ -251,8 +257,8 @@ export async function POST(req: Request) {
 
   // owner gateway first for text chat — zero cost to the Z.ai quota
   if (!hasImages) {
-    const prime = await primeChat(sys, chatText);
-    if (prime) return NextResponse.json({ ok: true, text: prime, engine: "prime" });
+    const prime = await primeChat(sys, chatText, chosen);
+    if (prime) return NextResponse.json({ ok: true, text: prime, engine: chosen });
   }
 
   let lastErr = "ai error";
