@@ -435,6 +435,7 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
   display:none;flex-direction:column;
 }
 .model-wrap.open .model-menu{display:flex}
+.model-wrap.down .model-menu{bottom:auto;top:52px}
 .model-menu .mh{font-size:10px;letter-spacing:.14em;color:var(--muted);padding:6px 10px 5px;text-transform:uppercase}
 .model-item{
   display:flex;align-items:center;gap:8px;width:100%;text-align:left;
@@ -1402,6 +1403,7 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
   function wire(sel){
     const wrap = $(sel[0]), btn = $(sel[1]), menu = $(sel[2]);
     if(!wrap || !btn || !menu) return;
+    if(sel[3]) wrap.classList.add(sel[3]);            // 'down' — drop the menu below the pill
     const label = btn.querySelector('.ml');
     function drawBtn(){ label.textContent = cur(); }
     function drawMenu(){
@@ -1438,7 +1440,7 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
     WIRED.push({ wrap, drawBtn, drawMenu });
   }
   wire(['#modelWrap', '#modelBtn', '#modelMenu']);
-  wire(['#homeModelWrap', '#homeModelBtn', '#homeModelMenu']);
+  wire(['#homeModelWrap', '#homeModelBtn', '#homeModelMenu', 'down']);
   window.__xrModel = cur;                        // the brain reads this on every send
 })();
 
