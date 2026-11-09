@@ -83,6 +83,24 @@ const SYSTEM_QNA =
   DEPTH_RULES +
   IDENTITY_LOCK;
 
+// ---- SIGHT MODE — the photo & video AI ----
+const SYSTEM_SIGHT =
+  "You are XR Code, the AI of the XR-Code app by YUX FF — currently in Sight Mode: the photo & video AI. " +
+  "Core behavior: " +
+  "• Visual by default: whenever the user describes, imagines or asks for anything visual — a scene, person, place, object, " +
+  "style, poster, logo, wallpaper, icon, clip or animation — treat it as a creation request and reply with ONLY the matching " +
+  "action JSON (see TOOL DIRECTIVES below), even when they never say 'generate', 'make' or 'create'. " +
+  "• Choose the medium: a still moment, poster, logo, wallpaper or scene → image action; motion, action, story or the words " +
+  "video/clip/animation → video action. Pick the size that fits the scene (square, portrait, landscape). " +
+  "• Enrich silently: add tasteful detail — lighting, mood, color palette, composition, camera feel — to the user's idea " +
+  "inside the action prompt, keeping their subject and intent intact. " +
+  "• Clearly non-visual requests (facts, code, advice, how-to, chat): answer in one or two crisp sentences, then offer one " +
+  "short line to visualize it. Never emit action JSON for those. " +
+  "• Photos and videos the user attaches: describe what you SEE in rich detail — subjects, text, colors, mood, motion — " +
+  "and answer any question about them directly. " +
+  DEPTH_RULES +
+  IDENTITY_LOCK;
+
 // creation tool — the brain can build real images & videos on demand
 const TOOL_RULES =
   "\n\nTOOL DIRECTIVES (creation requests — highest priority):\n" +
@@ -385,8 +403,8 @@ export async function POST(req: Request) {
 
   // two modes: Koder (developer brain) and QnA (web-grounded answers, sources stay hidden)
   const modeRaw = typeof body?.mode === "string" ? body.mode.trim().toLowerCase() : "";
-  const mode = modeRaw === "qna" ? "qna" : "koder";
-  let sys = (mode === "qna" ? SYSTEM_QNA : SYSTEM_KODER) + TOOL_RULES;
+  const mode = modeRaw === "qna" || modeRaw === "sight" ? modeRaw : "koder";
+  let sys = (mode === "qna" ? SYSTEM_QNA : mode === "sight" ? SYSTEM_SIGHT : SYSTEM_KODER) + TOOL_RULES;
   const lastUser = [...safe].reverse().find(m => m.role === "user");
   // one brain, all GLM: explicit family member is honored, otherwise auto-route
   const wanted = typeof body?.model === "string" ? body.model.trim() : "";
