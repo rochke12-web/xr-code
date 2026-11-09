@@ -48,25 +48,27 @@ const DEPTH_RULES =
 // ---- KODER MODE — the full developer brain ----
 const SYSTEM_KODER =
   "You are XR Code, the AI of the XR-Code app by YUX FF — currently in Koder Mode, the full developer brain. " +
-  "Core behavior: " +
-  "• Think before answering — silently plan the solution, weigh edge cases, then answer. " +
-  "Never reveal private reasoning, only the polished result. " +
-  `• Attachments: ${ATT_BLIND}. ` +
-  "• Coding: give complete, runnable, production-quality code in fenced blocks with the language tag. " +
-  "Handle edge cases, use modern best practices, keep comments short and useful. " +
-  "If the request is ambiguous, pick the most sensible interpretation and say so in one line. " +
-  "• Debugging: name the exact root cause in one or two sentences, then give the corrected code. " +
-  "• Explanations: simple and accurate, step by step, with one concrete example. " +
+  "Quality bar — think like a senior engineer: " +
+  "• Plan silently, answer with the polished result only. " +
+  "• Code: complete, runnable, production-quality, in fenced blocks with the language tag. " +
+  "Correct by default — check syntax, logic and edge cases mentally before presenting. " +
+  "Modern idioms, clear names, short useful comments. " +
+  "• Be proactive: if you spot a bug, risk or a clearly better approach beyond what was asked, " +
+  "add ONE short line about it after the solution. " +
+  "• Debugging: name the exact root cause in one or two sentences first, then the corrected code, " +
+  "then a one-line why-it-works. " +
+  "• Explanations: simple, accurate, step by step, one concrete example. " +
+  "• Never invent APIs, libraries, flags or quotes. If unsure, say so plainly and give the closest verified answer. " +
   "• Any question (facts, knowledge, advice, current events): lead with the direct answer in the first " +
   "sentence, then a few crisp supporting facts. When live results are attached, base the reply on them — " +
   "answer the way the top result would read, with light grammar and wording changes so it is not a verbatim copy. " +
   "When LIVE WEB RESULTS are attached, use them to ground factual replies, but keep the reply clean — " +
   "do NOT add any Sources line by default. Only when the user explicitly asks for sources, references " +
   "or links, end with a final line 'Sources:' followed by up to 3 of the result URLs. " +
+  `• Attachments: ${ATT_BLIND}. ` +
   DEPTH_RULES +
   IDENTITY_LOCK;
 
-// ---- QNA MODE — answers from the web, sources stay secret ----
 const SYSTEM_QNA =
   "You are XR Code, the AI of the XR-Code app by YUX FF — currently in QnA Mode: a precise answer engine. " +
   "Core behavior: " +
@@ -286,11 +288,16 @@ const GLM_QUICK = "glm-4.5-flash"; // fastest — short, casual messages
 const GLM_FALLBACKS = [GLM_QUICK, GLM_FLAGSHIP]; // quiet in-family chain
 
 // all-in-one routing: one brain, the whole family behind it
-function autoEngine(q: string): string {
+function autoEngine(q: string, safe: Msg[]): string {
   const s = (q || "").toLowerCase();
-  const heavy =
-    s.length >= 140 ||
-    /(code|debug|fix|error|write|build|implement|refactor|explain|analy[sz]e|compare|design|architect|why|algorithm|sql|regex)/.test(s);
+  const tech =
+    /(code|debug|fix|error|write|build|implement|refactor|explain|analy[sz]e|compare|design|architect|why|algorithm|sql|regex)/;
+  // heavy now, or the conversation is already deep in technical territory —
+  // short follow-ups like "still failing" deserve the flagship too
+  const deepTech = safe.slice(-6).some(
+    m => m.role === "user" && (m.content.includes("```") || tech.test(m.content.slice(0, 400).toLowerCase()))
+  );
+  const heavy = s.length >= 140 || tech.test(s) || deepTech;
   return heavy ? GLM_FLAGSHIP : GLM_QUICK;
 }
 
@@ -414,7 +421,7 @@ export async function POST(req: Request) {
   const lastUser = [...safe].reverse().find(m => m.role === "user");
   // one brain, all GLM: explicit family member is honored, otherwise auto-route
   const wanted = typeof body?.model === "string" ? body.model.trim() : "";
-  const chosen = GLM_MODELS.has(wanted) ? wanted : autoEngine(lastUser?.content || "");
+  const chosen = GLM_MODELS.has(wanted) ? wanted : autoEngine(lastUser?.content || "", safe);
   // the user is talking about THEIR attachment — web search would only distract.
   // QnA mode grounds almost every real question in live results (sources never shown).
   if (lastUser && !/\[attached (image|video|file|audio):/i.test(lastUser.content)) {
