@@ -5,14 +5,10 @@ import ZAI from "z-ai-web-dev-sdk";
 // One highly capable agent: reads each message and automatically responds the
 // best way — complete runnable code, precise debugging, clear explanations, or
 // direct answers to any question (riding live web results when useful).
-// Engines:
-//   1. OWNER GATEWAY (prime-v1-flash via /v1/messages, Anthropic-style) — primary
-//      for text chat. Server-side only: the key never reaches the browser.
-//   2. Z.ai brain — vision requests (the gateway's vision alias is text-only
-//      today) and automatic fallback when the gateway is unreachable.
-// Vision: when the user attaches photos, the message arrives as multipart
-// content and we route through the vision endpoint so XR Code actually sees
-// the picture and can describe / explain / answer questions about it.
+// Engine: OWNER GATEWAY ONLY (prime-v1-flash via /v1/messages, Anthropic-style).
+// Server-side only: the key never reaches the browser. No other chat models —
+// no GLM, no vision endpoint. If the gateway is unreachable the client shows
+// its retry card; nothing silently switches models.
 // GET  /api/chat → health probe { ok: true } for the status bar
 // POST /api/chat → { messages } → { ok, text } | { ok:false, error }
 
@@ -22,13 +18,10 @@ const SYSTEM =
   "Core behavior: " +
   "• Think before answering — silently plan the solution, weigh edge cases, then answer. " +
   "Never reveal private reasoning, only the polished result. " +
-  "• Vision: you can see the photos and screenshots the user attaches. When a picture " +
-  "arrives, look at it and talk about what is actually in it — objects, people, scenery, " +
-  "text on screen, code in a screenshot, error messages, diagrams. If the photo comes with " +
-  "no text, naturally describe and explain what you see; if it comes with a question, answer " +
-  "it from the image. You can also watch videos the user attaches — follow what happens " +
-  "scene by scene, read any on-screen text, track actions and movement, and answer questions " +
-  "about the clip. Never claim you cannot see images or videos. " +
+  "• Attachments: photos, videos and files arrive as text notes (name, size) — you cannot " +
+  "see inside images or videos in this build. Never invent or describe what a picture or " +
+  "clip shows. If asked about its contents, say plainly you can't view images or videos " +
+  "here and ask the user to describe it or paste any text or code from it. " +
   "• Coding: give complete, runnable, production-quality code in fenced blocks with the language tag. " +
   "Handle edge cases, use modern best practices, keep comments short and useful. " +
   "If the request is ambiguous, pick the most sensible interpretation and say so in one line. " +
@@ -111,7 +104,7 @@ async function googleContext(q: string): Promise<string> {
 
 type Part = { type: string; text?: string; image_url?: { url: string }; video_url?: { url: string } };
 type RawMsg = { role?: string; content?: string | Part[] };
-type Msg = { role: "user" | "assistant"; content: string; imgs?: string[]; vids?: string[] };
+type Msg = { role: "user" | "assistant"; content: string };
 
 // ---- owner gateway (server-side only — never shipped to the browser) ----
 const PRIME_BASE = process.env.PRIME_BASE_URL || "https://r1de49ege2k1-d.space-z.ai";
@@ -160,14 +153,9 @@ async function primeChat(sys: string, msgs: { role: string; content: string }[],
       .trim();
     return text || null;
   } catch {
-    return null; // gateway down / slow — the Z.ai brain takes over below
+    return null; // gateway down / slow — caller surfaces the retry card
   }
 }
-
-const MAX_IMAGES = 3;
-const MAX_IMG_CHARS = 2_600_000; // ~1.9 MB of binary per image after client downscale
-const MAX_VIDEOS = 1;
-const MAX_VID_CHARS = 22_000_000; // ~16 MB video file as base64
 
 // pull plain text out of string-or-multipart content
 function textOf(content: unknown): string {
@@ -178,30 +166,6 @@ function textOf(content: unknown): string {
       .join("\n");
   }
   return "";
-}
-
-// pull base64 image parts out of multipart content
-function imgsOf(content: unknown): string[] {
-  if (!Array.isArray(content)) return [];
-  const out: string[] = [];
-  for (const p of content as Part[]) {
-    const u = p && p.type === "image_url" && p.image_url ? String(p.image_url.url || "") : "";
-    if (/^data:image\/(png|jpe?g|webp|gif|bmp);base64,/i.test(u) && u.length <= MAX_IMG_CHARS) out.push(u);
-    if (out.length >= MAX_IMAGES) break;
-  }
-  return out.slice(0, MAX_IMAGES);
-}
-
-// pull base64 video parts out of multipart content
-function vidsOf(content: unknown): string[] {
-  if (!Array.isArray(content)) return [];
-  const out: string[] = [];
-  for (const p of content as Part[]) {
-    const u = p && p.type === "video_url" && p.video_url ? String(p.video_url.url || "") : "";
-    if (/^data:video\/(mp4|webm|quicktime|x-m4v|avi|x-msvideo|x-matroska);base64,/i.test(u) && u.length <= MAX_VID_CHARS) out.push(u);
-    if (out.length >= MAX_VIDEOS) break;
-  }
-  return out.slice(0, MAX_VIDEOS);
 }
 
 export async function GET() {
@@ -220,19 +184,7 @@ export async function POST(req: Request) {
     ? raw
         .slice(-24)
         .filter(m => m && (m.role === "user" || m.role === "assistant") && m.content != null)
-        .map(m => {
-          const msg: Msg = {
-            role: m.role as "user" | "assistant",
-            content: textOf(m.content).slice(0, 8000),
-          };
-          if (m.role === "user") {
-            const imgs = imgsOf(m.content);
-            if (imgs.length) msg.imgs = imgs;
-            const vids = vidsOf(m.content);
-            if (vids.length) msg.vids = vids;
-          }
-          return msg;
-        })
+        .map(m => ({ role: m.role as "user" | "assistant", content: textOf(m.content).slice(0, 8000) }))
     : [];
   if (!safe.length) {
     return NextResponse.json({ ok: false, error: "bad request" }, { status: 400 });
@@ -240,17 +192,12 @@ export async function POST(req: Request) {
 
   let sys = SYSTEM;
   const lastUser = [...safe].reverse().find(m => m.role === "user");
-  const hasImages = !!lastUser?.imgs?.length;
-  const hasVideos = !!lastUser?.vids?.length;
-  const hasMedia = hasImages || hasVideos;
-  // the model picker in the composer — whitelist only, no arbitrary ids
-  const ALLOWED_MODELS = new Set([
-    "prime-v1-flash", "prime-v1-vision", "glm-5.3", "glm-5.2", "glm-5.3-flash",
-  ]);
+  // one brain — the owner gateway default; no other chat models exist
+  const ALLOWED_MODELS = new Set(["prime-v1-flash", "prime-v1-vision"]);
   const wanted = typeof body?.model === "string" ? body.model.trim() : "";
   const chosen = ALLOWED_MODELS.has(wanted) ? wanted : PRIME_TEXT_MODEL;
-  // the user is talking about THEIR image/video — web search would only distract
-  if (lastUser && !hasMedia && wantsWeb(lastUser.content)) {
+  // the user is talking about THEIR attachment — web search would only distract
+  if (lastUser && !/\[attached (image|video|file):/i.test(lastUser.content) && wantsWeb(lastUser.content)) {
     sys += await googleContext(searchQuery(safe));
     if (/\b(sources?|cite|citations?|references?|links?|urls?)\b/i.test(lastUser.content)) {
       sys += "\n\nThe user explicitly asked for sources: end your reply with a final line 'Sources:' " +
@@ -258,54 +205,12 @@ export async function POST(req: Request) {
     }
   }
 
+  // the one brain — the owner gateway. No fallback models, no vision endpoint.
   const chatText = safe.map(m => ({ role: m.role, content: m.content }));
-  const chatVision = safe.map(m =>
-    (m.imgs && m.imgs.length) || (m.vids && m.vids.length)
-      ? {
-          role: m.role,
-          content: [
-            {
-              type: "text",
-              text:
-                m.content.trim() ||
-                (m.vids && m.vids.length
-                  ? "The user attached this video without any text. Watch it and describe what happens."
-                  : "The user attached this photo without any text. Describe and explain what you see."),
-            },
-            ...(m.imgs || []).map(u => ({ type: "image_url", image_url: { url: u } })),
-            ...(m.vids || []).map(v => ({ type: "video_url", video_url: { url: v } })),
-          ] as unknown as string,
-        }
-      : { role: m.role, content: m.content }
-  );
-
-  // owner gateway first for text chat — zero cost to the Z.ai quota
-  if (!hasMedia) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     const prime = await primeChat(sys, chatText, chosen);
     if (prime) return NextResponse.json({ ok: true, text: prime, engine: chosen });
+    if (attempt < 1) await new Promise(r => setTimeout(r, 5000)); // one quiet retry if the gateway blips
   }
-
-  let lastErr = "ai error";
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const zai = await ZAI.create();
-      const completion = hasMedia
-        ? await zai.chat.completions.createVision({
-            model: "glm-4.5v",
-            messages: [{ role: "assistant", content: sys }, ...chatVision],
-          })
-        : await zai.chat.completions.create({
-            messages: [{ role: "assistant", content: sys }, ...chatText],
-            thinking: { type: "enabled" },   // reason before answering — big quality lift
-          });
-      const text = String(completion?.choices?.[0]?.message?.content ?? "").trim();
-      if (text) return NextResponse.json({ ok: true, text, engine: hasMedia ? "zai-vision" : "zai" });
-      lastErr = "empty reply";
-    } catch (e) {
-      lastErr = String((e as Error)?.message || e || "ai error");
-    }
-    // upstream busy / throttled / blipped — back off and try again
-    if (attempt < 2) await new Promise(r => setTimeout(r, attempt === 0 ? 5000 : 15000));
-  }
-  return NextResponse.json({ ok: false, error: lastErr });
+  return NextResponse.json({ ok: false, error: "gateway unreachable" });
 }

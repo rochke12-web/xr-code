@@ -1081,29 +1081,6 @@ function typeReply(c, reply, pen){
 }
 
 /* ---------- hosted brain ---------- */
-function toVision(a){                             // downscale a photo for the brain — small payload, fast answer
-  if(a.v) return Promise.resolve(a.v);
-  return new Promise(res => {
-    if(!a.d){ res(''); return; }
-    const im = new Image();
-    im.onload = () => {
-      try{
-        const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height;
-        if(!w || !h){ res(a.d); return; }
-        const MAX = 1024, k = Math.min(1, MAX / Math.max(w, h));
-        if(k >= 1 && a.d.length < 400000){ a.v = a.d; res(a.v); return; }
-        const cv = document.createElement('canvas');
-        cv.width = Math.max(1, Math.round(w * k));
-        cv.height = Math.max(1, Math.round(h * k));
-        cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
-        a.v = cv.toDataURL('image/jpeg', 0.85);
-        res(a.v);
-      }catch(e){ res(a.d); }
-    };
-    im.onerror = () => res(a.d);
-    im.src = a.d;
-  });
-}
 function brainContext(c){
   return c.messages.slice(-20).map(m => ({ role: m.r === 'u' ? 'user' : 'assistant', content: m.t }));
 }
@@ -1128,25 +1105,8 @@ async function askBrain(c, text, atts){
     else last += '\n\n[attached file: ' + a.n + ' — ' + window.fmtSz(a.sz) + ']';
   });
   const ctx = brainContext(c);
-  const vision = [];                             // the images XR Code will actually see
-  for(const a of (atts || [])){
-    if((a.ty || '').indexOf('image/') === 0 && a.d && vision.length < 3) vision.push(await toVision(a));
-  }
-  const vids = [];                               // the video XR Code will actually watch
-  for(const a of (atts || [])){
-    if(a.vid && a.d && vids.length < 1) vids.push(a.d);
-  }
-  if(ctx.length){
-    if(vision.length || vids.length){
-      const parts = [{ type: 'text', text: last }];
-      vision.forEach(u => parts.push({ type: 'image_url', image_url: { url: u } }));
-      vids.forEach(u => parts.push({ type: 'video_url', video_url: { url: u } }));
-      ctx[ctx.length - 1].content = parts;
-    }else{
-      ctx[ctx.length - 1].content = last;
-    }
-  }
-  chip.textContent = vids.length ? 'watching your video…' : vision.length ? 'looking at your image…' : 'thinking…';
+  if(ctx.length) ctx[ctx.length - 1].content = last;   // attachments ride along as text notes
+  chip.textContent = 'thinking…';
   const call = () => fetch(API_BASE + '/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1358,8 +1318,7 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
       if((f.type || '').indexOf('image/') === 0){
         a.d = await readDataURL(f);
       }else if(isVid){
-        a.d = await readDataURL(f);                      // the brain watches this clip
-        a.vid = true;
+        a.vid = true;                                    // chip only — the brain reads the text note
       }else if((f.type || '').indexOf('text/') === 0 || (f.type || '').indexOf('json') > -1 || TXT_RE.test(f.name)){
         a.txt = await readText(f);
       }
@@ -1372,7 +1331,7 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
       row.innerHTML = '';
       ATT.forEach((a, i) => {
         const chip = document.createElement('span'); chip.className = 'att-chip';
-        if(a.d && a.vid){
+        if(a.vid){
           const ic = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
           ic.setAttribute('class', 'ic small'); ic.innerHTML = '<use href="#i-play"/>';
           chip.append(ic);
