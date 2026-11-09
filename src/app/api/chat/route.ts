@@ -169,34 +169,59 @@ async function runImageGen(prompt: string, size?: string): Promise<{ url: string
 
 async function runVideoGen(prompt: string, withAudio: boolean): Promise<{ url: string; cover?: string } | null> {
   try {
-    const zai = await ZAI.create();
-    const task = (await Promise.race([
-      zai.video.generations.create({
-        prompt,
-        quality: "speed",
-        with_audio: withAudio,
-        size: "1920x1080",
-        fps: 30,
-        duration: 5,
-      }),
-      new Promise<null>(r => setTimeout(() => r(null), 30000)),
-    ])) as { id?: string } | null;
+    // create the task — up to 3 attempts; on 429 rate-limit wait 45s before the next one
+    let task: { id?: string } | null = null;
+    for (let a = 0; a < 3 && !task; a++) {
+      try {
+        const zai = await ZAI.create();
+        task = (await Promise.race([
+          zai.video.generations.create({
+            prompt,
+            quality: "speed",
+            with_audio: withAudio,
+            size: "1920x1080",
+            fps: 30,
+            duration: 5,
+          }),
+          new Promise<null>(r => setTimeout(() => r(null), 30000)),
+        ])) as { id?: string } | null;
+        if (!task?.id) console.error("[videogen] create attempt", a, "returned no id");
+      } catch (e) {
+        const msg = String(e);
+        console.error("[videogen] create attempt", a, "threw:", msg.slice(0, 200));
+        if (msg.includes("429") && a < 2) {
+          console.error("[videogen] rate-limited — waiting 45s");
+          await new Promise(r => setTimeout(r, 45000));
+        }
+      }
+    }
     if (!task?.id) return null;
-    for (let i = 0; i < 24; i++) {
+    const zai = await ZAI.create();
+    for (let i = 0; i < 36; i++) {
       await new Promise(r => setTimeout(r, 10000));
-      const r = (await Promise.race([
-        zai.async.result.query(task.id),
-        new Promise<null>(x => setTimeout(() => x(null), 15000)),
-      ])) as { task_status?: string; video_result?: { url?: string; cover_image_url?: string }[] } | null;
+      // query — retry once on a null race so a single blip doesn't waste a poll cycle
+      let r: { task_status?: string; video_result?: { url?: string; cover_image_url?: string }[] } | null = null;
+      for (let q = 0; q < 2 && !r; q++) {
+        try {
+          r = (await Promise.race([
+            zai.async.result.query(task.id),
+            new Promise<null>(x => setTimeout(() => x(null), 15000)),
+          ])) as { task_status?: string; video_result?: { url?: string; cover_image_url?: string }[] } | null;
+        } catch (e) {
+          console.error("[videogen] query threw:", String(e).slice(0, 200));
+        }
+      }
       if (r?.task_status === "SUCCESS") {
         const url = r.video_result?.[0]?.url;
-        if (!url) return null;
+        if (!url) { console.error("[videogen] SUCCESS but no url"); return null; }
         return { url, cover: r.video_result?.[0]?.cover_image_url };
       }
-      if (r?.task_status === "FAIL") return null;
+      if (r?.task_status === "FAIL") { console.error("[videogen] task FAIL"); return null; }
     }
+    console.error("[videogen] polling window exhausted");
     return null; // timed out — composer apologizes
-  } catch {
+  } catch (e) {
+    console.error("[videogen] outer error:", String(e).slice(0, 200));
     return null;
   }
 }
