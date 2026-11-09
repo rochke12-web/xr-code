@@ -492,21 +492,8 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .data-row{display:flex;gap:10px;flex-wrap:wrap}
 .note{font-size:11px;color:var(--muted);line-height:1.6;border-left:2px solid var(--accent-2);padding-left:12px}
 
-/* ============================================================
-   STATUS BAR
-   ============================================================ */
-.statusbar{
-  display:flex;align-items:center;justify-content:space-between;gap:14px;
-  padding:7px 20px;border-top:1px solid var(--line);
-  font-family:var(--font-mono);font-size:11px;color:var(--muted);
-  background:var(--panel);backdrop-filter:blur(12px);
-}
-.statusbar .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--line);margin-right:7px}
-.statusbar .dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
-.statusbar b{color:var(--text);font-weight:600}
-
 /* toasts */
-.toasts{position:fixed;right:18px;bottom:52px;display:flex;flex-direction:column;gap:8px;z-index:200}
+.toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:200}
 .toast{
   background:var(--bg2);border:1px solid var(--line);border-left:3px solid var(--accent);
   border-radius:10px;padding:10px 14px;font-size:12.5px;box-shadow:var(--shadow);
@@ -726,14 +713,6 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 
   <div class="resizer" id="resizer" title="Drag to resize the sidebar"></div>
 </div>
-
-<!-- ============ STATUS BAR ============ -->
-<footer class="statusbar">
-  <span id="stConn"><span class="dot"></span>Not signed in</span>
-  <span>XR-Code <b>v1.0.0</b></span>
-  <span>Made by <b>Yug and Saksham</b></span>
-</footer>
-
 
 <div class="toasts" id="toasts"></div>
 
@@ -1268,14 +1247,9 @@ function updateSyncUI(){
   }
   el.append(ic, span);
 }
-function renderStatus(){
+function renderStatus(){                    // status bar removed — safe no-op
   const el = $('#stConn');
-  el.innerHTML = '';
-  const d = document.createElement('span'); d.className = 'dot' + (NET.live ? ' on' : '');
-  const txt = !NET.checked ? 'AI brain connecting…'
-            : NET.live     ? 'AI online — hosted brain'
-                           : 'AI offline';
-  el.append(d, document.createTextNode(txt));
+  if(!el) return;
 }
 
 /* ---------- export / clear ---------- */
