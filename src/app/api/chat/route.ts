@@ -6,13 +6,14 @@ import type { VisionMessage } from "z-ai-web-dev-sdk";
 // One highly capable agent: reads each message and automatically responds the
 // best way — complete runnable code, precise debugging, clear explanations, or
 // direct answers to any question (riding live web results when useful).
-// Engine: OWNER GATEWAY ONLY (prime-v1-flash via /v1/messages, Anthropic-style).
-// Server-side only: the key never reaches the browser. No other chat models.
+// Engine: OWNER GATEWAY (prime-v1-flash / prime-v1-vision via /v1/messages,
+// Anthropic-style) plus all FREE GLM models via the ZAI SDK (OpenAI-style).
+// Server-side only: no keys ever reach the browser.
 // Real vision: the gateway itself is text-only (verified — it strips image
 // blocks), so photos & video keyframes are DESCRIBED here by a vision
 // preprocessor and the description rides to the brain as a [VISION] block.
-// If the gateway is unreachable the client shows
-// its retry card; nothing silently switches models.
+// If the gateway is unreachable, prime requests quietly ride a free GLM
+// engine so chat never dies.
 // GET  /api/chat → health probe { ok: true } for the status bar
 // POST /api/chat → { messages } → { ok, text } | { ok:false, error }
 
@@ -132,6 +133,20 @@ const PRIME_BASE = process.env.PRIME_BASE_URL || "https://r1de49ege2k1-d.space-z
 const PRIME_KEY = process.env.PRIME_API_KEY || "";
 const PRIME_TEXT_MODEL = process.env.PRIME_TEXT_MODEL || "prime-v1-flash";
 
+// every free GLM engine (all verified live via the ZAI SDK)
+const GLM_MODELS = new Set([
+  "glm-4.5-flash",
+  "glm-4.5-air",
+  "glm-4.5",
+  "glm-4.5v",
+  "glm-4.6",
+  "glm-4.6v",
+  "glm-4-flash",
+  "glm-4v-flash",
+  "glm-4-plus",
+]);
+const GLM_FALLBACK = "glm-4.5-flash"; // rides in when the owner gateway is down
+
 async function primeChat(sys: string, msgs: { role: string; content: string }[], model: string): Promise<string | null> {
   if (!PRIME_KEY) return null;
   try {
@@ -175,6 +190,25 @@ async function primeChat(sys: string, msgs: { role: string; content: string }[],
     return text || null;
   } catch {
     return null; // gateway down / slow — caller surfaces the retry card
+  }
+}
+
+// free GLM engines via the ZAI SDK (OpenAI-style messages, verified live)
+async function glmChat(sys: string, msgs: { role: string; content: string }[], model: string): Promise<string | null> {
+  try {
+    const zai = await ZAI.create();
+    const res = (await Promise.race([
+      zai.chat.completions.create({
+        model,
+        messages: [{ role: "system", content: sys }, ...msgs],
+        thinking: { type: "disabled" as const },
+      }),
+      new Promise<null>(r => setTimeout(() => r(null), 60000)),
+    ])) as { choices?: { message?: { content?: string } }[] } | null;
+    const text = String(res?.choices?.[0]?.message?.content || "").trim();
+    return text || null;
+  } catch {
+    return null; // engine down — caller tries the next one
   }
 }
 
@@ -268,10 +302,10 @@ export async function POST(req: Request) {
 
   let sys = SYSTEM;
   const lastUser = [...safe].reverse().find(m => m.role === "user");
-  // one brain — the owner gateway default; no other chat models exist
+  // engines: owner gateway (prime-*) + all free GLM models
   const ALLOWED_MODELS = new Set(["prime-v1-flash", "prime-v1-vision"]);
   const wanted = typeof body?.model === "string" ? body.model.trim() : "";
-  const chosen = ALLOWED_MODELS.has(wanted) ? wanted : PRIME_TEXT_MODEL;
+  const chosen = ALLOWED_MODELS.has(wanted) || GLM_MODELS.has(wanted) ? wanted : PRIME_TEXT_MODEL;
   // the user is talking about THEIR attachment — web search would only distract
   if (lastUser && !/\[attached (image|video|file):/i.test(lastUser.content) && wantsWeb(lastUser.content)) {
     sys += await googleContext(searchQuery(safe));
@@ -294,17 +328,30 @@ export async function POST(req: Request) {
     }
   }
 
-  // the one brain — the owner gateway. No fallback models.
   const chatText = safe.map(m => ({ role: m.role, content: m.content }));
   if (visionBlock) {
     const lu = [...chatText].reverse().find(m => m.role === "user");
     if (lu) lu.content = (lu.content + visionBlock).slice(0, 12000);
   }
+
+  // GLM engines answer directly via the SDK
+  if (GLM_MODELS.has(chosen)) {
+    const text = await glmChat(sys, chatText, chosen);
+    if (text)
+      return NextResponse.json({ ok: true, text, engine: chosen, vision: visionBlock || undefined });
+    return NextResponse.json({ ok: false, error: "engine unreachable" });
+  }
+
+  // prime engines ride the owner gateway; if it is down, quietly fall back to
+  // a free GLM engine so the chat never dies.
   for (let attempt = 0; attempt < 2; attempt++) {
     const prime = await primeChat(sys, chatText, chosen);
     if (prime)
       return NextResponse.json({ ok: true, text: prime, engine: chosen, vision: visionBlock || undefined });
     if (attempt < 1) await new Promise(r => setTimeout(r, 5000)); // one quiet retry if the gateway blips
   }
+  const fb = await glmChat(sys, chatText, GLM_FALLBACK);
+  if (fb)
+    return NextResponse.json({ ok: true, text: fb, engine: GLM_FALLBACK, fallback: true, vision: visionBlock || undefined });
   return NextResponse.json({ ok: false, error: "gateway unreachable" });
 }

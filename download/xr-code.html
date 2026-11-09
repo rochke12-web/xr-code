@@ -330,7 +330,7 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .model-pill svg.ic:last-of-type{transition:transform .18s ease}
 .mwrap:has(.mmenu.open) .model-pill svg.ic:last-of-type{transform:rotate(180deg)}
 .mmenu{
-  position:absolute;bottom:calc(100% + 8px);left:0;min-width:236px;z-index:60;
+  position:absolute;bottom:calc(100% + 8px);left:0;min-width:236px;max-height:62vh;overflow-y:auto;z-index:60;
   display:none;flex-direction:column;gap:2px;padding:6px;
   background:var(--pop);border:1px solid var(--line);border-radius:14px;
   box-shadow:0 18px 50px rgba(0,0,0,.55);
@@ -340,6 +340,7 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .mmenu button:hover{background:var(--panel-2)}
 .mmenu button.current{color:var(--accent)}
 .mmenu button small{font-size:10px;color:var(--muted);font-weight:400;font-family:var(--font-mono);letter-spacing:.02em}
+.mmenu .mgl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.09em;font-weight:700;padding:7px 11px 3px}
 @media(max-width:640px){.model-pill .mp-n{display:none}.model-pill{padding:0 12px}}
 .msg.hit .bubble{box-shadow:0 0 0 1.5px var(--accent)}
 .dots{display:inline-flex;gap:5px;padding:7px 2px 3px}
@@ -690,6 +691,16 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
             <div class="mmenu" id="homeModelMenu">
               <button type="button" data-m="prime-v1-flash"><b>Flash</b><small>prime-v1-flash · fast everyday brain</small></button>
               <button type="button" data-m="prime-v1-vision"><b>Vision</b><small>prime-v1-vision · heavier, sharper tasks</small></button>
+              <span class="mgl">Free GLM models</span>
+              <button type="button" data-m="glm-4.6"><b>GLM 4.6</b><small>glm-4.6 · flagship, smartest</small></button>
+              <button type="button" data-m="glm-4.6v"><b>GLM 4.6V</b><small>glm-4.6v · flagship with vision</small></button>
+              <button type="button" data-m="glm-4.5"><b>GLM 4.5</b><small>glm-4.5 · balanced flagship</small></button>
+              <button type="button" data-m="glm-4.5-air"><b>GLM 4.5 Air</b><small>glm-4.5-air · light &amp; quick</small></button>
+              <button type="button" data-m="glm-4.5-flash"><b>GLM 4.5 Flash</b><small>glm-4.5-flash · fastest GLM</small></button>
+              <button type="button" data-m="glm-4.5v"><b>GLM 4.5V</b><small>glm-4.5v · vision capable</small></button>
+              <button type="button" data-m="glm-4-plus"><b>GLM 4 Plus</b><small>glm-4-plus · classic plus</small></button>
+              <button type="button" data-m="glm-4-flash"><b>GLM 4 Flash</b><small>glm-4-flash · classic fast</small></button>
+              <button type="button" data-m="glm-4v-flash"><b>GLM 4V Flash</b><small>glm-4v-flash · classic vision</small></button>
             </div>
           </div>
           <input id="homeInput" autocomplete="off" placeholder="What would you like to do with XR-Code?">
@@ -715,6 +726,16 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
           <div class="mmenu" id="chatModelMenu">
             <button type="button" data-m="prime-v1-flash"><b>Flash</b><small>prime-v1-flash · fast everyday brain</small></button>
             <button type="button" data-m="prime-v1-vision"><b>Vision</b><small>prime-v1-vision · heavier, sharper tasks</small></button>
+            <span class="mgl">Free GLM models</span>
+            <button type="button" data-m="glm-4.6"><b>GLM 4.6</b><small>glm-4.6 · flagship, smartest</small></button>
+            <button type="button" data-m="glm-4.6v"><b>GLM 4.6V</b><small>glm-4.6v · flagship with vision</small></button>
+            <button type="button" data-m="glm-4.5"><b>GLM 4.5</b><small>glm-4.5 · balanced flagship</small></button>
+            <button type="button" data-m="glm-4.5-air"><b>GLM 4.5 Air</b><small>glm-4.5-air · light &amp; quick</small></button>
+            <button type="button" data-m="glm-4.5-flash"><b>GLM 4.5 Flash</b><small>glm-4.5-flash · fastest GLM</small></button>
+            <button type="button" data-m="glm-4.5v"><b>GLM 4.5V</b><small>glm-4.5v · vision capable</small></button>
+            <button type="button" data-m="glm-4-plus"><b>GLM 4 Plus</b><small>glm-4-plus · classic plus</small></button>
+            <button type="button" data-m="glm-4-flash"><b>GLM 4 Flash</b><small>glm-4-flash · classic fast</small></button>
+            <button type="button" data-m="glm-4v-flash"><b>GLM 4V Flash</b><small>glm-4v-flash · classic vision</small></button>
           </div>
         </div>
         <input id="chatInput" autocomplete="off" placeholder="Message XR Code...">
@@ -1026,8 +1047,13 @@ function renderChatList(){
   });
 }
 
-/* ---------- model picker (owner gateway: prime-v1-flash / prime-v1-vision) ---------- */
-const MODELS = { 'prime-v1-flash': 'Flash', 'prime-v1-vision': 'Vision' };
+/* ---------- model picker (owner gateway prime engines + all free GLM models) ---------- */
+const MODELS = {
+  'prime-v1-flash': 'Flash', 'prime-v1-vision': 'Vision',
+  'glm-4.6': 'GLM 4.6', 'glm-4.6v': 'GLM 4.6V', 'glm-4.5': 'GLM 4.5',
+  'glm-4.5-air': 'GLM 4.5 Air', 'glm-4.5-flash': 'GLM 4.5 Flash', 'glm-4.5v': 'GLM 4.5V',
+  'glm-4-plus': 'GLM 4 Plus', 'glm-4-flash': 'GLM 4 Flash', 'glm-4v-flash': 'GLM 4V Flash'
+};
 function renderModel(){
   $$('.model-pill .mp-n').forEach(n => n.textContent = MODELS[S.model] || 'Flash');
   $$('#homeModelMenu button,#chatModelMenu button').forEach(b => b.classList.toggle('current', b.dataset.m === S.model));
