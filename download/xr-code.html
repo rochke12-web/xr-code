@@ -698,9 +698,13 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
           <img class="bs-logo dark-only" data-asset="wordmark" alt="XR logo" draggable="false"><img class="bs-logo light-only" data-asset="tile-light" alt="XR logo" draggable="false">
           <button class="file-btn" id="homeFileBtn" type="button" title="Attach files"><i class="ic" data-ic="i-clip"></i></button>
           <div class="mwrap">
-            <button class="model-pill" id="homeModelBtn" type="button" title="XR Code runs on the GLM family">
-              <i class="ic small" data-ic="i-cpu"></i><span class="mp-n">GLM</span>
+            <button class="model-pill" id="homeModelBtn" type="button" title="Choose mode">
+              <i class="ic small" data-ic="i-cpu"></i><span class="mp-n">Koder</span><i class="ic small" data-ic="i-chevd"></i>
             </button>
+            <div class="mmenu" id="homeModeMenu">
+              <button type="button" data-mode="koder"><b>Koder Mode</b><small>code, debug &amp; build — the full developer brain</small></button>
+              <button type="button" data-mode="qna"><b>QnA Mode</b><small>answers from the web — sources never shown</small></button>
+            </div>
           </div>
           <input id="homeInput" autocomplete="off" placeholder="What would you like to do with XR-Code?">
           <button class="send-btn" type="submit" title="Send"><i class="ic" data-ic="i-chev"></i></button>
@@ -719,9 +723,13 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
       <form class="composer" id="chatForm">
         <button class="file-btn" id="fileBtn" type="button" title="Attach files"><i class="ic" data-ic="i-clip"></i></button>
         <div class="mwrap">
-          <button class="model-pill" id="chatModelBtn" type="button" title="XR Code runs on the GLM family">
-            <i class="ic small" data-ic="i-cpu"></i><span class="mp-n">GLM</span>
+          <button class="model-pill" id="chatModelBtn" type="button" title="Choose mode">
+            <i class="ic small" data-ic="i-cpu"></i><span class="mp-n">Koder</span><i class="ic small" data-ic="i-chevd"></i>
           </button>
+          <div class="mmenu" id="chatModeMenu">
+            <button type="button" data-mode="koder"><b>Koder Mode</b><small>code, debug &amp; build — the full developer brain</small></button>
+            <button type="button" data-mode="qna"><b>QnA Mode</b><small>answers from the web — sources never shown</small></button>
+          </div>
         </div>
         <input id="chatInput" autocomplete="off" placeholder="Message XR Code...">
         <button class="send-btn" type="submit" title="Send"><i class="ic" data-ic="i-send"></i></button>
@@ -842,6 +850,7 @@ function defaults(){
     chats: [],
     active: null,
     model: 'glm-4.6',          // one GLM brain — flagship default
+    mode: 'koder',             // 'koder' | 'qna' — the two personalities
     lastSync: null
   };
 }
@@ -850,8 +859,8 @@ let S = load() || defaults();
   delete S.zai; delete S.zaiKey;                            // API-key era removed
   delete S.models; delete S.routing; delete S.tokensSaved;  // model options removed
   delete S.startupDone; delete S.gemini; delete S.local;    // leftovers from old versions
-  delete S.mode;                                           // mode picker removed — one unified brain
   if(!S.model || !/^glm-/.test(S.model)) S.model = 'glm-4.6';  // one GLM brain (stale prime values migrate)
+  if(S.mode !== 'koder' && S.mode !== 'qna') S.mode = 'koder';   // two modes: koder | qna
   if(S.user && S.user.provider === 'api') S.user = null;
   delete S.api;
 })();
@@ -1043,13 +1052,33 @@ function renderChatList(){
   });
 }
 
-/* ---------- model badge — one GLM brain, the whole family behind it ---------- */
+/* ---------- mode picker — Koder / QnA (the GLM family stays behind it) ---------- */
+const MODES = { koder: { n: 'Koder', ic: 'i-cpu' }, qna: { n: 'QnA', ic: 'i-qna' } };
 function renderModel(){
-  $$('.model-pill .mp-n').forEach(n => n.textContent = 'GLM');
+  const md = MODES[S.mode] || MODES.koder;
+  $$('.model-pill').forEach(pill => {
+    const n = pill.querySelector('.mp-n'); if(n) n.textContent = md.n;
+    const use = pill.querySelector('svg.ic use'); if(use) use.setAttribute('href', '#' + md.ic);
+  });
+  $$('#homeModeMenu button,#chatModeMenu button').forEach(b => b.classList.toggle('current', b.dataset.mode === S.mode));
 }
 function closeMenus(){ $$('.mmenu.open').forEach(m => m.classList.remove('open')); }
 $$('.model-pill').forEach(pill => {
-  pill.addEventListener('click', () => toast('XR Code runs on the GLM family — one brain, all models'));
+  pill.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const m = pill.parentElement.querySelector('.mmenu');
+    const was = m.classList.contains('open');
+    closeMenus();
+    if(!was) m.classList.add('open');
+  });
+});
+$$('#homeModeMenu button,#chatModeMenu button').forEach(b => {
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    S.mode = b.dataset.mode;
+    save(); renderModel(); closeMenus();
+    toast('Mode: ' + (MODES[S.mode] || MODES.koder).n);
+  });
 });
 document.addEventListener('click', closeMenus);
 /* ---------- AI code replies: fence split + foldable code blocks ---------- */
@@ -1332,7 +1361,7 @@ async function askBrain(c, text, atts){
   const call = () => fetch(API_BASE + '/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: ctx, model: S.model || 'glm-4.6' })   // one GLM brain
+    body: JSON.stringify({ messages: ctx, model: S.model || 'glm-4.6', mode: S.mode || 'koder' })   // one brain, two modes
   });
   let d = null, failed = null;
   for(let attempt = 0; attempt < 2; attempt++){        // one quiet auto-retry for connection drops
