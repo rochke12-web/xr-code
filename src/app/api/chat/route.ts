@@ -296,21 +296,27 @@ function autoEngine(q: string): string {
 
 // free GLM engines via the ZAI SDK (OpenAI-style messages, verified live)
 async function glmChat(sys: string, msgs: { role: "user" | "assistant"; content: string }[], model: string): Promise<string | null> {
-  try {
-    const zai = await ZAI.create();
-    const res = (await Promise.race([
-      zai.chat.completions.create({
-        model,
-        messages: [{ role: "system", content: sys }, ...msgs],
-        thinking: { type: "disabled" as const },
-      }),
-      new Promise<null>(r => setTimeout(() => r(null), 60000)),
-    ])) as { choices?: { message?: { content?: string } }[] } | null;
-    const text = String(res?.choices?.[0]?.message?.content || "").trim();
-    return text || null;
-  } catch {
-    return null; // engine down — caller tries the next one
+  // self-healing: up to 3 attempts, re-creating the engine client each time —
+  // a stale/poisoned SDK instance (env refresh after recycle) recovers instantly
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const zai = await ZAI.create();
+      const res = (await Promise.race([
+        zai.chat.completions.create({
+          model,
+          messages: [{ role: "system", content: sys }, ...msgs],
+          thinking: { type: "disabled" as const },
+        }),
+        new Promise<null>(r => setTimeout(() => r(null), 60000)),
+      ])) as { choices?: { message?: { content?: string } }[] } | null;
+      const text = String(res?.choices?.[0]?.message?.content || "").trim();
+      if (text) return text;
+    } catch {
+      // engine hiccup — fall through to retry
+    }
+    if (attempt < 2) await new Promise(r => setTimeout(r, 1200));
   }
+  return null; // caller tries the next engine
 }
 
 // pull plain text out of string-or-multipart content
