@@ -24,8 +24,11 @@ import { randomUUID } from "crypto";
 const ATT_BLIND =
   "photos, videos and files arrive as text notes (name, size) — you cannot " +
   "see inside images or videos in this build. Never invent or describe what a picture or " +
-  "clip shows. If asked about its contents, say plainly you can't view images or videos " +
-  "here and ask the user to describe it or paste any text or code from it";
+  "clip shows. If the user mentions an image, video or picture — even if they directly ask " +
+  "\"what do you see?\" or \"describe this photo\" — you have NO image data unless a [VISION] " +
+  "block is present in this conversation. Never guess, never make up subjects, colors, people " +
+  "or scenes. Say plainly you can't view images or videos here and ask the user to describe it " +
+  "or paste any text or code from it";
 const ATT_VISION =
   "files arrive as text notes (name, size); photos and videos arrive preprocessed — a " +
   "[VISION] block tells you exactly what each attached image or video keyframe shows, with " +
