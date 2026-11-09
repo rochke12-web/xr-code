@@ -354,6 +354,25 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .msgs{flex:1;overflow-y:auto;padding:22px 24px;display:flex;flex-direction:column;gap:14px;min-height:0}
 .msg{max-width:76%;display:flex;flex-direction:column;gap:6px}
 .msg .who{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+/* ---------- discord gate (verified members only) ---------- */
+.gate{position:fixed;inset:0;z-index:200;display:none;align-items:center;justify-content:center;background:rgba(4,5,9,.88);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.gate-card{width:min(430px,90vw);border:1px solid var(--line);border-radius:20px;background:var(--panel);padding:36px 30px;text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center;box-shadow:0 30px 80px rgba(0,0,0,.6)}
+.gate-card img{height:34px;opacity:.95}
+.gate-card img.light-only{display:none}
+:root[data-theme="light"] .gate-card img.light-only{display:block}
+:root[data-theme="light"] .gate-card img.dark-only{display:none}
+.gate-card h2{font-family:var(--font-head);letter-spacing:.18em;font-size:15px;text-transform:uppercase}
+.gate-card p{font-size:13px;color:var(--muted);line-height:1.7}
+.gate-btn{
+  display:inline-flex;align-items:center;gap:9px;height:46px;padding:0 22px;border-radius:12px;cursor:pointer;border:none;
+  background:#5865F2;color:#fff;font-weight:600;font-size:13.5px;transition:filter .15s;margin-top:4px;
+  font-family:var(--font-head);letter-spacing:.06em;
+}
+.gate-btn:hover{filter:brightness(1.12)}
+.gate-join{font-size:12.5px;color:var(--accent);text-decoration:none;border:1px solid var(--line);border-radius:10px;padding:8px 16px}
+.gate-join:hover{border-color:var(--accent)}
+.msg .who .dsv{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-left:8px}
+
 .msg .bubble{
   border-radius:14px;padding:12px 15px;font-size:14px;line-height:1.6;white-space:pre-wrap;
   word-wrap:break-word;
@@ -620,6 +639,20 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
     </button>
   </div>
 </header>
+
+<!-- discord gate — verified members only -->
+<div class="gate" id="gate">
+  <div class="gate-card">
+    <img class="dark-only" data-asset="wordmark" alt="XR Code"><img class="light-only" data-asset="tile-light" alt="XR Code">
+    <h2>Members only</h2>
+    <p id="gateMsg">XR Code AI works for verified members of our Discord server. Verify to continue.</p>
+    <button class="gate-btn" id="gateBtn" type="button">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20.32 4.37a19.8 19.8 0 0 0-4.93-1.51 13.78 13.78 0 0 0-.64 1.28 18.27 18.27 0 0 0-5.5 0 12.64 12.64 0 0 0-.64-1.28c-1.71.29-3.37.8-4.93 1.51A20.26 20.26 0 0 0 .1 18.06a19.9 19.9 0 0 0 6.07 3.03c.49-.66.93-1.37 1.3-2.1a12.9 12.9 0 0 1-2.05-.98c.17-.12.34-.25.5-.38a14.2 14.2 0 0 0 12.16 0c.17.13.33.26.5.38-.65.38-1.34.71-2.05.98.37.73.8 1.44 1.3 2.1a19.84 19.84 0 0 0 6.07-3.03 20.2 20.2 0 0 0-3.58-13.69ZM8.02 15.33c-1.18 0-2.16-1.08-2.16-2.42 0-1.33.95-2.42 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.34-.95 2.42-2.16 2.42Zm7.96 0c-1.18 0-2.16-1.08-2.16-2.42 0-1.33.95-2.42 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.34-.95 2.42-2.16 2.42Z"/></svg>
+      Verify with Discord
+    </button>
+    <a class="gate-join" id="gateJoin" target="_blank" rel="noopener" style="display:none">Join the server first &#8599;</a>
+  </div>
+</div>
 
 <div class="shell">
   <!-- ============ MAIN ============ -->
@@ -1025,6 +1058,7 @@ function msgEl(m, c){
 /* ---------- sending ---------- */
 function sendMsg(text){
   text = (text || '').trim();
+  if(!gateGuard()) return;                       // Discord gate — verified members only
   const live = window.__takeAtts ? window.__takeAtts() : [];
   if(!text && !live.length) return;                // nothing to send — but a bare photo is fine
   const c = currentChat();
@@ -1085,6 +1119,7 @@ function brainContext(c){
   return c.messages.slice(-20).map(m => ({ role: m.r === 'u' ? 'user' : 'assistant', content: m.t }));
 }
 async function askBrain(c, text, atts){
+  if(!gateGuard()) return;                       // Discord gate — also covers the retry card
   const chip = $('#chatModelChip');
   chip.textContent = 'thinking…';
   const box0 = $('#msgs');                               // animated thinking bubble (like modern AI chats)
@@ -1165,6 +1200,21 @@ function renderAccounts(){
   s.textContent = 'Chats save automatically on this device · XR Code AI ' + (NET.live ? 'online' : 'offline');
   i.append(n, s);
   r.append(i); box.append(r);
+  if(window.__DSGATE && window.__DSGATE.ok){     // verified Discord membership card
+    const d = document.createElement('div'); d.className = 'acc-row';
+    const i2 = document.createElement('div'); i2.className = 'ai2';
+    const n2 = document.createElement('div'); n2.className = 'an'; n2.textContent = 'Discord · verified';
+    const s2 = document.createElement('div'); s2.className = 'as'; s2.textContent = 'AI access unlocked on this device.';
+    const un = document.createElement('button'); un.className = 'mini-btn'; un.type = 'button';
+    un.style.marginTop = '8px'; un.textContent = 'Unlink Discord';
+    un.onclick = async () => {
+      try{ await fetch(API_BASE + '/api/discord/logout', { method: 'POST' }); }catch(e){}
+      window.__DSGATE.ok = false;
+      toast('Discord unlinked — verify again to use the AI');
+      setTimeout(() => location.reload(), 600);
+    };
+    i2.append(n2, s2, un); d.append(i2); box.append(d);
+  }
 }
 function updateSyncUI(){
   const el = $('#syncLine');
@@ -1406,12 +1456,59 @@ $$('#themeSeg button').forEach(b => b.onclick = () => setTheme(b.dataset.th));
 $('#exportBtn').onclick = exportChats;
 $('#clearBtn').onclick = clearAll;
 
+/* ---------- discord gate (join + verify to use the AI) ---------- */
+const DSGATE = { ok: false, invite: '' };
+window.__DSGATE = DSGATE;
+function gateShow(msg, invite){
+  const g = $('#gate'); if(!g) return;
+  if(msg) $('#gateMsg').textContent = msg;
+  const j = $('#gateJoin');
+  if(invite){ j.href = invite; j.style.display = 'inline-flex'; } else { j.style.display = 'none'; }
+  g.style.display = 'flex';
+}
+function gateHide(){ const g = $('#gate'); if(g) g.style.display = 'none'; }
+function gateGuard(){
+  if(DSGATE.ok) return true;
+  gateShow('Verify with Discord to use the AI.', DSGATE.invite);
+  return false;
+}
+async function gateInit(){
+  try{
+    const r = await fetch(API_BASE + '/api/discord/check', { method: 'POST', cache: 'no-store' });
+    const d = await r.json().catch(() => null);
+    DSGATE.invite = (d && d.invite) || '';
+    if(d && d.ok){ DSGATE.ok = true; gateHide(); renderAccounts(); return; }
+    let msg = '';
+    try{                                        // result code the OAuth callback left on the top window
+      const q = new URLSearchParams((window.parent && window.parent !== window ? window.parent.location.search : location.search) || '');
+      const e2 = q.get('dserr');
+      if(e2 === 'join') msg = 'You are not in the XR Discord server yet. Join it, get member-verified, then press Verify again.';
+      else if(e2 === 'pending') msg = 'Almost there — finish the verification steps inside the Discord server (Membership Screening), then press Verify again.';
+      else if(e2 === 'setup') msg = 'Discord verification is not connected yet — the owner needs to add the Discord secret on the server.';
+      else if(e2 === 'expired') msg = 'Your verification expired — verify with Discord again.';
+    }catch(e){}
+    if(!msg) msg = 'XR Code AI works for verified members of our Discord server. Verify to continue.';
+    gateShow(msg, DSGATE.invite);
+  }catch(e){
+    gateShow('Could not reach the verification server — check your connection and reload.');
+  }
+}
+$('#gateBtn').onclick = () => {
+  const red = API_BASE + '/auth/discord/callback';
+  const url = 'https://discord.com/oauth2/authorize?client_id=1569300109790023772' +
+    '&response_type=code&redirect_uri=' + encodeURIComponent(red) +
+    '&scope=' + encodeURIComponent('identify guilds.members.read guilds');
+  try{ window.top.location.href = url; }        // Discord owns the tab — comes back through the callback
+  catch(e){ location.href = url; }
+};
+
 /* ---------- init ---------- */
 applyTheme();
 renderAccounts();
 updateSyncUI();
 renderStatus();
 netCheck();                                         // ping the hosted brain once for the status bar
+gateInit();                                         // Discord gate — hide or show the lock
 $('#chatInput').disabled = false;
 </script>
 </body>
