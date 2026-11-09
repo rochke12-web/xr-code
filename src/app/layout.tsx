@@ -14,18 +14,21 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "XR-Code",
-  description: "Ai agent",
+  title: "XR-Code — AI Agent by Yug and Saksham",
+  description:
+    "XR Code — AI agent by Yug and Saksham. Ask anything, drop photos, plan, code, debug and explore.",
   openGraph: {
-    title: "XR-Code",
-    description: "Ai agent",
+    title: "XR-Code — AI Agent by Yug and Saksham",
+    description:
+      "XR Code — AI agent by Yug and Saksham. Ask anything, drop photos, plan, code, debug and explore.",
     siteName: "XR-Code",
     type: "website",
   },
   twitter: {
     card: "summary",
-    title: "XR-Code",
-    description: "Ai agent",
+    title: "XR-Code — AI Agent by Yug and Saksham",
+    description:
+      "XR Code — AI agent by Yug and Saksham. Ask anything, drop photos, plan, code, debug and explore.",
   },
 };
 
