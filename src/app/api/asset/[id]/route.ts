@@ -8,7 +8,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   if (!/^[a-f0-9]{16,24}$/.test(id))
     return NextResponse.json({ ok: false, error: "bad id" }, { status: 400 });
-  const file = path.join(process.cwd(), "db", "assets", id + ".png");
+  // stable asset dir OUTSIDE .next — matches the chat route (survives rebuilds)
+  const file = path.resolve(process.cwd(), (process.env.XR_ASSET_DIR ? "" : "../../") + "db/assets", id + ".png");
   try {
     const buf = fs.readFileSync(file);
     return new NextResponse(new Uint8Array(buf), {

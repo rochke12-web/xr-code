@@ -155,7 +155,8 @@ function parseAction(reply: string | null): Action | null {
 }
 
 const IMG_SIZES = new Set(["1024x1024", "768x1344", "864x1152", "1344x768", "1152x864", "1440x720", "720x1440"]);
-const ASSET_DIR = path.join(process.cwd(), "db", "assets");
+// stable asset dir OUTSIDE .next — survives rebuilds (standalone cwd is .next/standalone)
+const ASSET_DIR = process.env.XR_ASSET_DIR || path.resolve(process.cwd(), "../../db/assets");
 
 async function runImageGen(prompt: string, size?: string): Promise<{ url: string } | null> {
   try {
