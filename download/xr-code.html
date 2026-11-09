@@ -1484,6 +1484,8 @@ async function gateInit(){
       const e2 = q.get('dserr');
       if(e2 === 'join') msg = 'You are not in the XR Discord server yet. Join it, get member-verified, then press Verify again.';
       else if(e2 === 'pending') msg = 'Almost there — finish the verification steps inside the Discord server (Membership Screening), then press Verify again.';
+      else if(e2 === 'role') msg = 'You are in the server, but you don\'t have the XR-Auth role — ask an admin to assign it, then press Verify again.';
+      else if(e2 === 'roleconf') msg = 'Access is locked — the owner still needs to connect the XR-Auth role check on the server.';
       else if(e2 === 'setup') msg = 'Discord verification is not connected yet — the owner needs to add the Discord secret on the server.';
       else if(e2 === 'expired') msg = 'Your verification expired — verify with Discord again.';
     }catch(e){}

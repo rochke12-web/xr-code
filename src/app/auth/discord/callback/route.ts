@@ -1,12 +1,36 @@
 // Discord OAuth callback — the code never touches the browser.
-// Exchange -> identify -> membership check in the owner's server ->
-// member + verified (screening passed) ? mint cookie : bounce back with an error code.
+// Exchange -> identify -> membership + role check in the owner's server ->
+// member with the XR-Auth role ? mint cookie : bounce back with an error code.
+// Role resolution: DISCORD_ROLE_ID if set, otherwise look up a role by name
+// (DISCORD_ROLE_NAME, default "XR-Auth") through the bot token.
 import { NextResponse } from "next/server";
 import { mintToken, authCookie } from "@/lib/xrauth";
 
 const CID = process.env.DISCORD_CLIENT_ID || "1569300109790023772";
 const GID = process.env.DISCORD_GUILD_ID || "1568895668368711692";
 const SECRET = process.env.DISCORD_CLIENT_SECRET || "";
+const BOT = process.env.DISCORD_BOT_TOKEN || "";
+const ROLE_ID = process.env.DISCORD_ROLE_ID || "";
+const ROLE_NAME = (process.env.DISCORD_ROLE_NAME || "XR-Auth").trim().toLowerCase();
+
+// role id lookup by name (needs the bot in the server) — cached 10 minutes
+let roleCache: { id: string; at: number } | null = null;
+async function targetRoleId(): Promise<string> {
+  if (ROLE_ID) return ROLE_ID;
+  if (roleCache && Date.now() - roleCache.at < 600_000) return roleCache.id;
+  if (!BOT) return "";
+  const r = await fetch(`https://discord.com/api/v10/guilds/${GID}/roles`, {
+    headers: { Authorization: `Bot ${BOT}` },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!r.ok) return "";
+  const roles = (await r.json()) as { id?: string; name?: string }[];
+  const hit = (Array.isArray(roles) ? roles : []).find(
+    x => x && typeof x.name === "string" && x.name.trim().toLowerCase() === ROLE_NAME
+  );
+  if (hit?.id) roleCache = { id: hit.id, at: Date.now() };
+  return hit?.id || "";
+}
 
 function fail(req: Request, code: string) {
   return NextResponse.redirect(new URL("/?dserr=" + code, req.url));
@@ -15,8 +39,7 @@ function fail(req: Request, code: string) {
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code") || "";
-  if (!SECRET) return fail(req, "setup");
-  if (!code) return fail(req, "setup");
+  if (!SECRET || !code) return fail(req, "setup");
   try {
     const tokRes = await fetch("https://discord.com/api/v10/oauth2/token", {
       method: "POST",
@@ -42,30 +65,20 @@ export async function GET(req: Request) {
     const me = (await meRes.json()) as { id?: string };
     if (!me.id) return fail(req, "setup");
 
-    // membership: prefer the member endpoint (also catches pending screening);
-    // fall back to the guild list when the bot is not installed in the server.
-    let member = false;
-    let pending = false;
+    // membership + roles — the member endpoint needs the app's bot installed in the server
     const memRes = await fetch(`https://discord.com/api/v10/users/@me/guilds/${GID}/member`, {
       headers: H, signal: AbortSignal.timeout(15000),
     });
-    if (memRes.ok) {
-      const mem = (await memRes.json()) as { pending?: boolean };
-      member = true;
-      pending = !!mem.pending;
-    } else if (memRes.status === 404) {
-      member = false;
-    } else {
-      const gRes = await fetch("https://discord.com/api/v10/users/@me/guilds", {
-        headers: H, signal: AbortSignal.timeout(15000),
-      });
-      if (gRes.ok) {
-        const guilds = (await gRes.json()) as { id?: string }[];
-        member = Array.isArray(guilds) && guilds.some(g => g.id === GID);
-      }
-    }
-    if (!member) return fail(req, "join");
-    if (pending) return fail(req, "pending");
+    if (memRes.status === 404) return fail(req, "join");
+    if (!memRes.ok) return fail(req, "roleconf");
+    const mem = (await memRes.json()) as { pending?: boolean; roles?: string[] };
+    if (mem.pending) return fail(req, "pending");
+
+    // the gate: no XR-Auth role -> no AI, even inside the server
+    const target = await targetRoleId();
+    if (!target) return fail(req, "roleconf");
+    const roles = Array.isArray(mem.roles) ? mem.roles : [];
+    if (!roles.includes(target)) return fail(req, "role");
 
     const res = NextResponse.redirect(new URL("/?dsok=1", req.url));
     res.headers.set("Set-Cookie", authCookie(mintToken(me.id)));
