@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
-import { verifyDiscord } from "@/lib/xrauth";
 
 // XR-Code hosted brain — no API keys in the client, no modes, nothing to configure.
 // One highly capable agent: reads each message and automatically responds the
@@ -174,14 +173,6 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  // Discord gate — only verified members of the owner's server can talk to the AI
-  const gate = verifyDiscord(req);
-  if (!gate.ok) {
-    return NextResponse.json(
-      { ok: false, error: "discord verification required", code: gate.error || "verify" },
-      { status: 401 }
-    );
-  }
   let body: { messages?: RawMsg[]; model?: string } | null = null;
   try {
     body = await req.json();
