@@ -1,16 +1,33 @@
 import { NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
+import type { VisionMessage } from "z-ai-web-dev-sdk";
 
 // XR-Code hosted brain — no API keys in the client, no modes, nothing to configure.
 // One highly capable agent: reads each message and automatically responds the
 // best way — complete runnable code, precise debugging, clear explanations, or
 // direct answers to any question (riding live web results when useful).
 // Engine: OWNER GATEWAY ONLY (prime-v1-flash via /v1/messages, Anthropic-style).
-// Server-side only: the key never reaches the browser. No other chat models —
-// no GLM, no vision endpoint. If the gateway is unreachable the client shows
+// Server-side only: the key never reaches the browser. No other chat models.
+// Real vision: the gateway itself is text-only (verified — it strips image
+// blocks), so photos & video keyframes are DESCRIBED here by a vision
+// preprocessor and the description rides to the brain as a [VISION] block.
+// If the gateway is unreachable the client shows
 // its retry card; nothing silently switches models.
 // GET  /api/chat → health probe { ok: true } for the status bar
 // POST /api/chat → { messages } → { ok, text } | { ok:false, error }
+
+// attachment clause — swapped at request time when real pixels arrived
+const ATT_BLIND =
+  "photos, videos and files arrive as text notes (name, size) — you cannot " +
+  "see inside images or videos in this build. Never invent or describe what a picture or " +
+  "clip shows. If asked about its contents, say plainly you can't view images or videos " +
+  "here and ask the user to describe it or paste any text or code from it";
+const ATT_VISION =
+  "files arrive as text notes (name, size); photos and videos arrive preprocessed — a " +
+  "[VISION] block tells you exactly what each attached image or video keyframe shows, with " +
+  "any on-screen text transcribed verbatim. Trust it as if you saw the picture yourself and " +
+  "answer questions about it confidently. Videos are sampled as keyframes — describe what " +
+  "the frames show and say so when asked";
 
 const SYSTEM =
   "You are XR Code, the AI of the XR-Code app by YUX FF — one highly capable agent. " +
@@ -18,10 +35,7 @@ const SYSTEM =
   "Core behavior: " +
   "• Think before answering — silently plan the solution, weigh edge cases, then answer. " +
   "Never reveal private reasoning, only the polished result. " +
-  "• Attachments: photos, videos and files arrive as text notes (name, size) — you cannot " +
-  "see inside images or videos in this build. Never invent or describe what a picture or " +
-  "clip shows. If asked about its contents, say plainly you can't view images or videos " +
-  "here and ask the user to describe it or paste any text or code from it. " +
+  `• Attachments: ${ATT_BLIND}. ` +
   "• Coding: give complete, runnable, production-quality code in fenced blocks with the language tag. " +
   "Handle edge cases, use modern best practices, keep comments short and useful. " +
   "If the request is ambiguous, pick the most sensible interpretation and say so in one line. " +
@@ -102,7 +116,14 @@ async function googleContext(q: string): Promise<string> {
   }
 }
 
-type Part = { type: string; text?: string; image_url?: { url: string }; video_url?: { url: string } };
+type ImgSource = { type?: string; media_type?: string; data?: string };
+type Part = {
+  type: string;
+  text?: string;
+  image_url?: { url: string };
+  video_url?: { url: string };
+  source?: ImgSource;
+};
 type RawMsg = { role?: string; content?: string | Part[] };
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -168,6 +189,61 @@ function textOf(content: unknown): string {
   return "";
 }
 
+// ---- real vision preprocessing ----
+// pull base64 image blocks (photos + video keyframes) out of the last user message
+function imagesOf(content: unknown): { mt: string; b64: string }[] {
+  if (!Array.isArray(content)) return [];
+  const out: { mt: string; b64: string }[] = [];
+  for (const p of content) {
+    const part = p as Part;
+    const src = part?.source;
+    if (part?.type === "image" && src && typeof src.data === "string" && src.data.length > 64) {
+      const mt =
+        src.media_type && /^image\/(png|jpe?g|webp|gif)$/.test(src.media_type)
+          ? (src.media_type === "image/jpg" ? "image/jpeg" : src.media_type)
+          : "image/jpeg";
+      if (src.data.length <= 4_200_000) out.push({ mt, b64: src.data });
+    }
+  }
+  return out.slice(0, 8);
+}
+
+// describe the images with a vision model; returns one 'Image N: …' line each
+async function describeImages(imgs: { mt: string; b64: string }[]): Promise<string> {
+  if (!imgs.length) return "";
+  try {
+    const zai = await ZAI.create();
+    const content: Extract<VisionMessage["content"], unknown[]> = [
+      {
+        type: "text",
+        text:
+          "You are the vision preprocessor of a chat app. For EACH attached image, in order, " +
+          "write exactly one line: 'Image N: <description>'. Describe concretely what is shown " +
+          "(objects, colors, scene, layout) and transcribe ALL visible text verbatim. " +
+          "No preamble, no extra lines.",
+      },
+    ];
+    for (const im of imgs) {
+      content.push({ type: "image_url", image_url: { url: `data:${im.mt};base64,${im.b64}` } });
+    }
+    // SDK types demand `model` and omit `role`, but the verified-working runtime
+    // payload needs neither — cast instead of changing what works.
+    const visionBody = {
+      messages: [{ role: "user", content }],
+      thinking: { type: "disabled" as const },
+    };
+    const res = (await Promise.race([
+      zai.chat.completions.createVision(
+        visionBody as unknown as Parameters<typeof zai.chat.completions.createVision>[0]
+      ),
+      new Promise<null>(r => setTimeout(() => r(null), 32000)),
+    ])) as { choices?: { message?: { content?: string } }[] } | null;
+    return String(res?.choices?.[0]?.message?.content || "").trim();
+  } catch {
+    return ""; // vision preprocessing down → fall back to blind text notes
+  }
+}
+
 export async function GET() {
   return NextResponse.json({ ok: true, engine: "xr-code-hosted" });
 }
@@ -205,11 +281,29 @@ export async function POST(req: Request) {
     }
   }
 
-  // the one brain — the owner gateway. No fallback models, no vision endpoint.
+  // ---- real vision: describe the attached photos / video keyframes, then feed
+  // the description to the text brain as a [VISION] block ----
+  let visionBlock = "";
+  const rawLastUser = raw ? [...raw].reverse().find(m => m && m.role === "user") : null;
+  const imgs = imagesOf(rawLastUser?.content);
+  if (imgs.length) {
+    const desc = await describeImages(imgs);
+    if (desc) {
+      visionBlock = "\n\n[VISION — what the attached images show]\n" + desc + "\n[end VISION]";
+      sys = sys.replace(ATT_BLIND, ATT_VISION);
+    }
+  }
+
+  // the one brain — the owner gateway. No fallback models.
   const chatText = safe.map(m => ({ role: m.role, content: m.content }));
+  if (visionBlock) {
+    const lu = [...chatText].reverse().find(m => m.role === "user");
+    if (lu) lu.content = (lu.content + visionBlock).slice(0, 12000);
+  }
   for (let attempt = 0; attempt < 2; attempt++) {
     const prime = await primeChat(sys, chatText, chosen);
-    if (prime) return NextResponse.json({ ok: true, text: prime, engine: chosen });
+    if (prime)
+      return NextResponse.json({ ok: true, text: prime, engine: chosen, vision: visionBlock || undefined });
     if (attempt < 1) await new Promise(r => setTimeout(r, 5000)); // one quiet retry if the gateway blips
   }
   return NextResponse.json({ ok: false, error: "gateway unreachable" });
