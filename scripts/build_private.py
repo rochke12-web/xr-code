@@ -1,13 +1,15 @@
-"""Build the PRIVATE (obfuscated) payload of XR-Space:
+"""Build the PRIVATE (encrypted + obfuscated) payload of XR-Code:
 1. extract <script> -> javascript-obfuscator (control-flow + string array)
 2. minify CSS (clean-css) + strip comments/blank lines from markup
-3. reassemble -> base64 -> src/app/payload.ts consumed by page.tsx (iframe loader)
+3. reassemble -> XOR-encrypt with rolling key -> base64 -> src/app/payload.ts
+   (view-source exposes only encrypted base64; the loader decrypts at runtime)
 """
 import base64, os, re, subprocess
 
 ROOT = '/home/z/my-project'
 SRC  = f'{ROOT}/download/xr-code.html'
 TMP  = '/tmp/xrbuild'
+KEY  = b'XrC0de~Guard!v1'
 os.makedirs(TMP, exist_ok=True)
 
 html = open(SRC).read()
@@ -53,12 +55,14 @@ out = re.sub(r'\n\s*\n+', '\n', out)                      # collapse blank lines
 out = out.replace('   Made by YUX FF  |  v1.0.0\n', '')   # header comment remnant
 
 # sanity: app must still contain the key markers
-for marker in ('XR-Space', 'big-search', 'data:image'):
+for marker in ('XR-Code', 'big-search', 'data:image'):
     assert marker in out, 'missing marker ' + marker
 
-b64 = base64.b64encode(out.encode('utf-8')).decode('ascii')
+b64 = base64.b64encode(
+    bytes(c ^ KEY[i % len(KEY)] for i, c in enumerate(out.encode('utf-8')))
+).decode('ascii')
 open(f'{ROOT}/src/app/payload.ts', 'w').write(
-    '// XR-Space - private build (obfuscated). Do not edit by hand.\n'
+    '// XR-Code - private build (encrypted + obfuscated). Do not edit by hand.\n'
     'export const APP_B64 = "' + b64 + '";\n')
 open(f'{ROOT}/download/xr-code-private.html', 'w').write(out)
 print('private HTML:', len(out) // 1024, 'KB  |  payload.ts:', len(b64) // 1024, 'KB base64')

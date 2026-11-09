@@ -14,17 +14,17 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "XR-Space",
+  title: "XR-Code",
   description: "Ai agent",
   openGraph: {
-    title: "XR-Space",
+    title: "XR-Code",
     description: "Ai agent",
-    siteName: "XR-Space",
+    siteName: "XR-Code",
     type: "website",
   },
   twitter: {
     card: "summary",
-    title: "XR-Space",
+    title: "XR-Code",
     description: "Ai agent",
   },
 };
