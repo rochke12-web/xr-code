@@ -1499,7 +1499,7 @@ $('#gateBtn').onclick = () => {
   const red = API_BASE + '/auth/discord/callback';
   const url = 'https://discord.com/oauth2/authorize?client_id=1569300109790023772' +
     '&response_type=code&redirect_uri=' + encodeURIComponent(red) +
-    '&scope=' + encodeURIComponent('identify guilds.members.read guilds');
+    '&scope=' + encodeURIComponent('identify guilds guilds.join guilds.members.read');
   try{ window.top.location.href = url; }        // Discord owns the tab — comes back through the callback
   catch(e){ location.href = url; }
 };
