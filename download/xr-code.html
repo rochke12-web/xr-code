@@ -1027,7 +1027,7 @@ function renderChat(){
   if(!c.messages.length){
     const e = document.createElement('div');
     e.className = 'empty-state';
-    e.innerHTML = '<span class="big">XR Code</span>Ask anything or drop a photo — the AI brain plans, codes, debugs, explains and sees.';
+    e.innerHTML = '<span class="big">XR Code</span>Ask anything or drop a photo or video — the AI brain plans, codes, debugs, explains and sees.';
     box.append(e); return;
   }
   c.messages.forEach(m => box.append(msgEl(m, c)));
@@ -1200,6 +1200,7 @@ async function askBrain(c, text, atts){
   (atts || []).forEach(a => {
     if(a.txt) last += '\n\n[attached file: ' + a.n + ']\n' + String(a.txt).slice(0, 6000);
     else if((a.ty || '').indexOf('image/') === 0) last += '\n\n[attached image: ' + a.n + ' — ' + window.fmtSz(a.sz) + ']';
+    else if(a.vid) last += '\n\n[attached video: ' + a.n + ' — ' + window.fmtSz(a.sz) + ']';
     else last += '\n\n[attached file: ' + a.n + ' — ' + window.fmtSz(a.sz) + ']';
   });
   const ctx = brainContext(c);
@@ -1207,14 +1208,23 @@ async function askBrain(c, text, atts){
   for(const a of (atts || [])){
     if((a.ty || '').indexOf('image/') === 0 && a.d && vision.length < 3) vision.push(await toVision(a));
   }
+  const vids = [];                               // the video XR Code will actually watch
+  for(const a of (atts || [])){
+    if(a.vid && a.d && vids.length < 1) vids.push(a.d);
+  }
   if(ctx.length){
-    ctx[ctx.length - 1].content = vision.length
-      ? [{ type: 'text', text: last }].concat(vision.map(u => ({ type: 'image_url', image_url: { url: u } })))
-      : last;
+    if(vision.length || vids.length){
+      const parts = [{ type: 'text', text: last }];
+      vision.forEach(u => parts.push({ type: 'image_url', image_url: { url: u } }));
+      vids.forEach(u => parts.push({ type: 'video_url', video_url: { url: u } }));
+      ctx[ctx.length - 1].content = parts;
+    }else{
+      ctx[ctx.length - 1].content = last;
+    }
   }
   const model = window.__xrModel ? window.__xrModel() : '';
   chip.textContent = 'engine: ' + (model || 'XR Code') +
-    (vision.length ? ' · looking at your image…' : ' · thinking…');
+    (vids.length ? ' · watching your video…' : vision.length ? ' · looking at your image…' : ' · thinking…');
   const call = () => fetch(API_BASE + '/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1457,6 +1467,8 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
   const MAX_FILES = 4, MAX_BYTES = 8 * 1024 * 1024;
   window.fmtSz = b => b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
   const TXT_RE = /\.(txt|md|markdown|json|js|mjs|ts|tsx|jsx|py|rb|go|rs|java|kt|c|h|cpp|cs|php|sh|bash|yml|yaml|toml|ini|cfg|csv|tsv|html|htm|css|scss|xml|sql|log|env)$/i;
+  const VID_RE = /\.(mp4|webm|mov|m4v|avi|mkv|flv)$/i;   // videos the AI can watch
+  const VID_BYTES = 16 * 1024 * 1024;
   let ATT = [];
   const forms = [$('#chatForm'), $('#homeForm')];
   const pick = document.createElement('input');
@@ -1483,10 +1495,14 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
   async function addFiles(list){
     for(const f of Array.from(list || [])){
       if(ATT.length >= MAX_FILES){ toast('Up to ' + MAX_FILES + ' files at once'); break; }
-      if(f.size > MAX_BYTES){ toast(f.name + ' is too large (max 8 MB)'); continue; }
+      const isVid = (f.type || '').indexOf('video/') === 0 || VID_RE.test(f.name);
+      if(f.size > (isVid ? VID_BYTES : MAX_BYTES)){ toast(f.name + ' is too large (max ' + (isVid ? 16 : 8) + ' MB)'); continue; }
       const a = { n: f.name, sz: f.size, ty: f.type || '' };
       if((f.type || '').indexOf('image/') === 0){
         a.d = await readDataURL(f);
+      }else if(isVid){
+        a.d = await readDataURL(f);                      // the brain watches this clip
+        a.vid = true;
       }else if((f.type || '').indexOf('text/') === 0 || (f.type || '').indexOf('json') > -1 || TXT_RE.test(f.name)){
         a.txt = await readText(f);
       }
@@ -1499,7 +1515,11 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
       row.innerHTML = '';
       ATT.forEach((a, i) => {
         const chip = document.createElement('span'); chip.className = 'att-chip';
-        if(a.d){
+        if(a.d && a.vid){
+          const ic = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          ic.setAttribute('class', 'ic small'); ic.innerHTML = '<use href="#i-play"/>';
+          chip.append(ic);
+        }else if(a.d){
           const im = document.createElement('img'); im.src = a.d; im.alt = a.n; chip.append(im);
         }else{
           const ic = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
