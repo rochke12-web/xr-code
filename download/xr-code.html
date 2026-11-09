@@ -1366,19 +1366,25 @@ async function askBrain(c, text, atts){
     body: JSON.stringify({ messages: ctx, model: S.model || 'glm-4.6', mode: S.mode || 'koder' })   // one brain, two modes
   });
   let d = null, failed = null;
-  for(let attempt = 0; attempt < 2; attempt++){        // one quiet auto-retry for connection drops
+  const RETRY_WAITS = [4000, 8000, 15000, 20000];      // lifetime net — ~47s of silent self-healing
+  for(let attempt = 0; attempt <= RETRY_WAITS.length; attempt++){
     failed = null;
     try{
       const res = await call();
+      if(res.status >= 500 && attempt < RETRY_WAITS.length){   // gateway blips (502/503) retry silently
+        chip.textContent = 'busy · retrying…';
+        await new Promise(r => setTimeout(r, RETRY_WAITS[attempt]));
+        continue;
+      }
       d = await res.json().catch(() => null);
       if(d && d.ok && (d.text || '').trim()) break;
       failed = new Error(d && d.error ? d.error : 'HTTP ' + res.status);
       break;                                           // server already retried upstream — surface it
     }catch(e){
       failed = e;
-      if(attempt === 0){
+      if(attempt < RETRY_WAITS.length){
         chip.textContent = 'busy · retrying…';
-        await new Promise(r => setTimeout(r, 4000));
+        await new Promise(r => setTimeout(r, RETRY_WAITS[attempt]));
       }
     }
   }
@@ -1411,6 +1417,24 @@ async function askBrain(c, text, atts){
   el.append(who, body, ch, line);
   if(currentChat().id === c.id) box0.append(el);
   box0.scrollTop = box0.scrollHeight;
+  (function heal(){                                   // lifetime auto-recovery: the moment the server
+    let tries = 0;                                    // breathes again, flip online and resend for real
+    const iv = setInterval(async () => {
+      tries++;
+      try{
+        const r = await fetch(API_BASE + '/api/health', { cache: 'no-store' });
+        if(r.ok){
+          clearInterval(iv);
+          NET.live = true; renderStatus();
+          toast('XR Code is back online — sending your message');
+          const lm = c.messages[c.messages.length - 1];
+          if(el.isConnected && lm && lm.r === 'u' && lm.t === text){ el.remove(); askBrain(c, text, atts); }
+          return;
+        }
+      }catch(e){}
+      if(tries >= 90) clearInterval(iv);              // ~15 min of healing, then the Try again button takes over
+    }, 10000);
+  })();
 }
 
 /* ---------- accounts / sync UI ---------- */
@@ -1732,6 +1756,7 @@ renderChatList();
 updateSyncUI();
 renderStatus();
 netCheck();                                         // ping the hosted brain once for the status bar
+setInterval(netCheck, 20000);                       // chip self-heals: offline flips back to online on its own
 $('#chatInput').disabled = false;
 </script>
 </body>
