@@ -35,6 +35,7 @@
   --accent-2:#a7adb9;
   --accent-ink:#0e1013;
   --line:rgba(255,255,255,.10);
+  --pop:#101218;
   --line-soft:rgba(255,255,255,.06);
   --col-a:rgba(255,255,255,.055);
   --col-b:rgba(255,255,255,.012);
@@ -59,6 +60,7 @@
   --accent-2:#3f434b;
   --accent-ink:#ffffff;
   --line:rgba(0,0,0,.13);
+  --pop:#ffffff;
   --line-soft:rgba(0,0,0,.07);
   --col-a:rgba(0,0,0,.10);
   --col-b:rgba(0,0,0,.02);
@@ -295,6 +297,48 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .sr-item .st{display:block;font-size:12.5px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sr-item .sx{display:block;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;font-family:var(--font-mono)}
 .sr-empty{padding:14px;font-size:12px;color:var(--muted);text-align:center}
+/* ---------- sidebar chat list (under Search) ---------- */
+.chats-head{padding-top:12px}
+.chat-list{display:flex;flex-direction:column;gap:2px;padding:0 10px 6px;max-height:34vh;overflow-y:auto;flex:none}
+.chat-list:empty{display:none}
+.cl-empty{padding:8px 12px;font-size:11.5px;color:var(--muted);line-height:1.6}
+.cl-item{
+  display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:8px 10px;border-radius:10px;
+  transition:background .15s;position:relative;
+}
+.cl-item:hover{background:var(--panel-2)}
+.cl-item.current{background:var(--panel-2);box-shadow:inset 0 0 0 1px var(--line)}
+.cl-item.current .cl-t{color:var(--accent)}
+.cl-item > .ic{opacity:.55}
+.cl-t{flex:1;font-size:12.5px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.cl-a{font-size:10px;color:var(--muted);font-family:var(--font-mono);flex:none}
+.cl-x{display:none;flex:none;color:var(--muted);border-radius:7px;padding:3px}
+.cl-x:hover{color:#ff7a7a;background:var(--panel)}
+.cl-item:hover .cl-x{display:inline-flex}
+.cl-item:hover .cl-a{display:none}
+/* ---------- model picker (owner gateway models) ---------- */
+.mwrap{position:relative;flex:none}
+.model-pill{
+  display:inline-flex;align-items:center;gap:7px;height:44px;padding:0 14px;border-radius:12px;
+  border:1px solid var(--line);background:var(--panel-2);color:var(--text);
+  font-size:12.5px;font-weight:600;transition:border-color .15s,color .2s,transform .15s;
+}
+.model-pill:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-1px)}
+.model-pill .ic{opacity:.65}
+.model-pill .mp-n{letter-spacing:.02em}
+.big-search .model-pill{height:44px}
+.mmenu{
+  position:absolute;bottom:calc(100% + 8px);left:0;min-width:236px;z-index:60;
+  display:none;flex-direction:column;gap:2px;padding:6px;
+  background:var(--pop);border:1px solid var(--line);border-radius:14px;
+  box-shadow:0 18px 50px rgba(0,0,0,.55);
+}
+.mmenu.open{display:flex}
+.mmenu button{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;text-align:left;padding:9px 11px;border-radius:10px;font-size:12.5px;font-weight:600;color:var(--text);transition:background .15s}
+.mmenu button:hover{background:var(--panel-2)}
+.mmenu button.current{color:var(--accent)}
+.mmenu button small{font-size:10px;color:var(--muted);font-weight:400;font-family:var(--font-mono);letter-spacing:.02em}
+@media(max-width:640px){.model-pill .mp-n{display:none}.model-pill{padding:0 12px}}
 .msg.hit .bubble{box-shadow:0 0 0 1.5px var(--accent)}
 .dots{display:inline-flex;gap:5px;padding:7px 2px 3px}
 .dots i{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:dotB 1.2s infinite}
@@ -637,6 +681,15 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
         <form class="big-search" id="homeForm">
           <img class="bs-logo dark-only" data-asset="wordmark" alt="XR logo" draggable="false"><img class="bs-logo light-only" data-asset="tile-light" alt="XR logo" draggable="false">
           <button class="file-btn" id="homeFileBtn" type="button" title="Attach files"><i class="ic" data-ic="i-clip"></i></button>
+          <div class="mwrap">
+            <button class="model-pill" id="homeModelBtn" type="button" title="Choose model">
+              <i class="ic small" data-ic="i-cpu"></i><span class="mp-n">Flash</span><i class="ic small" data-ic="i-down"></i>
+            </button>
+            <div class="mmenu" id="homeModelMenu">
+              <button type="button" data-m="prime-v1-flash"><b>Flash</b><small>prime-v1-flash · fast everyday brain</small></button>
+              <button type="button" data-m="prime-v1-vision"><b>Vision</b><small>prime-v1-vision · heavier, sharper tasks</small></button>
+            </div>
+          </div>
           <input id="homeInput" autocomplete="off" placeholder="What would you like to do with XR-Code?">
           <button class="send-btn" type="submit" title="Send"><i class="ic" data-ic="i-chev"></i></button>
         </form>
@@ -653,6 +706,15 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
       <div class="msgs" id="msgs"></div>
       <form class="composer" id="chatForm">
         <button class="file-btn" id="fileBtn" type="button" title="Attach files"><i class="ic" data-ic="i-clip"></i></button>
+        <div class="mwrap">
+          <button class="model-pill" id="chatModelBtn" type="button" title="Choose model">
+            <i class="ic small" data-ic="i-cpu"></i><span class="mp-n">Flash</span><i class="ic small" data-ic="i-down"></i>
+          </button>
+          <div class="mmenu" id="chatModelMenu">
+            <button type="button" data-m="prime-v1-flash"><b>Flash</b><small>prime-v1-flash · fast everyday brain</small></button>
+            <button type="button" data-m="prime-v1-vision"><b>Vision</b><small>prime-v1-vision · heavier, sharper tasks</small></button>
+          </div>
+        </div>
         <input id="chatInput" autocomplete="off" placeholder="Message XR Code...">
         <button class="send-btn" type="submit" title="Send"><i class="ic" data-ic="i-send"></i></button>
       </form>
@@ -694,6 +756,9 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
       <button id="btnSettings" type="button"><i class="ic" data-ic="i-gear"></i> Settings</button>
       <!-- No Library tab, as requested -->
     </nav>
+
+    <div class="side-head chats-head">Chats</div>
+    <div class="chat-list" id="chatList"></div>
 
     <div class="chat-search" id="chatSearchWrap">
       <input id="chatSearch" autocomplete="off" placeholder="Search old code & chats...">
@@ -757,6 +822,7 @@ function defaults(){
     user: null,              // reserved
     chats: [],
     active: null,
+    model: 'prime-v1-flash',   // owner gateway model for every chat
     lastSync: null
   };
 }
@@ -766,10 +832,11 @@ let S = load() || defaults();
   delete S.models; delete S.routing; delete S.tokensSaved;  // model options removed
   delete S.startupDone; delete S.gemini; delete S.local;    // leftovers from old versions
   delete S.mode;                                           // mode picker removed — one unified brain
+  if(!S.model) S.model = 'prime-v1-flash';                 // gateway model for every chat
   if(S.user && S.user.provider === 'api') S.user = null;
   delete S.api;
 })();
-function save(){ try{ localStorage.setItem(LSKEY, JSON.stringify(S)); }catch(e){} updateSyncUI(); renderStatus(); }
+function save(){ try{ localStorage.setItem(LSKEY, JSON.stringify(S)); }catch(e){} updateSyncUI(); renderStatus(); renderChatList(); renderModel(); }
 function load(){ try{ const v = JSON.parse(localStorage.getItem(LSKEY)); return v && v.chats ? v : null; }catch(e){ return null; } }
 
 /* ---------- toasts ---------- */
@@ -923,6 +990,65 @@ function currentChat(){
   }
   return c;
 }
+
+/* ---------- sidebar chat list (every sent chat lands under Search) ---------- */
+function renderChatList(){
+  const box = $('#chatList'); if(!box) return;
+  box.innerHTML = '';
+  const chats = [...S.chats].sort((a,b) => b.ts - a.ts).slice(0, 40);
+  if(!chats.length){
+    const d = document.createElement('div'); d.className = 'cl-empty';
+    d.textContent = 'No chats yet — send a message and it lands here.';
+    box.append(d); return;
+  }
+  chats.forEach(c => {
+    const b = document.createElement('button'); b.type = 'button';
+    b.className = 'cl-item' + (c.id === S.active ? ' current' : '');
+    b.innerHTML = '<svg class="ic"><use href="#i-qna"/></svg>';
+    const tx = document.createElement('span'); tx.className = 'cl-t'; tx.textContent = c.title || 'New chat';
+    const ag = document.createElement('span'); ag.className = 'cl-a'; ag.textContent = ago(c.ts);
+    const del = document.createElement('button'); del.type = 'button'; del.className = 'cl-x'; del.title = 'Delete chat';
+    del.innerHTML = '<svg class="ic"><use href="#i-trash"/></svg>';
+    b.append(tx, ag, del);
+    b.onclick = () => { S.active = c.id; save(); showView('chat'); };
+    del.onclick = (e) => {
+      e.stopPropagation();
+      S.chats = S.chats.filter(x => x.id !== c.id);
+      if(S.active === c.id){
+        const rest = [...S.chats].sort((a,b) => b.ts - a.ts);
+        S.active = rest.length ? rest[0].id : null;
+      }
+      save(); renderChat(); toast('Chat deleted');
+    };
+    box.append(b);
+  });
+}
+
+/* ---------- model picker (owner gateway: prime-v1-flash / prime-v1-vision) ---------- */
+const MODELS = { 'prime-v1-flash': 'Flash', 'prime-v1-vision': 'Vision' };
+function renderModel(){
+  $$('.model-pill .mp-n').forEach(n => n.textContent = MODELS[S.model] || 'Flash');
+  $$('#homeModelMenu button,#chatModelMenu button').forEach(b => b.classList.toggle('current', b.dataset.m === S.model));
+}
+function closeMenus(){ $$('.mmenu.open').forEach(m => m.classList.remove('open')); }
+$$('.model-pill').forEach(pill => {
+  pill.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const m = pill.parentElement.querySelector('.mmenu');
+    const was = m.classList.contains('open');
+    closeMenus();
+    if(!was) m.classList.add('open');
+  });
+});
+$$('#homeModelMenu button,#chatModelMenu button').forEach(b => {
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    S.model = b.dataset.m;
+    save(); renderModel(); closeMenus();
+    toast('Model: ' + (MODELS[S.model] || S.model));
+  });
+});
+document.addEventListener('click', closeMenus);
 /* ---------- AI code replies: fence split + foldable code blocks ---------- */
 function codeExt(code){
   const c = (code || '').slice(0, 500);
@@ -1110,7 +1236,7 @@ async function askBrain(c, text, atts){
   const call = () => fetch(API_BASE + '/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: ctx })          // no model field — the hosted brain picks its one engine
+    body: JSON.stringify({ messages: ctx, model: S.model || 'prime-v1-flash' })   // owner gateway models only
   });
   let d = null, failed = null;
   for(let attempt = 0; attempt < 2; attempt++){        // one quiet auto-retry for connection drops
@@ -1194,7 +1320,7 @@ function exportChats(){
 }
 function clearAll(){
   localStorage.removeItem(LSKEY);
-  S = defaults(); applyTheme(); renderChat(); renderAccounts();
+  S = defaults(); applyTheme(); renderChat(); renderAccounts(); renderChatList(); renderModel();
   toast('All data cleared');
 }
 
@@ -1370,7 +1496,7 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
 })();
 
 $('#btnHome').onclick = () => showView('home');
-$('#btnProject').onclick = () => { S.active = null; save(); showView('chat'); $('#chatInput').focus(); toast('New project started'); };
+$('#btnProject').onclick = () => { S.active = null; save(); showView('chat'); save(); $('#chatInput').focus(); toast('New project started'); };
 $('#btnSearch').onclick = () => {
   const w = $('#chatSearchWrap');
   w.classList.toggle('open');
@@ -1407,6 +1533,8 @@ $('#clearBtn').onclick = clearAll;
 /* ---------- init ---------- */
 applyTheme();
 renderAccounts();
+renderModel();
+renderChatList();
 updateSyncUI();
 renderStatus();
 netCheck();                                         // ping the hosted brain once for the status bar
