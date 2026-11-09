@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
 
-// XR-Space hosted brain — no API keys, no modes, nothing to configure.
+// XR-Code hosted brain — no API keys, no modes, nothing to configure.
 // One highly capable agent: reads each message and automatically responds the
 // best way — complete runnable code, precise debugging, clear explanations, or
 // direct answers to any question (riding live web results when useful).
+// Vision: when the user attaches photos, the message arrives as multipart
+// content and we route through the vision endpoint so XR Code actually sees
+// the picture and can describe / explain / answer questions about it.
 // Thinking mode is ON: the model reasons before answering, we show only the result.
 // GET  /api/chat → health probe { ok: true } for the status bar
 // POST /api/chat → { messages } → { ok, text } | { ok:false, error }
@@ -15,6 +18,11 @@ const SYSTEM =
   "Core behavior: " +
   "• Think before answering — silently plan the solution, weigh edge cases, then answer. " +
   "Never reveal private reasoning, only the polished result. " +
+  "• Vision: you can see the photos and screenshots the user attaches. When a picture " +
+  "arrives, look at it and talk about what is actually in it — objects, people, scenery, " +
+  "text on screen, code in a screenshot, error messages, diagrams. If the photo comes with " +
+  "no text, naturally describe and explain what you see; if it comes with a question, answer " +
+  "it from the image. Never claim you cannot see images. " +
   "• Coding: give complete, runnable, production-quality code in fenced blocks with the language tag. " +
   "Handle edge cases, use modern best practices, keep comments short and useful. " +
   "If the request is ambiguous, pick the most sensible interpretation and say so in one line. " +
@@ -91,25 +99,63 @@ async function googleContext(q: string): Promise<string> {
   }
 }
 
-type Msg = { role: string; content: string; };
+type Part = { type: string; text?: string; image_url?: { url: string } };
+type RawMsg = { role?: string; content?: string | Part[] };
+type Msg = { role: "user" | "assistant"; content: string; imgs?: string[] };
+
+const MAX_IMAGES = 3;
+const MAX_IMG_CHARS = 2_600_000; // ~1.9 MB of binary per image after client downscale
+
+// pull plain text out of string-or-multipart content
+function textOf(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map(p => (p && typeof p === "object" && typeof (p as Part).text === "string" ? ((p as Part).text as string) : ""))
+      .join("\n");
+  }
+  return "";
+}
+
+// pull base64 image parts out of multipart content
+function imgsOf(content: unknown): string[] {
+  if (!Array.isArray(content)) return [];
+  const out: string[] = [];
+  for (const p of content as Part[]) {
+    const u = p && p.type === "image_url" && p.image_url ? String(p.image_url.url || "") : "";
+    if (/^data:image\/(png|jpe?g|webp|gif|bmp);base64,/i.test(u) && u.length <= MAX_IMG_CHARS) out.push(u);
+    if (out.length >= MAX_IMAGES) break;
+  }
+  return out.slice(0, MAX_IMAGES);
+}
 
 export async function GET() {
-  return NextResponse.json({ ok: true, engine: "xr-space-hosted" });
+  return NextResponse.json({ ok: true, engine: "xr-code-hosted" });
 }
 
 export async function POST(req: Request) {
-  let body: { messages?: Msg[] } | null = null;
+  let body: { messages?: RawMsg[] } | null = null;
   try {
     body = await req.json();
   } catch {
     /* no / invalid body */
   }
-  const raw = Array.isArray(body?.messages) ? (body!.messages as Msg[]) : null;
-  const safe = raw
+  const raw = Array.isArray(body?.messages) ? (body!.messages as RawMsg[]) : null;
+  const safe: Msg[] = raw
     ? raw
         .slice(-24)
-        .filter(m => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
-        .map(m => ({ role: m.role as "user" | "assistant", content: m.content.slice(0, 8000) }))
+        .filter(m => m && (m.role === "user" || m.role === "assistant") && m.content != null)
+        .map(m => {
+          const msg: Msg = {
+            role: m.role as "user" | "assistant",
+            content: textOf(m.content).slice(0, 8000),
+          };
+          if (m.role === "user") {
+            const imgs = imgsOf(m.content);
+            if (imgs.length) msg.imgs = imgs;
+          }
+          return msg;
+        })
     : [];
   if (!safe.length) {
     return NextResponse.json({ ok: false, error: "bad request" }, { status: 400 });
@@ -117,7 +163,9 @@ export async function POST(req: Request) {
 
   let sys = SYSTEM;
   const lastUser = [...safe].reverse().find(m => m.role === "user");
-  if (lastUser && wantsWeb(lastUser.content)) {
+  const hasImages = !!lastUser?.imgs?.length;
+  // the user is talking about THEIR image — web search would only distract
+  if (lastUser && !hasImages && wantsWeb(lastUser.content)) {
     sys += await googleContext(searchQuery(safe));
     if (/\b(sources?|cite|citations?|references?|links?|urls?)\b/i.test(lastUser.content)) {
       sys += "\n\nThe user explicitly asked for sources: end your reply with a final line 'Sources:' " +
@@ -125,14 +173,36 @@ export async function POST(req: Request) {
     }
   }
 
+  const chatText = safe.map(m => ({ role: m.role, content: m.content }));
+  const chatVision = safe.map(m =>
+    m.imgs && m.imgs.length
+      ? {
+          role: m.role,
+          content: [
+            {
+              type: "text",
+              text: m.content.trim() ||
+                "The user attached this photo without any text. Describe and explain what you see.",
+            },
+            ...m.imgs.map(u => ({ type: "image_url", image_url: { url: u } })),
+          ],
+        }
+      : { role: m.role, content: m.content }
+  );
+
   let lastErr = "ai error";
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const zai = await ZAI.create();
-      const completion = await zai.chat.completions.create({
-        messages: [{ role: "assistant", content: sys }, ...safe],
-        thinking: { type: "enabled" },   // reason before answering — big quality lift
-      });
+      const completion = hasImages
+        ? await zai.chat.completions.createVision({
+            model: "glm-4.5v",
+            messages: [{ role: "assistant", content: sys }, ...chatVision],
+          })
+        : await zai.chat.completions.create({
+            messages: [{ role: "assistant", content: sys }, ...chatText],
+            thinking: { type: "enabled" },   // reason before answering — big quality lift
+          });
       const text = String(completion?.choices?.[0]?.message?.content ?? "").trim();
       if (text) return NextResponse.json({ ok: true, text });
       lastErr = "empty reply";

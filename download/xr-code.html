@@ -1003,7 +1003,7 @@ function renderChat(){
   if(!c.messages.length){
     const e = document.createElement('div');
     e.className = 'empty-state';
-    e.innerHTML = '<span class="big">XR Code</span>Ask anything — the hosted AI brain plans, codes, debugs and explains on its own.';
+    e.innerHTML = '<span class="big">XR Code</span>Ask anything or drop a photo — the AI brain plans, codes, debugs, explains and sees.';
     box.append(e); return;
   }
   c.messages.forEach(m => box.append(msgEl(m, c)));
@@ -1070,10 +1070,12 @@ function genReply(text){
 
 /* ---------- sending ---------- */
 function sendMsg(text){
-  text = (text || '').trim(); if(!text) return;
-  const c = currentChat();
-  if(c.title === 'New Project') c.title = text.slice(0, 34) + (text.length > 34 ? '...' : '');
+  text = (text || '').trim();
   const live = window.__takeAtts ? window.__takeAtts() : [];
+  if(!text && !live.length) return;                // nothing to send — but a bare photo is fine
+  const c = currentChat();
+  const base = text || (live[0] ? live[0].n : 'Photo');
+  if(c.title === 'New Project') c.title = base.slice(0, 34) + (base.length > 34 ? '...' : '');
   const atts = live.map(a => {                     // persist light metadata only (storage quota)
     const o = { n: a.n, sz: a.sz, ty: a.ty };
     if(a.d && a.d.length < 110000) o.d = a.d;      // small image previews survive reload
@@ -1127,6 +1129,29 @@ function typeReply(c, reply, live, pen){
 }
 
 /* ---------- hosted brain ---------- */
+function toVision(a){                             // downscale a photo for the brain — small payload, fast answer
+  if(a.v) return Promise.resolve(a.v);
+  return new Promise(res => {
+    if(!a.d){ res(''); return; }
+    const im = new Image();
+    im.onload = () => {
+      try{
+        const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height;
+        if(!w || !h){ res(a.d); return; }
+        const MAX = 1024, k = Math.min(1, MAX / Math.max(w, h));
+        if(k >= 1 && a.d.length < 400000){ a.v = a.d; res(a.v); return; }
+        const cv = document.createElement('canvas');
+        cv.width = Math.max(1, Math.round(w * k));
+        cv.height = Math.max(1, Math.round(h * k));
+        cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
+        a.v = cv.toDataURL('image/jpeg', 0.85);
+        res(a.v);
+      }catch(e){ res(a.d); }
+    };
+    im.onerror = () => res(a.d);
+    im.src = a.d;
+  });
+}
 function brainContext(c){
   return c.messages.slice(-20).map(m => ({ role: m.r === 'u' ? 'user' : 'assistant', content: m.t }));
 }
@@ -1150,7 +1175,16 @@ async function askBrain(c, text, atts){
     else last += '\n\n[attached file: ' + a.n + ' — ' + window.fmtSz(a.sz) + ']';
   });
   const ctx = brainContext(c);
-  if(ctx.length) ctx[ctx.length - 1].content = last;
+  const vision = [];                             // the images XR Code will actually see
+  for(const a of (atts || [])){
+    if((a.ty || '').indexOf('image/') === 0 && a.d && vision.length < 3) vision.push(await toVision(a));
+  }
+  if(ctx.length){
+    ctx[ctx.length - 1].content = vision.length
+      ? [{ type: 'text', text: last }].concat(vision.map(u => ({ type: 'image_url', image_url: { url: u } })))
+      : last;
+    if(vision.length) chip.textContent = 'engine: looking at your image…';
+  }
   const call = () => fetch(API_BASE + '/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1379,7 +1413,7 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
       if(ATT.length >= MAX_FILES){ toast('Up to ' + MAX_FILES + ' files at once'); break; }
       if(f.size > MAX_BYTES){ toast(f.name + ' is too large (max 8 MB)'); continue; }
       const a = { n: f.name, sz: f.size, ty: f.type || '' };
-      if((f.type || '').indexOf('image/') === 0 && f.size <= 300000){
+      if((f.type || '').indexOf('image/') === 0){
         a.d = await readDataURL(f);
       }else if((f.type || '').indexOf('text/') === 0 || (f.type || '').indexOf('json') > -1 || TXT_RE.test(f.name)){
         a.txt = await readText(f);
