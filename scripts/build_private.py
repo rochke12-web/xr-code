@@ -49,7 +49,9 @@ print('CSS minified:', len(css) // 1024, 'KB ->', len(css_min) // 1024, 'KB')
 
 # ---- 4. reassemble: strip comments, collapse blank lines, swap css/js ----
 out = re.sub(r'<style>.*?</style>', '<style>' + css_min.replace('\\', '\\\\') + '</style>', html, flags=re.S)
-out = re.sub(r'<script>.*?</script>', '<script>' + obf.replace('\\', '\\\\') + '</script>', out, flags=re.S)
+# ONLY the first (main app) script block gets the obfuscated JS — auxiliary blocks
+# (e.g. the triplatform runtime) must stay as they are, never get a second app copy
+out = re.sub(r'<script>.*?</script>', '<script>' + obf.replace('\\', '\\\\') + '</script>', out, count=1, flags=re.S)
 out = re.sub(r'<!--.*?-->', '', out, flags=re.S)          # strip html comments
 out = re.sub(r'\n\s*\n+', '\n', out)                      # collapse blank lines
 out = out.replace('   Made by YUX FF  |  v1.0.0\n', '')   # header comment remnant
@@ -57,6 +59,8 @@ out = out.replace('   Made by YUX FF  |  v1.0.0\n', '')   # header comment remna
 # sanity: app must still contain the key markers
 for marker in ('XR-Code', 'big-search', 'data:image'):
     assert marker in out, 'missing marker ' + marker
+# exactly two script blocks: obfuscated app + triplatform runtime — never a double app
+assert out.count('<script>') == 2, f"script block count = {out.count('<script>')} (double-app guard)"
 
 b64 = base64.b64encode(
     bytes(c ^ KEY[i % len(KEY)] for i, c in enumerate(out.encode('utf-8')))

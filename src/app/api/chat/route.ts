@@ -93,7 +93,11 @@ const SYSTEM_SIGHT =
   "style, poster, logo, wallpaper, icon, clip or animation — treat it as a creation request and reply with ONLY the matching " +
   "action JSON (see TOOL DIRECTIVES below), even when they never say 'generate', 'make' or 'create'. " +
   "• Choose the medium: a still moment, poster, logo, wallpaper or scene → image action; motion, action, story or the words " +
-  "video/clip/animation → video action. Pick the size that fits the scene (square, portrait, landscape). " +
+  "video/clip/animation → video action. MOTION RULE — when the described scene contains movement or a dynamic moment " +
+  "(waves crashing/flowing water, fire, smoke, rain, storm, clouds moving, dancing, running, flying, driving, wind, " +
+  "spinning, falling, exploding, sports, animals moving, people walking, timelapse feel, or any camera move like pan/zoom/dolly) " +
+  "→ pick VIDEO. Only truly frozen still moments (a portrait, an object, a static logo/poster/wallpaper) → image. " +
+  "Pick the size that fits the scene (square, portrait, landscape). " +
   "• Enrich silently: add tasteful detail — lighting, mood, color palette, composition, camera feel — to the user's idea " +
   "inside the action prompt, keeping their subject and intent intact. " +
   "• Clearly non-visual requests (facts, code, advice, how-to, chat): answer in one or two crisp sentences, then offer one " +
