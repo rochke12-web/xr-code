@@ -344,6 +344,20 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .msg.hit .bubble{box-shadow:0 0 0 1.5px var(--accent)}
 .dots{display:inline-flex;gap:5px;padding:7px 2px 3px}
 .dots i{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:dotB 1.2s infinite}
+/* ---------- generated media, voice, sandbox ---------- */
+.msg > .gen-media{margin:4px 0 2px;border-radius:12px;overflow:hidden;border:1px solid var(--line);max-width:340px;background:#000}
+.gen-media img{display:block;width:100%}
+.gen-media video{display:block;width:100%}
+.act-row{display:flex;gap:8px;margin:6px 0 2px}
+.act-row button{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;transition:border-color .15s,color .15s}
+.act-row button:hover{border-color:var(--accent);color:var(--accent)}
+.act-row button.on{border-color:var(--accent);color:var(--accent)}
+.sandbox-back{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.78);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;padding:22px}
+.sandbox-back.open{display:flex}
+.sandbox{width:min(880px,96vw);height:min(640px,90vh);display:flex;flex-direction:column;background:var(--panel-2);border:1px solid var(--line);border-radius:18px;overflow:hidden;box-shadow:var(--shadow)}
+.sandbox-head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.sandbox-head .code-name{flex:1}
+.sandbox iframe{flex:1;width:100%;border:0;background:#fff}
 .dots i:nth-child(2){animation-delay:.15s}
 .dots i:nth-child(3){animation-delay:.3s}
 @keyframes dotB{0%,60%,100%{opacity:.25;transform:translateY(0)}30%{opacity:1;transform:translateY(-4px)}}
@@ -740,6 +754,17 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
     </section>
   </main>
 
+  <!-- ===== SANDBOX (run code right in the chat) ===== -->
+  <div class="sandbox-back" id="sandboxBack">
+    <div class="sandbox">
+      <div class="sandbox-head">
+        <span class="code-name" id="sandboxName">sandbox</span>
+        <button class="code-fold" id="sandboxClose" type="button" title="Close sandbox"><svg class="ic small"><use href="#i-down"/></svg></button>
+      </div>
+      <iframe id="sandboxFrame" sandbox="allow-scripts allow-modals allow-popups" title="Code sandbox"></iframe>
+    </div>
+  </div>
+
   <!-- ============ RIGHT SIDEBAR ============ -->
   <aside class="sidebar">
     <div class="side-head">Workspace</div>
@@ -1067,13 +1092,87 @@ function codeBlock(code){
   const fold = document.createElement('button'); fold.className = 'code-fold'; fold.type = 'button'; fold.title = 'Fold / unfold this code';
   fold.innerHTML = '<svg class="ic small"><use href="#i-chev"/></svg>';
   fold.onclick = () => wrap.classList.toggle('folded');
-  bar.append(name, fold);
+  bar.append(name);
+  if(ext === 'html' || ext === 'svg' || ext === 'js'){
+    const run = document.createElement('button'); run.className = 'code-fold'; run.type = 'button'; run.title = 'Run in sandbox';
+    run.innerHTML = '<svg class="ic small"><use href="#i-play"/></svg>';
+    run.onclick = () => openSandbox(code, ext);
+    bar.append(run);
+  }
+  bar.append(fold);
   const body = document.createElement('div'); body.className = 'code-body';
   const pre = document.createElement('pre'); pre.textContent = code;
   body.append(pre);
   wrap.append(bar, body);
   return wrap;
 }
+/* ---------- generated media + voice ---------- */
+function assetEl(as){
+  const w = document.createElement('div'); w.className = 'gen-media';
+  if(as && as.type === 'image' && as.url){
+    const im = document.createElement('img'); im.src = as.url; im.alt = (as.prompt || 'generated image').slice(0, 80); im.loading = 'lazy'; w.append(im);
+  }else if(as && as.type === 'video' && as.url){
+    const v = document.createElement('video'); v.src = as.url; v.controls = true; v.playsInline = true; v.preload = 'metadata';
+    if(as.cover) v.poster = as.cover;
+    w.append(v);
+  }
+  return w;
+}
+let __audio = null, __audioBtn = null;
+function speakBtn(text){
+  if(!text) return null;
+  const row = document.createElement('div'); row.className = 'act-row';
+  const btn = document.createElement('button'); btn.type = 'button'; btn.title = 'Read aloud';
+  btn.innerHTML = '<svg class="ic small"><use href="#i-play"/></svg><span>Listen</span>';
+  const lbl = btn.querySelector('span');
+  btn.onclick = async () => {
+    if(__audio && __audioBtn === btn){                 // this one is playing — stop it
+      __audio.pause(); __audio = null; __audioBtn = null;
+      btn.classList.remove('on'); lbl.textContent = 'Listen'; return;
+    }
+    if(__audio){                                        // another reply is talking — cut it
+      __audio.pause(); __audio = null;
+      if(__audioBtn){ __audioBtn.classList.remove('on'); __audioBtn.querySelector('span').textContent = 'Listen'; }
+      __audioBtn = null;
+    }
+    btn.disabled = true; lbl.textContent = '\u2026';
+    try{
+      const res = await fetch(API_BASE + '/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text.slice(0, 1200) }) });
+      if(!res.ok) throw new Error('tts ' + res.status);
+      const blob = await res.blob();
+      __audio = new Audio(URL.createObjectURL(blob)); __audioBtn = btn;
+      __audio.onended = () => { btn.classList.remove('on'); lbl.textContent = 'Listen'; __audio = null; __audioBtn = null; };
+      __audio.play();
+      btn.classList.add('on'); lbl.textContent = 'Stop';
+    }catch(e){ toast('Voice is unavailable right now'); }
+    btn.disabled = false;
+  };
+  row.append(btn);
+  return row;
+}
+/* ---------- sandbox: run HTML / SVG / JS right in the chat ---------- */
+function openSandbox(code, ext){
+  let doc = code;
+  if(ext === 'js'){
+    doc = '<!doctype html><html><head><meta charset="utf-8"></head><body>' +
+      '<pre id="__out" style="font:12px/1.5 monospace;white-space:pre-wrap;padding:10px;margin:0"></pre>' +
+      '<scr' + 'ipt>var __o=document.getElementById("__out");var __w=console.log;console.log=function(){var s=[].map.call(arguments,function(x){try{return typeof x==="object"?JSON.stringify(x):String(x)}catch(e){return String(x)}}).join(" ");__o.textContent+=s+"\\n";__w.apply(console,arguments)};try{' + code + '\n}catch(e){__o.textContent+="Error: "+e.message}</scr' + 'ipt></body></html>';
+  }else if(ext === 'svg'){
+    doc = '<!doctype html><html><body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#fff">' + code + '</body></html>';
+  }
+  const back = document.getElementById('sandboxBack');
+  if(!back) return;
+  document.getElementById('sandboxName').textContent = 'xr-code.' + ext + ' \u00b7 sandbox';
+  document.getElementById('sandboxFrame').srcdoc = doc;
+  back.classList.add('open');
+}
+(function(){
+  const back = document.getElementById('sandboxBack');
+  if(!back) return;
+  back.addEventListener('click', e => { if(e.target === back){ back.classList.remove('open'); document.getElementById('sandboxFrame').srcdoc = ''; } });
+  const cl = document.getElementById('sandboxClose');
+  if(cl) cl.onclick = () => { back.classList.remove('open'); document.getElementById('sandboxFrame').srcdoc = ''; };
+})();
 function renderChat(){
   const c = currentChat();
   $('#chatTitle').textContent = c.title;
@@ -1084,7 +1183,7 @@ function renderChat(){
   if(!c.messages.length){
     const e = document.createElement('div');
     e.className = 'empty-state';
-    e.innerHTML = '<span class="big">XR Code</span>Ask anything or drop a photo or video — the AI brain plans, codes, debugs, explains and sees.';
+    e.innerHTML = '<span class="big">XR Code</span>Ask anything or drop a photo, video or voice note — the brain codes, debugs, explains, sees, draws and speaks.';
     box.append(e); return;
   }
   c.messages.forEach(m => box.append(msgEl(m, c)));
@@ -1123,6 +1222,11 @@ function msgEl(m, c){
     w.append(b);
     if(m.code){ w.append(codeBlock(m.code)); }
   }
+  if(m.r === 'a'){
+    if(m.asset) w.append(assetEl(m.asset));
+    const sb = speakBtn(m.t);
+    if(sb) w.append(sb);
+  }
   return w;
 }
 
@@ -1137,6 +1241,8 @@ function sendMsg(text){
   const atts = live.map(a => {                     // persist light metadata only (storage quota)
     const o = { n: a.n, sz: a.sz, ty: a.ty };
     if(a.d && a.d.length < 110000) o.d = a.d;      // small image previews survive reload
+    if(a.txt) o.txt = a.txt;                       // file contents + audio transcripts survive reload
+    if(a.au) o.au = true;
     return o;
   });
   c.messages.push({ r: 'u', t: text, att: atts });
@@ -1161,7 +1267,7 @@ function typeReply(c, reply, pen){
   const iv = setInterval(() => {
     if(!document.contains(el)){           // user switched chats while typing
       clearInterval(iv);
-      c.messages.push({ r: 'a', t: reply.text, code: reply.code, parts: reply.parts, m: 'live' });
+      c.messages.push({ r: 'a', t: reply.text, code: reply.code, parts: reply.parts, asset: reply.asset, m: 'live' });
       save(); return;
     }
     i += (reply.text.length > 900 ? 2 : 1);   // slow, human-like typing
@@ -1177,7 +1283,10 @@ function typeReply(c, reply, pen){
         if(p.code !== undefined){ el.append(codeBlock(p.code)); }
         else { const nb = document.createElement('div'); nb.className = 'bubble'; nb.textContent = p.t; el.append(nb); }
       });
-      c.messages.push({ r: 'a', t: reply.text, code: reply.code, parts: reply.parts, m: 'live' });
+      if(reply.asset) el.append(assetEl(reply.asset));
+      const sb = speakBtn(reply.text);
+      if(sb) el.append(sb);
+      c.messages.push({ r: 'a', t: reply.text, code: reply.code, parts: reply.parts, asset: reply.asset, m: 'live' });
       c.ts = now();
       save();
     }
@@ -1203,7 +1312,8 @@ async function askBrain(c, text, atts){
   box0.scrollTop = box0.scrollHeight;
   let last = text;                               // feed file contents to the hosted brain
   (atts || []).forEach(a => {
-    if(a.txt) last += '\n\n[attached file: ' + a.n + ']\n' + String(a.txt).slice(0, 6000);
+    if(a.au && a.txt) last += '\n\n[attached audio: ' + a.n + ' — transcribed]\n' + String(a.txt).slice(0, 6000);
+    else if(a.txt) last += '\n\n[attached file: ' + a.n + ']\n' + String(a.txt).slice(0, 6000);
     else if((a.ty || '').indexOf('image/') === 0) last += '\n\n[attached image: ' + a.n + ' — ' + window.fmtSz(a.sz) + ' — attached as real image blocks]';
     else if(a.vid) last += '\n\n[attached video: ' + a.n + ' — ' + window.fmtSz(a.sz) + ' — ' + ((a.send && a.send.length) || 0) + ' keyframes attached as image blocks]';
     else last += '\n\n[attached file: ' + a.n + ' — ' + window.fmtSz(a.sz) + ']';
@@ -1249,7 +1359,7 @@ async function askBrain(c, text, atts){
     }
     chip.textContent = 'online';                       // one brain — no model names shown
     NET.live = true; renderStatus();
-    typeReply(c, splitFence((d.text || '').trim()), pen);
+    typeReply(c, Object.assign(splitFence((d.text || '').trim()), { asset: d.asset }), pen);
     return;
   }
   chip.textContent = 'offline';
@@ -1401,6 +1511,7 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
   window.fmtSz = b => b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
   const TXT_RE = /\.(txt|md|markdown|json|js|mjs|ts|tsx|jsx|py|rb|go|rs|java|kt|c|h|cpp|cs|php|sh|bash|yml|yaml|toml|ini|cfg|csv|tsv|html|htm|css|scss|xml|sql|log|env)$/i;
   const VID_RE = /\.(mp4|webm|mov|m4v|avi|mkv|flv)$/i;   // videos the AI can watch
+  const AUD_RE = /\.(mp3|wav|ogg|m4a|aac|flac|opus|weba)$/i;   // voice notes the AI can hear
   const VID_BYTES = 16 * 1024 * 1024;
   let ATT = [];
   const forms = [$('#chatForm'), $('#homeForm')];
@@ -1487,6 +1598,15 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
       }else if(isVid){
         a.vid = true;
         a.send = await videoFrames(f);                   // keyframes — the brain watches the clip
+      }else if((f.type || '').indexOf('audio/') === 0 || AUD_RE.test(f.name)){
+        a.au = true;                                     // voice note — transcribe so the brain hears it
+        try{
+          const durl = await readDataURL(f);
+          const res = await fetch(API_BASE + '/api/asr', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ b64: durl }) });
+          const j = await res.json();
+          if(j && j.ok && j.text) a.txt = 'Audio transcript: ' + j.text;
+        }catch(e){ /* best effort */ }
+        if(!a.txt) toast('Could not transcribe ' + f.name);
       }else if((f.type || '').indexOf('text/') === 0 || (f.type || '').indexOf('json') > -1 || TXT_RE.test(f.name)){
         a.txt = await readText(f);
       }
@@ -1499,7 +1619,7 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
       row.innerHTML = '';
       ATT.forEach((a, i) => {
         const chip = document.createElement('span'); chip.className = 'att-chip';
-        if(a.vid){
+        if(a.vid || a.au){
           const ic = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
           ic.setAttribute('class', 'ic small'); ic.innerHTML = '<use href="#i-play"/>';
           chip.append(ic);
