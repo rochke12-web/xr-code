@@ -438,9 +438,10 @@ async function googleContext(q: string): Promise<{ block: string; items: SearchI
   return { block, items };
 }
 
-// deterministic Sources block for QnA replies — the app, never the model, owns the URLs
+// deterministic Sources block for Google-grounded replies (QnA + Koder) —
+// the app, never the model, owns the URLs
 function withSources(text: string, mode: string, items: SearchItem[]): string {
-  if (mode !== "qna" || !items.length) return text;
+  if ((mode !== "qna" && mode !== "koder") || !items.length) return text;
   const clean = text.replace(/\n+Sources?:[\s\S]*$/i, "").trimEnd();
   const links = items.slice(0, 3).map((it, i) => `${i + 1}. ${it.url}`).join("\n");
   return `${clean}\n\nSources:\n${links}`;
@@ -533,7 +534,7 @@ const outageReply = (m: string): string =>
       "Send your question again in a minute or two — the quota usually recovers fast."
     : "I'm online and reading you, but the AI service's free quota is cooling down right now, " +
       "so I can't think properly this second. Your chat is saved — send your message again in a minute or two. " +
-      "Tip: QnA mode still answers from live Google results in the meantime.";
+      "Tip: ask a question and I'll answer from live Google results; QnA mode is search-first.";
 
 // pull plain text out of string-or-multipart content
 function textOf(content: unknown): string {
@@ -623,8 +624,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "bad request" }, { status: 400 });
   }
 
-  // two user modes: Koder (developer brain, DeepSeek only) and QnA (the
-  // Google-powered answer engine — replies end with a visible Sources list)
+  // two user modes: Koder (developer brain — GLM grounded in live Google
+  // results, replies end with a visible Sources list) and QnA (the
+  // Google-powered answer engine — same grounding, search-first posture)
   let lastSearch: SearchItem[] = []; // canonical search items for the final Sources list
   const modeRaw = typeof body?.mode === "string" ? body.mode.trim().toLowerCase() : "";
   const mode = modeRaw === "qna" || modeRaw === "sight" || modeRaw === "agent" ? modeRaw : "koder";
@@ -637,14 +639,16 @@ export async function POST(req: Request) {
   const wanted = typeof body?.model === "string" ? body.model.trim() : "";
   const chosen = KNOWN_MODELS.has(wanted) ? wanted : GLM_FIRST;
   // the user is talking about THEIR attachment — web search would only distract.
-  // QnA mode grounds almost every real question in live Google results and the
-  // reply ends with a canonical Sources list (withSources).
+  // GLM ALWAYS RIDES GOOGLE: Koder and QnA ground every real question in live
+  // Google results and the reply ends with a canonical Sources list
+  // (withSources). When the GLM quota is dead, the Google results answer
+  // directly (googleOutage → googleFallback) — the chat never goes dark.
   // Agent mode skips auto-grounding: it searches itself, on demand, per step.
   if (mode !== "agent" && lastUser && !/\[attached (image|video|file|audio):/i.test(lastUser.content)) {
     const q = lastUser.content.toLowerCase();
     const identityQ = /(who are you|what are you|your name|who made you|who created you|who built you|about yourself|who are u)/.test(q);
     const looksQuestion = q.length >= 4 && (/\?/.test(q) || /^(who|what|when|where|why|how|which|whose|is|are|was|were|do|does|did|can|could|should|define|explain|tell me)\b/.test(q) || q.length > 60);
-    const forceWeb = mode === "qna" && !identityQ && looksQuestion;
+    const forceWeb = (mode === "qna" || mode === "koder") && !identityQ && looksQuestion;
     if (forceWeb || wantsWeb(lastUser.content)) {
       const grounded = await googleContext(searchQuery(safe));
       lastSearch = grounded.items;
@@ -773,12 +777,14 @@ export async function POST(req: Request) {
   // minute-scale spikes with a bounded patience ladder (3s → 8s grace retries
   // on the same model), then answer with an honest outage bubble (outageReply)
   // instead of ok:false — the obfuscated client's failure branch would show a
-  // lying "unreachable" message. QnA never goes dark: with live Google results
-  // in hand it answers straight from the search engine. Error text must never
-  // match the client's /engine/i auto-retry regex, or one message would spin
-  // 5 retries.
-  const qnaOutage = (): NextResponse | null =>
-    mode === "qna" && lastSearch.length
+  // lying "unreachable" message. QnA and Koder never go dark: with live Google
+  // results in hand they answer straight from the search engine. Error text
+  // must never match the client's /engine/i auto-retry regex, or one message
+  // would spin 5 retries.
+  // the Google fallback answers for BOTH QnA and Koder when the GLM quota is
+  // dead and live search results are already in hand — the chat never goes dark
+  const googleOutage = (): NextResponse | null =>
+    (mode === "qna" || mode === "koder") && lastSearch.length
       ? NextResponse.json({
           ok: true,
           text: withSources(googleFallback(searchQuery(safe), lastSearch), mode, lastSearch),
@@ -806,7 +812,7 @@ export async function POST(req: Request) {
         }
       }
       if (!saved) {
-        const out = qnaOutage();
+        const out = googleOutage();
         if (out) return out;
         return NextResponse.json({ ok: true, text: outageReply(mode), engine: "xr-code", mode, vision: visionBlock || undefined });
       }
@@ -824,7 +830,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, text: withSources(t, mode, lastSearch), engine, mode, vision: visionBlock || undefined });
   }
   if (!actText || !act) {
-    const out = qnaOutage();
+    const out = googleOutage();
     if (out) return out;
     return NextResponse.json({ ok: true, text: outageReply(mode), engine: "xr-code", mode, vision: visionBlock || undefined });
   }
