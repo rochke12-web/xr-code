@@ -520,12 +520,20 @@ async function glmChat(sys: string, msgs: { role: "user" | "assistant"; content:
   return { text: null, quota: false }; // caller tries the next engine
 }
 
-// what the user sees when the shared quota window is exhausted. Must NOT
-// contain the word "engine" — the app auto-retries errors matching /engine/i
-// and would spin through 5 attempts × 16 calls instead of failing fast.
-const RATE_LIMITED =
-  "I'm rate-limited right now — the free AI quota is cooling down. " +
-  "Give it about a minute, then tap retry or send again.";
+// what the user sees when the shared quota window is exhausted. The served
+// client is an obfuscated build whose failure branch always prints "server
+// unreachable — check your connection" for ok:false, which reads as a dead
+// app during a plain quota cooldown (and flickers in a 10s auto-retry loop).
+// So outages answer ok:true with an honest bubble instead: the chat renders
+// normally and nothing lies. (Text also never contains "engine" — belt and
+// braces for the client's /engine/i auto-retry regex.)
+const outageReply = (m: string): string =>
+  m === "qna"
+    ? "I couldn't fetch live results and the AI service's free quota is cooling down right now. " +
+      "Send your question again in a minute or two — the quota usually recovers fast."
+    : "I'm online and reading you, but the AI service's free quota is cooling down right now, " +
+      "so I can't think properly this second. Your chat is saved — send your message again in a minute or two. " +
+      "Tip: QnA mode still answers from live Google results in the meantime.";
 
 // pull plain text out of string-or-multipart content
 function textOf(content: unknown): string {
@@ -684,7 +692,7 @@ export async function POST(req: Request) {
         if (retry.text) {
           return NextResponse.json({ ok: true, text: retry.text, engine: GLM_FIRST, mode, vision: visionBlock || undefined });
         }
-        return NextResponse.json({ ok: false, error: RATE_LIMITED });
+        return NextResponse.json({ ok: true, text: outageReply(mode), engine: "xr-code", mode, vision: visionBlock || undefined });
       }
       if (!r.text) {
         // one rescue on the quick model, then give up honestly
@@ -692,7 +700,7 @@ export async function POST(req: Request) {
         if (rescue.text) {
           return NextResponse.json({ ok: true, text: rescue.text, engine: GLM_FIRST, mode, vision: visionBlock || undefined });
         }
-        return NextResponse.json({ ok: false, error: "agent stalled — try again in a moment" });
+        return NextResponse.json({ ok: true, text: outageReply(mode), engine: "xr-code", mode, vision: visionBlock || undefined });
       }
       const a = parseAction(r.text);
       if (!a) {
@@ -763,10 +771,12 @@ export async function POST(req: Request) {
   // engine, one quota bucket, predictable behavior.
   // Quota storm policy: a 429 means the shared key is exhausted. Ride out
   // minute-scale spikes with a bounded patience ladder (3s → 8s grace retries
-  // on the same model), then fail — but QnA never goes dark: with live Google
-  // results in hand it answers straight from the search engine. Error text
-  // must never match the client's /engine/i auto-retry regex, or one message
-  // would spin 5 retries.
+  // on the same model), then answer with an honest outage bubble (outageReply)
+  // instead of ok:false — the obfuscated client's failure branch would show a
+  // lying "unreachable" message. QnA never goes dark: with live Google results
+  // in hand it answers straight from the search engine. Error text must never
+  // match the client's /engine/i auto-retry regex, or one message would spin
+  // 5 retries.
   const qnaOutage = (): NextResponse | null =>
     mode === "qna" && lastSearch.length
       ? NextResponse.json({
@@ -798,7 +808,7 @@ export async function POST(req: Request) {
       if (!saved) {
         const out = qnaOutage();
         if (out) return out;
-        return NextResponse.json({ ok: false, error: RATE_LIMITED });
+        return NextResponse.json({ ok: true, text: outageReply(mode), engine: "xr-code", mode, vision: visionBlock || undefined });
       }
       break; // rescued via an action directive — fall through to the asset path
     }
@@ -816,7 +826,7 @@ export async function POST(req: Request) {
   if (!actText || !act) {
     const out = qnaOutage();
     if (out) return out;
-    return NextResponse.json({ ok: false, error: "I can't reach the AI service right now — give it a moment and try again." });
+    return NextResponse.json({ ok: true, text: outageReply(mode), engine: "xr-code", mode, vision: visionBlock || undefined });
   }
 
   // creation request — build the real asset, then present it in one natural line
