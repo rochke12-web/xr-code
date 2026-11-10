@@ -475,14 +475,20 @@ type Msg = { role: "user" | "assistant"; content: string };
 
 // ---- all-in-one GLM brain (server-side only — never shipped to the browser) ----
 
-// the brain's engine: GLM only (user directive — "the first model").
-// glm-4.5-flash is the original first/default engine that answered every
-// message in the early builds (glm-4.6 handled only flagged heavy work).
-// No fallback chain: every chat path — koder, qna, sight and agent — rides
-// this single model via the ZAI SDK. GLM also powers the vision
-// preprocessor, so photo/video attachments still get described.
-const GLM_FIRST = "glm-4.5-flash"; // the original first model — the only chat engine
+// the brain's engine: GLM first (user directive — "the first model"), with
+// emergency free-model lanes behind it (user directive: "if the quota error
+// comes, switch to other free models"). glm-4.5-flash is the original
+// first/default engine that answered every message in the early builds — it
+// takes every request; the dpsk/glm-4.6/argon lanes only get probed when the
+// primary answers 429. GLM also powers the vision preprocessor, so
+// photo/video attachments still get described.
+const GLM_FIRST = "glm-4.5-flash"; // the original first model — the primary engine
 const KNOWN_MODELS = new Set([GLM_FIRST]);
+// emergency lanes on the same gateway, different model families → separate
+// quota buckets: when the GLM bucket is dry another family often has headroom.
+// A dead lane 429s in ~100ms, so probing them is nearly free. Tried in order;
+// the first live one answers.
+const FALLBACK_MODELS = ["dpsk-4.1-flash", "dpsk-4.1", "glm-4.6", "argon-1.0"];
 
 // chat engines via the ZAI SDK (OpenAI-style messages, verified live)
 type ChatResult = { text: string | null; quota: boolean };
@@ -490,15 +496,15 @@ type ChatResult = { text: string | null; quota: boolean };
 async function glmChat(sys: string, msgs: { role: "user" | "assistant"; content: string }[], model: string): Promise<ChatResult> {
   // self-healing: up to 2 attempts, re-creating the engine client each time —
   // a stale/poisoned SDK instance (env refresh after recycle) recovers instantly.
-  // 429 short-circuit: the whole family shares one key quota — once the gateway
-  // says "too many requests" for any member, every other member will too, and
-  // walking the rest of the chain only deepens the storm (16+ calls per message).
-  // Detect it and bail out at once; the caller decides what to tell the user.
+  // 429 short-circuit: return quota:true at once — the CALLER decides whether
+  // to probe the other free lanes (FALLBACK_MODELS) or answer from Google /
+  // honest outage. No unbounded retries here: one message must never spin
+  // 16+ gateway calls.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const zai = await ZAI.create();
-      // thinking toggle is a GLM knob — every chat model is GLM now, so this
-      // always applies (kept model-gated for safety anyway)
+      // thinking toggle is a GLM knob — applied to glm-* models only, never
+      // to the emergency dpsk/argon lanes
       const glmish = model.startsWith("glm");
       const res = (await Promise.race([
         zai.chat.completions.create({
@@ -696,6 +702,13 @@ export async function POST(req: Request) {
         if (retry.text) {
           return NextResponse.json({ ok: true, text: retry.text, engine: GLM_FIRST, mode, vision: visionBlock || undefined });
         }
+        // quota storm — probe the other free lanes once each; first live one wins
+        for (const fm of FALLBACK_MODELS) {
+          const fr = await glmChat(sys, chatText, fm);
+          if (fr.text) {
+            return NextResponse.json({ ok: true, text: fr.text, engine: fm, mode, vision: visionBlock || undefined });
+          }
+        }
         return NextResponse.json({ ok: true, text: outageReply(mode), engine: "xr-code", mode, vision: visionBlock || undefined });
       }
       if (!r.text) {
@@ -770,14 +783,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "agent ran out of steps — try again" });
   }
 
-  // one brain, GLM ONLY (user directive — the original first model) — plain
-  // replies return; action directives run the tools. No fallback models: one
-  // engine, one quota bucket, predictable behavior.
-  // Quota storm policy: a 429 means the shared key is exhausted. Ride out
-  // minute-scale spikes with a bounded patience ladder (3s → 8s grace retries
-  // on the same model), then answer with an honest outage bubble (outageReply)
-  // instead of ok:false — the obfuscated client's failure branch would show a
-  // lying "unreachable" message. QnA and Koder never go dark: with live Google
+  // one brain first: GLM (the original first model) — plain replies return;
+  // action directives run the tools. On a 429 the chain walks the emergency
+  // free lanes (dpsk-4.1-flash, dpsk-4.1, glm-4.6, argon-1.0) before giving up.
+  // Quota storm policy: a 429 means the primary's quota bucket is exhausted.
+  // One 3s grace retry on the primary, then walk the emergency free lanes
+  // (each one quick attempt — a dry lane 429s in ~100ms). If every lane is
+  // dry: answer with an honest outage bubble (outageReply) instead of
+  // ok:false — the obfuscated client's failure branch would show a lying
+  // "unreachable" message. QnA and Koder never go dark: with live Google
   // results in hand they answer straight from the search engine. Error text
   // must never match the client's /engine/i auto-retry regex, or one message
   // would spin 5 retries.
@@ -793,30 +807,26 @@ export async function POST(req: Request) {
           vision: visionBlock || undefined,
         })
       : null;
-  const chain = [chosen]; // single engine — the original first GLM model
+  // GLM first, then the free lanes (user directive: on the quota error, switch
+  // to other free models). Dead lanes 429 in ~100ms so the walk is cheap; the
+  // primary keeps one 3s grace retry for brief throttle windows.
+  const chain = [chosen, ...FALLBACK_MODELS.filter(m => m !== chosen)];
   let actText: string | null = null;
   let engineUsed = "";
   let act: Action | null = null;
   for (const engine of chain) {
     const r = await glmChat(sys, chatText, engine);
     if (r.quota) {
-      // patience ladder — brief throttle windows open quickly
-      let saved = false;
-      for (const wait of [3000, 8000]) {
-        await new Promise(r2 => setTimeout(r2, wait));
-        const retry = await glmChat(sys, chatText, GLM_FIRST);
-        if (retry.text) {
-          const a2 = parseAction(retry.text);
-          if (a2) { actText = retry.text; engineUsed = GLM_FIRST; act = a2; saved = true; break; }
-          return NextResponse.json({ ok: true, text: withSources(retry.text, mode, lastSearch), engine: GLM_FIRST, mode, vision: visionBlock || undefined });
-        }
+      if (engine !== chosen) continue; // fallback lane dry — next lane
+      // primary is throttled: one grace retry, then the remaining lanes
+      await new Promise(r2 => setTimeout(r2, 3000));
+      const retry = await glmChat(sys, chatText, GLM_FIRST);
+      if (retry.text) {
+        const a2 = parseAction(retry.text);
+        if (a2) { actText = retry.text; engineUsed = GLM_FIRST; act = a2; break; }
+        return NextResponse.json({ ok: true, text: withSources(retry.text, mode, lastSearch), engine: GLM_FIRST, mode, vision: visionBlock || undefined });
       }
-      if (!saved) {
-        const out = googleOutage();
-        if (out) return out;
-        return NextResponse.json({ ok: true, text: outageReply(mode), engine: "xr-code", mode, vision: visionBlock || undefined });
-      }
-      break; // rescued via an action directive — fall through to the asset path
+      continue;
     }
     if (!r.text) continue;
     const t = r.text;
