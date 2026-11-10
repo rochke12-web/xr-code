@@ -94,6 +94,27 @@ const SYSTEM_QNA =
   DEPTH_RULES +
   IDENTITY_LOCK;
 
+// ---- AGENT MODE — autonomous multi-step worker (arena-style) ----
+const SYSTEM_AGENT =
+  "You are XR Code, the AI of the XR-Code app by YUX FF — currently in Agent Mode: an autonomous multi-step agent. " +
+  "You COMPLETE tasks end-to-end instead of merely advising. Behavior: " +
+  "• Think in steps: for any non-trivial task, silently plan the 2-4 concrete steps that reach a finished result. " +
+  "• Use tools when they make the result REAL — live facts come from search, visuals come from image/video generation. " +
+  "• To run a tool, reply with ONLY the tool JSON and nothing else (directives below). One tool per step. " +
+  "• After each TOOL RESULT, continue: use another tool if needed, or deliver the final answer. " +
+  "• Deliver a COMPLETE final answer: for code tasks, full runnable code; for research, the synthesized findings; " +
+  "for creative tasks, the finished asset plus one line presenting it. Never hand back a plan — hand back the result. " +
+  "• If tools are exhausted or unnecessary, answer directly from your own knowledge. " +
+  "• Never mention JSON, tools, engines, steps or infrastructure in the final answer — only the polished result. " +
+  DEPTH_RULES +
+  IDENTITY_LOCK;
+
+// agent-only search directive (image/video directives come from TOOL_RULES below)
+const AGENT_SEARCH_RULE =
+  "ADDITIONAL AGENT TOOL — live web search:\n" +
+  'To search the live web, reply with ONLY: {"action":"search","query":"<short search query>"}\n' +
+  "You will receive the results as a TOOL RESULT message in the next step. Search up to 2 times per task.\n";
+
 // ---- SIGHT MODE — the photo & video AI ----
 const SYSTEM_SIGHT =
   "You are XR Code, the AI of the XR-Code app by YUX FF — currently in Sight Mode: the photo & video AI. " +
@@ -127,7 +148,9 @@ const TOOL_RULES =
   "In both cases: no prose, no code fence, no markdown around it — ONLY the JSON object.\n" +
   "For every other request reply normally and never emit action JSON.";
 
-type Action = { action: "image" | "video"; prompt: string; size?: string; with_audio?: boolean };
+type Action =
+  | { action: "image" | "video"; prompt: string; size?: string; with_audio?: boolean }
+  | { action: "search"; query: string };
 
 // a real directive is a SHORT reply that IS a JSON object — long answers with a
 // JSON snippet inside are just code, never a tool call
@@ -137,6 +160,9 @@ function parseAction(reply: string | null): Action | null {
   if (s.length > 600 || !s.startsWith("{")) return null;
   try {
     const o = JSON.parse(s) as Record<string, unknown>;
+    if (o.action === "search" && typeof o.query === "string" && o.query.trim().length > 1) {
+      return { action: "search", query: o.query.trim().slice(0, 200) };
+    }
     if (
       (o.action === "image" || o.action === "video") &&
       typeof o.prompt === "string" && o.prompt.trim().length > 2
@@ -488,15 +514,19 @@ export async function POST(req: Request) {
 
   // two modes: Koder (developer brain) and QnA (web-grounded answers, sources stay hidden)
   const modeRaw = typeof body?.mode === "string" ? body.mode.trim().toLowerCase() : "";
-  const mode = modeRaw === "qna" || modeRaw === "sight" ? modeRaw : "koder";
-  let sys = (mode === "qna" ? SYSTEM_QNA : mode === "sight" ? SYSTEM_SIGHT : SYSTEM_KODER) + TOOL_RULES;
+  const mode = modeRaw === "qna" || modeRaw === "sight" || modeRaw === "agent" ? modeRaw : "koder";
+  let sys =
+    (mode === "qna" ? SYSTEM_QNA : mode === "sight" ? SYSTEM_SIGHT : mode === "agent" ? SYSTEM_AGENT : SYSTEM_KODER) +
+    TOOL_RULES +
+    (mode === "agent" ? AGENT_SEARCH_RULE : "");
   const lastUser = [...safe].reverse().find(m => m.role === "user");
   // one brain, all GLM: explicit family member is honored, otherwise auto-route
   const wanted = typeof body?.model === "string" ? body.model.trim() : "";
   const chosen = GLM_MODELS.has(wanted) ? wanted : autoEngine(lastUser?.content || "", safe);
   // the user is talking about THEIR attachment — web search would only distract.
   // QnA mode grounds almost every real question in live results (sources never shown).
-  if (lastUser && !/\[attached (image|video|file|audio):/i.test(lastUser.content)) {
+  // Agent mode skips auto-grounding: it searches itself, on demand, per step.
+  if (mode !== "agent" && lastUser && !/\[attached (image|video|file|audio):/i.test(lastUser.content)) {
     const q = lastUser.content.toLowerCase();
     const identityQ = /(who are you|what are you|your name|who made you|who created you|who built you|about yourself|who are u)/.test(q);
     const looksQuestion = q.length >= 4 && (/\?/.test(q) || /^(who|what|when|where|why|how|which|whose|is|are|was|were|do|does|did|can|could|should|define|explain|tell me)\b/.test(q) || q.length > 60);
@@ -530,6 +560,97 @@ export async function POST(req: Request) {
   if (visionBlock) {
     const lu = [...chatText].reverse().find(m => m.role === "user");
     if (lu) lu.content = (lu.content + visionBlock).slice(0, 12000);
+  }
+
+  // ---- AGENT MODE — autonomous multi-step loop ----
+  // The model answers OR emits one tool directive per step; the server runs it
+  // (live web search / image gen / video gen) and feeds the result back until
+  // the task is done or the budget is spent. DeepSeek flagship drives it.
+  if (mode === "agent") {
+    const MAX_STEPS = 4;
+    const trace: string[] = [];
+    const agentModel = DPSK_FLAGSHIP;
+    let engineOut = agentModel;
+    for (let step = 0; step < MAX_STEPS; step++) {
+      const r = await glmChat(sys, chatText, agentModel);
+      if (r.quota) {
+        await new Promise(r2 => setTimeout(r2, 3000));
+        const retry = await glmChat(sys, chatText, GLM_QUICK);
+        if (retry.text) {
+          return NextResponse.json({ ok: true, text: retry.text, engine: GLM_QUICK, mode, vision: visionBlock || undefined });
+        }
+        return NextResponse.json({ ok: false, error: RATE_LIMITED });
+      }
+      if (!r.text) {
+        // one cross-family rescue, then give up honestly
+        const rescue = await glmChat(sys, chatText, GLM_FLAGSHIP);
+        if (rescue.text) {
+          return NextResponse.json({ ok: true, text: rescue.text, engine: GLM_FLAGSHIP, mode, vision: visionBlock || undefined });
+        }
+        return NextResponse.json({ ok: false, error: "agent stalled — try again in a moment" });
+      }
+      const a = parseAction(r.text);
+      if (!a) {
+        // final answer delivered
+        const prefix = trace.length ? `Agent · ${trace.join(" → ")}\n\n` : "";
+        return NextResponse.json({ ok: true, text: prefix + r.text, engine: engineOut, mode, trace, vision: visionBlock || undefined });
+      }
+      if (a.action === "search") {
+        trace.push(`search "${a.query}"`);
+        const ctx = (await googleContext(a.query)) || "";
+        chatText.push({ role: "assistant", content: JSON.stringify(a) });
+        chatText.push({
+          role: "user",
+          content:
+            `TOOL RESULT — live web results for "${a.query}":\n` +
+            (ctx ? ctx.slice(0, 6000) : "(no results found — answer from your own knowledge)"),
+        });
+        continue;
+      }
+      // image / video generation
+      trace.push(`${a.action} ✓`);
+      const asset =
+        a.action === "image"
+          ? await runImageGen((a as { prompt: string }).prompt, (a as { size?: string }).size)
+          : await runVideoGen((a as { prompt: string }).prompt, (a as { with_audio?: boolean }).with_audio === true);
+      if (asset) {
+        const composerMsgs = [
+          ...chatText,
+          { role: "assistant" as const, content: JSON.stringify(a) },
+          {
+            role: "user" as const,
+            content:
+              `Tool result: the ${a.action} was generated successfully and is attached in the chat. ` +
+              "Write your FINAL answer now: one short friendly sentence presenting it (plus anything else the task needed). " +
+              "Never mention JSON, tools, URLs or engines.",
+          },
+        ];
+        const composed = await glmChat(sys, composerMsgs, agentModel);
+        const prefix = trace.length ? `Agent · ${trace.join(" → ")}\n\n` : "";
+        return NextResponse.json({
+          ok: true,
+          text: prefix + (composed.text || (a.action === "image" ? "Here it is — freshly generated for you." : "Here's your clip — freshly generated for you.")),
+          engine: engineOut,
+          mode,
+          asset: { type: a.action, ...asset, prompt: (a as { prompt: string }).prompt },
+          trace,
+          vision: visionBlock || undefined,
+        });
+      }
+      chatText.push({ role: "assistant", content: JSON.stringify(a) });
+      chatText.push({
+        role: "user",
+        content: `Tool result: the ${a.action} generation failed or timed out. Continue the task another way or deliver the best answer you can without it.`,
+      });
+    }
+    // budget spent — force the final answer
+    chatText.push({ role: "user", content: "TOOL BUDGET REACHED — deliver your final answer NOW, no more tool calls." });
+    const last = await glmChat(sys, chatText, agentModel);
+    const prefix = trace.length ? `Agent · ${trace.join(" → ")}\n\n` : "";
+    if (last.text) {
+      return NextResponse.json({ ok: true, text: prefix + last.text, engine: engineOut, mode, trace, vision: visionBlock || undefined });
+    }
+    return NextResponse.json({ ok: false, error: "agent ran out of steps — try again" });
   }
 
   // one GLM brain — plain replies return; action directives run the tools.
