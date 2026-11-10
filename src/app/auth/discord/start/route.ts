@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
+import { XR_SECRETS } from "@/lib/xrsecrets";
 
 // Step 1 of the Discord OAuth (authorization-code flow):
 // bounce the user to Discord's consent screen with a CSRF state cookie.
@@ -15,8 +16,11 @@ function originOf(req: Request): string {
 }
 
 export async function GET(req: Request) {
-  const cid = process.env.DISCORD_CLIENT_ID || "1569008720661315645";
-  const origin = originOf(req);
+  const cid = process.env.DISCORD_CLIENT_ID || XR_SECRETS.DISCORD_CLIENT_ID;
+  // redirect_uri MUST match one registered in the Discord developer portal.
+  // Gateway headers can expose an internal FC host, so a pinned origin wins
+  // when configured (set on the hosted deployment; unset on localhost dev).
+  const origin = process.env.DISCORD_REDIRECT_ORIGIN || originOf(req);
   const state = crypto.randomBytes(16).toString("hex");
   const params = new URLSearchParams({
     client_id: cid,

@@ -6,6 +6,7 @@
 import { NextResponse } from "next/server";
 import { mintToken, authCookie } from "@/lib/xrauth";
 import { exchangeAndVerify } from "@/lib/xrverify";
+import { XR_SECRETS } from "@/lib/xrsecrets";
 
 function fail(req: Request, code: string) {
   return NextResponse.redirect(new URL("/?dserr=" + code, req.url));
@@ -30,7 +31,10 @@ export async function GET(req: Request) {
   if (!state || !cookieState || state !== cookieState) return fail(req, "state");
   const code = url.searchParams.get("code") || "";
   if (!code) return fail(req, "setup");
-  const v = await exchangeAndVerify(code, originOf(req) + "/auth/discord/callback");
+  // same pinned origin as /auth/discord/start — the exchange redirect_uri must
+  // match the one the code was issued for exactly (gateway headers can lie)
+  const origin = process.env.DISCORD_REDIRECT_ORIGIN || XR_SECRETS.DISCORD_REDIRECT_ORIGIN;
+  const v = await exchangeAndVerify(code, origin + "/auth/discord/callback");
   if (!v.ok) return fail(req, v.error);
   const res = NextResponse.redirect(new URL("/?dsok=1", req.url));
   res.headers.set("Set-Cookie", authCookie(mintToken(v.uid)));
