@@ -321,10 +321,20 @@ const GLM_MODELS = new Set([
   "glm-4-flash",
   "glm-4v-flash",
   "glm-4-plus",
+  // cross-family escape hatches (user-requested): tried only when the whole
+  // GLM chain is rate-limited / unreachable. Dead names just fail fast and
+  // cost one attempt — the chain moves on.
+  "argon",
+  "argon-flash",
+  "dpsk-4.1-flash",
+  "dpsk-4.1",
 ]);
 const GLM_FLAGSHIP = "glm-4.6"; // smartest — default for real work
 const GLM_QUICK = "glm-4.5-flash"; // fastest — short, casual messages
 const GLM_FALLBACKS = [GLM_QUICK, GLM_FLAGSHIP]; // quiet in-family chain
+// last-resort cross-family chain — GLM first (preferred), argon/dpsk only if
+// every GLM member fails (e.g. gateway-wide 429 on the GLM pool)
+const EXTRA_FALLBACKS = ["argon", "argon-flash", "dpsk-4.1-flash", "dpsk-4.1"];
 
 // all-in-one routing: one brain, the whole family behind it
 function autoEngine(q: string, safe: Msg[]): string {
@@ -342,9 +352,10 @@ function autoEngine(q: string, safe: Msg[]): string {
 
 // free GLM engines via the ZAI SDK (OpenAI-style messages, verified live)
 async function glmChat(sys: string, msgs: { role: "user" | "assistant"; content: string }[], model: string): Promise<string | null> {
-  // self-healing: up to 3 attempts, re-creating the engine client each time —
-  // a stale/poisoned SDK instance (env refresh after recycle) recovers instantly
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // self-healing: up to 2 attempts, re-creating the engine client each time —
+  // a stale/poisoned SDK instance (env refresh after recycle) recovers instantly.
+  // (was 3 — retries amplify gateway 429 storms, making outages last longer)
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const zai = await ZAI.create();
       const res = (await Promise.race([
@@ -360,7 +371,7 @@ async function glmChat(sys: string, msgs: { role: "user" | "assistant"; content:
     } catch {
       // engine hiccup — fall through to retry
     }
-    if (attempt < 2) await new Promise(r => setTimeout(r, 1200));
+    if (attempt < 1) await new Promise(r => setTimeout(r, 1200));
   }
   return null; // caller tries the next engine
 }
@@ -499,8 +510,14 @@ export async function POST(req: Request) {
     if (lu) lu.content = (lu.content + visionBlock).slice(0, 12000);
   }
 
-  // one GLM brain — plain replies return; action directives run the tools
-  const chain = [chosen, ...GLM_FALLBACKS.filter(m => m !== chosen)];
+  // one GLM brain — plain replies return; action directives run the tools.
+  // Cross-family escape hatch appended: if every GLM member is down (429 pool
+  // exhaustion), argon / dpsk-4.1-flash get a chance before we give up.
+  const chain = [
+    chosen,
+    ...GLM_FALLBACKS.filter(m => m !== chosen),
+    ...EXTRA_FALLBACKS.filter(m => m !== chosen && !GLM_FALLBACKS.includes(m as typeof GLM_FALLBACKS[number])),
+  ];
   let actText: string | null = null;
   let engineUsed = "";
   let act: Action | null = null;
