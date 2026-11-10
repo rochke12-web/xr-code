@@ -886,7 +886,7 @@ body::after{
     <div class="ds-steps"><span class="ds-step"><b>1</b> Join server</span><span class="ds-arrow">&rarr;</span><span class="ds-step"><b>2</b> XR-Auth</span><span class="ds-arrow">&rarr;</span><span class="ds-step"><b>3</b> Verify</span></div>
     <button class="ds-btn" id="dsBtn" type="button"><svg class="ic"><use href="#i-discord"/></svg>Verify with Discord</button>
     <a class="ds-invite" id="dsInvite" href="https://discord.gg/YPqmsrMRr5" target="_blank" rel="noopener"><svg class="ic"><use href="#i-discord"/></svg>Join the XR server</a>
-    <p class="ds-fine">Verification happens on Discord &mdash; this app never sees your password.</p>
+    <p class="ds-fine">Verification happens on Discord &mdash; this app never sees your password. Owners may be asked for <b>Manage Server</b>: used once, to link the XR-Auth role automatically.</p>
   </div>
 </div>
 
@@ -1047,7 +1047,7 @@ body::after{
     join:    'You are not in the XR server yet. Join it, take the XR-Auth role, then verify again.',
     pending: 'Your membership is still pending \u2014 finish server verification, then tap Verify again.',
     role:    'You need the XR-Auth role in the XR server to use the AI. Ask an admin, then verify again.',
-    roleconf:'Owner one-time setup: the XR-Auth role ID is not pinned yet. In Discord: Server Settings \u2192 Roles \u2192 right-click XR-Auth \u2192 Copy ID, then share it with the owner to enable. Access stays closed until then.',
+    roleconf:'The XR-Auth role is not linked yet. Server owner: tap Verify with Discord — approve the Manage Server prompt and the role links itself automatically. Members: ask the owner to verify once first.',
     wait:    'Finish the Discord window \u2014 this page unlocks on its own once you are in.',
     popup:   'The pop-up window was blocked \u2014 allow pop-ups for this site, or open XR-Code in its own browser tab, then tap Verify again.',
     denied:  'Authorization cancelled \u2014 tap Verify with Discord and allow the access prompt.',

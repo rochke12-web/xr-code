@@ -23,7 +23,7 @@ const ERRS: Record<string, string> = {
   join: 'You are not in the XR server yet — join it, take the XR-Auth role, then verify again.',
   pending: 'Your membership is still pending — finish server verification, then verify again.',
   role: 'You need the XR-Auth role in the XR server to use the AI — ask an admin, then verify again.',
-  roleconf: 'Owner one-time setup: the XR-Auth role ID is not pinned yet. Access stays closed until then.',
+  roleconf: 'The XR-Auth role is not linked yet — the server owner must verify once (Discord asks for Manage Server) and it links automatically. Members: ask the owner first.',
 }
 
 export default function DiscordHandoff() {

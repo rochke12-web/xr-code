@@ -8,6 +8,7 @@
 // directly (no bot required, works with the user-token member record).
 import { mintToken } from "./xrauth";
 import { XR_SECRETS } from "./xrsecrets";
+import { db } from "./db";
 
 const CID = process.env.DISCORD_CLIENT_ID || "1569300109790023772";
 const GID = process.env.DISCORD_GUILD_ID || "1568895668368711692";
@@ -15,16 +16,25 @@ const SECRET = process.env.DISCORD_CLIENT_SECRET || XR_SECRETS.DISCORD_CLIENT_SE
 const BOT = process.env.DISCORD_BOT_TOKEN || "";
 const ROLE_ID = process.env.DISCORD_ROLE_ID || "";
 const ROLE_NAME = (process.env.DISCORD_ROLE_NAME || "XR-Auth").trim().toLowerCase();
+const ROLE_KEY = "xr_auth_role_id";
 
-// 10-minute cache for the bot-token role-name -> id lookup
+// 10-minute cache for the resolved role id (DB pin or bot-token lookup)
 let roleCache: { id: string; at: number } | null = null;
 
 // owner policy: role gate is ALWAYS on. Resolve the target role id by:
 // 1. DISCORD_ROLE_ID env (pin it, no bot needed) — preferred
-// 2. bot token + role name lookup (cached 10 min)
+// 2. the DB pin, auto-linked by the server owner's own verification
+// 3. bot token + role name lookup (cached 10 min)
 async function targetRoleId(): Promise<string> {
   if (ROLE_ID) return ROLE_ID;
   if (roleCache && Date.now() - roleCache.at < 600_000) return roleCache.id;
+  try {
+    const row = await db.discordConfig.findUnique({ where: { key: ROLE_KEY } });
+    if (row && row.value) {
+      roleCache = { id: row.value, at: Date.now() };
+      return row.value;
+    }
+  } catch { /* db unavailable — fall through */ }
   if (!BOT) return "";
   const r = await fetch(`https://discord.com/api/v10/guilds/${GID}/roles`, {
     headers: { Authorization: `Bot ${BOT}` },
@@ -39,12 +49,46 @@ async function targetRoleId(): Promise<string> {
   return hit?.id || "";
 }
 
+// Owner self-service linking: the server owner's own OAuth token (manage_guild
+// scope + their MANAGE_GUILD permission) may read the guild's role list. When
+// they verify while the XR-Auth role id is unpinned, resolve it by name and
+// persist it — every member's verify uses the same pin afterwards. No bot in
+// the server, no hand-copying of role IDs.
+async function pinXRAuthRole(H: Record<string, string>): Promise<string> {
+  try {
+    const r = await fetch(`https://discord.com/api/v10/guilds/${GID}/roles`, {
+      headers: H, signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) return "";
+    const roles = (await r.json()) as { id?: string; name?: string }[];
+    const hit = (Array.isArray(roles) ? roles : []).find(
+      x => x && typeof x.name === "string" && x.name.trim().toLowerCase() === ROLE_NAME
+    );
+    if (!hit?.id) return "";
+    roleCache = { id: hit.id, at: Date.now() };
+    try {
+      await db.discordConfig.upsert({
+        where: { key: ROLE_KEY },
+        update: { value: hit.id },
+        create: { key: ROLE_KEY, value: hit.id },
+      });
+    } catch { /* db unavailable — this verify still works via the cache */ }
+    return hit.id;
+  } catch {
+    return "";
+  }
+}
+
 // policy: joined AND holds the XR-Auth role. No resolvable target or no role
 // match -> closed. Never grant on config gaps (fail closed).
 async function roleGate(roles: string[]): Promise<string | null> {
   const target = await targetRoleId();
   if (!target) return "roleconf";
   return roles.includes(target) ? null : "role";
+}
+
+export async function pinnedRoleId(): Promise<string> {
+  return targetRoleId();
 }
 
 // The `guilds` scope lets the user token list its own guilds with the owner
@@ -103,11 +147,18 @@ export async function exchangeAndVerify(code: string, redirectUri: string): Prom
     if (memRes.ok) {
       const mem = (await memRes.json()) as { pending?: boolean; roles?: string[] };
       if (mem.pending) return { ok: false, error: "pending" };
+      const owner = await isGuildOwner(H);
       const rerr = await roleGate(Array.isArray(mem.roles) ? mem.roles : []);
       if (!rerr) return { ok: true, uid: me.id };
-      // role gate failed: the OWNER still passes (they manage the roles);
-      // every other member stays closed with the gate error.
-      if (await isGuildOwner(H)) return { ok: true, uid: me.id };
+      if (owner) {
+        // the owner manages the roles — while they are here, link the
+        // XR-Auth role by name so members can pass the gate without any
+        // manual role-ID copy-paste
+        if (rerr === "roleconf") await pinXRAuthRole(H);
+        return { ok: true, uid: me.id };
+      }
+      // role gate failed and the visitor is not the owner: closed, with the
+      // gate error (members wait for the owner's one-click link)
       return { ok: false, error: rerr };
     }
     if (memRes.status === 404) return { ok: false, error: "join" };

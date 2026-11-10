@@ -30,3 +30,11 @@ model Post {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// Tiny key/value store for server-side config that must survive restarts —
+// currently the auto-linked XR-Auth role id ('xr_auth_role_id').
+model DiscordConfig {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

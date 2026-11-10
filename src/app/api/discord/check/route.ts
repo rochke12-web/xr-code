@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 import { verifyDiscord } from "@/lib/xrauth";
 import { XR_SECRETS } from "@/lib/xrsecrets";
+import { pinnedRoleId } from "@/lib/xrverify";
 
 export async function POST(req: Request) {
   // invite is public info — hardcoded fallback so "Join the XR server" can
@@ -12,8 +13,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "setup", invite });
   }
   const v = verifyDiscord(req);
-  if (!v.ok) return NextResponse.json({ ok: false, error: v.error || "verify", invite });
-  return NextResponse.json({ ok: true, uid: v.uid, invite });
+  // the linked XR-Auth role id (null while unpinned) — not a secret; lets the
+  // owner confirm the auto-link worked without opening any Discord menus
+  const roleId = (await pinnedRoleId().catch(() => "")) || null;
+  if (!v.ok) return NextResponse.json({ ok: false, error: v.error || "verify", invite, roleId });
+  return NextResponse.json({ ok: true, uid: v.uid, invite, roleId });
 }
 
 export async function GET(req: Request) {
