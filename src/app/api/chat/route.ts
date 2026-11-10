@@ -351,10 +351,15 @@ function autoEngine(q: string, safe: Msg[]): string {
 }
 
 // free GLM engines via the ZAI SDK (OpenAI-style messages, verified live)
-async function glmChat(sys: string, msgs: { role: "user" | "assistant"; content: string }[], model: string): Promise<string | null> {
+type ChatResult = { text: string | null; quota: boolean };
+
+async function glmChat(sys: string, msgs: { role: "user" | "assistant"; content: string }[], model: string): Promise<ChatResult> {
   // self-healing: up to 2 attempts, re-creating the engine client each time —
   // a stale/poisoned SDK instance (env refresh after recycle) recovers instantly.
-  // (was 3 — retries amplify gateway 429 storms, making outages last longer)
+  // 429 short-circuit: the whole family shares one key quota — once the gateway
+  // says "too many requests" for any member, every other member will too, and
+  // walking the rest of the chain only deepens the storm (16+ calls per message).
+  // Detect it and bail out at once; the caller decides what to tell the user.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const zai = await ZAI.create();
@@ -367,14 +372,24 @@ async function glmChat(sys: string, msgs: { role: "user" | "assistant"; content:
         new Promise<null>(r => setTimeout(() => r(null), 60000)),
       ])) as { choices?: { message?: { content?: string } }[] } | null;
       const text = String(res?.choices?.[0]?.message?.content || "").trim();
-      if (text) return text;
-    } catch {
+      if (text) return { text, quota: false };
+      // empty reply is an engine hiccup, not a quota signal — retry once
+    } catch (e) {
+      const msg = String((e as Error)?.message || e);
+      if (/\b429\b|too many requests/i.test(msg)) return { text: null, quota: true };
       // engine hiccup — fall through to retry
     }
     if (attempt < 1) await new Promise(r => setTimeout(r, 1200));
   }
-  return null; // caller tries the next engine
+  return { text: null, quota: false }; // caller tries the next engine
 }
+
+// what the user sees when the shared quota window is exhausted. Must NOT
+// contain the word "engine" — the app auto-retries errors matching /engine/i
+// and would spin through 5 attempts × 16 calls instead of failing fast.
+const RATE_LIMITED =
+  "I'm rate-limited right now — the free AI quota is cooling down. " +
+  "Give it about a minute, then tap retry or send again.";
 
 // pull plain text out of string-or-multipart content
 function textOf(content: unknown): string {
@@ -511,8 +526,13 @@ export async function POST(req: Request) {
   }
 
   // one GLM brain — plain replies return; action directives run the tools.
-  // Cross-family escape hatch appended: if every GLM member is down (429 pool
-  // exhaustion), argon / dpsk-4.1-flash get a chance before we give up.
+  // Cross-family escape hatch appended: if every GLM member is down (non-quota
+  // hiccups), argon / dpsk-4.1-flash get a chance before we give up.
+  // Quota storm policy: a 429 on ANY member means the shared key is exhausted —
+  // short-circuit the whole chain (one grace retry on the quick model after 3s
+  // to ride out momentary spikes), then fail fast with a friendly message.
+  // Failing fast keeps one user message ≈ 2-3 upstream calls instead of ~80,
+  // which is what lets the quota window actually recover.
   const chain = [
     chosen,
     ...GLM_FALLBACKS.filter(m => m !== chosen),
@@ -522,8 +542,19 @@ export async function POST(req: Request) {
   let engineUsed = "";
   let act: Action | null = null;
   for (const engine of chain) {
-    const t = await glmChat(sys, chatText, engine);
-    if (!t) continue;
+    const r = await glmChat(sys, chatText, engine);
+    if (r.quota) {
+      await new Promise(r2 => setTimeout(r2, 3000));
+      const retry = await glmChat(sys, chatText, GLM_QUICK);
+      if (retry.text) {
+        const a2 = parseAction(retry.text);
+        if (a2) { actText = retry.text; engineUsed = GLM_QUICK; act = a2; break; }
+        return NextResponse.json({ ok: true, text: retry.text, engine: GLM_QUICK, mode, vision: visionBlock || undefined });
+      }
+      return NextResponse.json({ ok: false, error: RATE_LIMITED });
+    }
+    if (!r.text) continue;
+    const t = r.text;
     const a = parseAction(t);
     if (a) {
       actText = t;
@@ -553,8 +584,9 @@ export async function POST(req: Request) {
           "Apologize in ONE short natural sentence and suggest trying again in a moment. Never mention JSON, tools or engines.",
     },
   ];
-  const text = (await glmChat(SYSTEM_KODER, composerMsgs, engineUsed)) ||
-    (asset ? "Here it is — freshly generated for you." : "The generation engine didn't finish this time — give it another try in a moment.");
+  const composed = await glmChat(SYSTEM_KODER, composerMsgs, engineUsed);
+  const text = composed.text ||
+    (asset ? "Here it is — freshly generated for you." : "The generation didn't finish this time — give it another try in a moment.");
   return NextResponse.json({
     ok: true,
     text,
