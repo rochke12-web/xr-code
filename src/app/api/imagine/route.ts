@@ -144,7 +144,7 @@ export async function POST(req: Request) {
   if (!painted) {
     console.error("[imagine] all painters failed after", Date.now() - t0, "ms");
     return NextResponse.json(
-      { ok: false, error: "The painters are all busy or cooling down — try again in a minute." },
+      { ok: false, error: "The art models are warming up right now — give it a moment and try again." },
       { status: 502 }
     );
   }
@@ -153,9 +153,7 @@ export async function POST(req: Request) {
   return NextResponse.json({
     ok: true,
     url: painted.url,
-    model: painted.model,
     enhanced: enhanced ? enhanced.text : "",
-    enhancer: enhanced ? enhanced.model : "",
     prompt: paintPrompt,
     ms,
   });
