@@ -4,6 +4,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { assetDir } from "../../../lib/asset-dir";
+import { verifyDiscord } from "../../../lib/xrauth";
 
 // XR-Code Imagine — the built-in image generator (NoteGPT-style).
 // Pipeline: user idea → Kimi AI (kimi-k2) rewrites it into one vivid English
@@ -121,6 +122,10 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  // Discord gate — verified member (XR-Auth role) only. Fail closed.
+  const gv = verifyDiscord(req);
+  if (!gv.ok)
+    return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
   const t0 = Date.now();
   let body: { prompt?: unknown; style?: unknown; size?: unknown } = {};
   try {

@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { assetDir } from "../../../lib/asset-dir";
+import { verifyDiscord } from "../../../lib/xrauth";
 
 // XR-Code hosted brain — no API keys in the client, no modes, nothing to configure.
 // One highly capable agent: reads each message and automatically responds the
@@ -616,6 +617,10 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  // Discord gate — verified member (XR-Auth role) only. Fail closed.
+  const gv = verifyDiscord(req);
+  if (!gv.ok)
+    return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
   let body: { messages?: RawMsg[]; model?: string; mode?: string } | null = null;
   try {
     body = await req.json();

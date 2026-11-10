@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
+import { verifyDiscord } from "../../../lib/xrauth";
 
 // POST /api/asr { b64 } → { ok, text }
 // speech-to-text: attached voice notes / audio files get transcribed so the
 // brain can hear them like everything else
 export async function POST(req: Request) {
+  // Discord gate — verified member (XR-Auth role) only. Fail closed.
+  const gv = verifyDiscord(req);
+  if (!gv.ok)
+    return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
   try {
     const body = (await req.json().catch(() => null)) as { b64?: string } | null;
     const clean = String(body?.b64 || "").replace(/^data:[^,]+,/, "").replace(/\s/g, "");

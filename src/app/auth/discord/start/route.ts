@@ -22,7 +22,9 @@ export async function GET(req: Request) {
     client_id: cid,
     response_type: "code",
     redirect_uri: origin + "/auth/discord/callback",
-    scope: "identify",
+    // identify: who the user is · guilds.members.read: the member record
+    // (pending flag + roles) for the XR-Auth role gate. Minimal set.
+    scope: "identify guilds.members.read",
     state,
   });
   const res = NextResponse.redirect("https://discord.com/oauth2/authorize?" + params.toString(), 302);

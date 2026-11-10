@@ -1,10 +1,11 @@
 // Discord membership verification core — shared by the OAuth callback and the
-// manual handoff endpoint. Exchange code -> identify -> membership (+ optional
-// role gate) -> uid. Gate rule (default): joined the server AND passed its
-// member verification (not pending). Strict mode: if DISCORD_ROLE_ID or
-// DISCORD_BOT_TOKEN is set, the member must also hold the configured role.
-// The /users/@me/guilds/{id}/member endpoint needs the app's bot installed in
-// the server — without one we fall back to the guilds list, which needs no bot.
+// manual handoff endpoint. Exchange code -> identify -> membership + role gate
+// -> uid. Owner policy (hard rule): the visitor must have joined the server
+// AND currently hold the XR-Auth role. No role check -> no access, even if
+// membership itself could be proven (fail closed, handoff invariant 1).
+// The member record needs the guilds.members.read scope; resolving the
+// XR-Auth role id by name needs a bot token — OR the owner pins DISCORD_ROLE_ID
+// directly (no bot required, works with the user-token member record).
 import { mintToken } from "./xrauth";
 
 const CID = process.env.DISCORD_CLIENT_ID || "1569300109790023772";
@@ -14,8 +15,9 @@ const BOT = process.env.DISCORD_BOT_TOKEN || "";
 const ROLE_ID = process.env.DISCORD_ROLE_ID || "";
 const ROLE_NAME = (process.env.DISCORD_ROLE_NAME || "XR-Auth").trim().toLowerCase();
 
-// role id lookup by name (needs the bot in the server) — cached 10 minutes
-let roleCache: { id: string; at: number } | null = null;
+// owner policy: role gate is ALWAYS on. Resolve the target role id by:
+// 1. DISCORD_ROLE_ID env (pin it, no bot needed) — preferred
+// 2. bot token + role name lookup (cached 10 min)
 async function targetRoleId(): Promise<string> {
   if (ROLE_ID) return ROLE_ID;
   if (roleCache && Date.now() - roleCache.at < 600_000) return roleCache.id;
@@ -33,10 +35,9 @@ async function targetRoleId(): Promise<string> {
   return hit?.id || "";
 }
 
-// strict mode only when the owner configured a role — plain membership is
-// enough otherwise ("join my server and get member verified" rule)
+// policy: joined AND holds the XR-Auth role. No resolvable target or no role
+// match -> closed. Never grant on config gaps (fail closed).
 async function roleGate(roles: string[]): Promise<string | null> {
-  if (!ROLE_ID && !BOT) return null;
   const target = await targetRoleId();
   if (!target) return "roleconf";
   return roles.includes(target) ? null : "role";
@@ -72,7 +73,9 @@ export async function exchangeAndVerify(code: string, redirectUri: string): Prom
     const me = (await meRes.json()) as { id?: string };
     if (!me.id) return { ok: false, error: "setup" };
 
-    // best path: member object — gives pending (screening) + roles
+    // best path: member object — gives pending (screening) + roles.
+    // guilds.members.read scope lets the USER token read its own member
+    // record, so roles arrive here even with no bot in the server.
     const memRes = await fetch(`https://discord.com/api/v10/users/@me/guilds/${GID}/member`, {
       headers: H, signal: AbortSignal.timeout(15000),
     });
@@ -85,17 +88,10 @@ export async function exchangeAndVerify(code: string, redirectUri: string): Prom
     }
     if (memRes.status === 404) return { ok: false, error: "join" };
 
-    // no bot in the server (403 etc.) — fall back to the plain guilds list
-    const gRes = await fetch("https://discord.com/api/v10/users/@me/guilds", {
-      headers: H, signal: AbortSignal.timeout(15000),
-    });
-    if (!gRes.ok) return { ok: false, error: "join" };
-    const guilds = (await gRes.json()) as { id?: string }[];
-    const inGuild = (Array.isArray(guilds) ? guilds : []).some(g => g && g.id === GID);
-    if (!inGuild) return { ok: false, error: "join" };
-    const rerr = await roleGate([]); // roles unknown without the member object
-    if (rerr) return { ok: false, error: rerr };
-    return { ok: true, uid: me.id };
+    // member record unreadable (403 etc.) — roles cannot be proven here, and
+    // the policy demands the XR-Auth role. Fallback can only prove membership,
+    // which is NOT enough: fail closed with roleconf (owner must fix config).
+    return { ok: false, error: "roleconf" };
   } catch {
     return { ok: false, error: "setup" };
   }
