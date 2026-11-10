@@ -2,7 +2,7 @@ import ZAI from "z-ai-web-dev-sdk";
 // recovery probe — DeepSeek first (the default brain since the user directive),
 // then glm + argon as reference. 4 upstream calls total.
 const zai = await ZAI.create();
-for (const model of ["dpsk-4.1-flash", "dpsk-4.1", "glm-4.5-flash", "argon"]) {
+for (const model of ["glm-4.5-flash", "glm-4.6", "dpsk-4.1-flash", "argon"]) {
   try {
     const body = {
       model,

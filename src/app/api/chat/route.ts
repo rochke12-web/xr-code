@@ -9,11 +9,12 @@ import { randomUUID } from "crypto";
 // One highly capable agent: reads each message and automatically responds the
 // best way — complete runnable code, precise debugging, clear explanations, or
 // direct answers to any question (riding live web results when useful).
-// Engine: DEEPSEEK FIRST via the ZAI SDK (OpenAI-style), all-in-one — the app
-// exposes a single brain and the server picks the right member per message
-// (dpsk-4.1 for real work, dpsk-4.1-flash for quick hits, with the GLM family
-// and argon as quiet fallbacks). Prime gateway is removed for now; its config
-// stays in .env.local and can be restored later.
+// Engine: GLM FAMILY FIRST (like yesterday night's working setup) via the ZAI
+// SDK (OpenAI-style), all-in-one — the app exposes a single brain and the
+// server picks the right member per message (flagship glm-4.6 for real work,
+// glm-4.5-flash for quick hits), then quietly tries EVERY other AI family if
+// needed: deepseek (dpsk-4.1 / dpsk-4.1-flash) and the argon pair.
+// Prime gateway is removed for now; its config stays in .env.local.
 // Server-side only: no keys ever reach the browser.
 // Real vision: photos & video keyframes are DESCRIBED here by a vision
 // preprocessor and the description rides to the brain as a [VISION] block.
@@ -355,18 +356,16 @@ const GLM_MODELS = new Set([
   "dpsk-4.1-flash",
   "dpsk-4.1",
 ]);
-const GLM_FLAGSHIP = "glm-4.6"; // smartest GLM — now a fallback family member
-const GLM_QUICK = "glm-4.5-flash"; // fastest GLM — grace-retry model
-const GLM_FALLBACKS = [GLM_QUICK, GLM_FLAGSHIP]; // quiet in-family chain
-// DeepSeek — the DEFAULT brain (user directive): every message routes to dpsk
-// first; GLM + argon stay behind it as quiet fallbacks.
-const DPSK_FLAGSHIP = "dpsk-4.1"; // deepseek flagship — real work
-const DPSK_QUICK = "dpsk-4.1-flash"; // deepseek fast — short, casual messages
+const GLM_FLAGSHIP = "glm-4.6"; // default brain again — flagship for real work
+const GLM_QUICK = "glm-4.5-flash"; // fastest — short, casual messages
+const GLM_FALLBACKS = [GLM_QUICK, GLM_FLAGSHIP];
+// every other AI family, tried in order when GLM can't serve — deepseek then argon
+const DPSK_QUICK = "dpsk-4.1-flash";
+const DPSK_FLAGSHIP = "dpsk-4.1";
 const DPSK_FALLBACKS = [DPSK_QUICK, DPSK_FLAGSHIP];
-// last-resort cross-family tail — only if every dpsk AND glm member fails
 const EXTRA_FALLBACKS = ["argon", "argon-flash"];
 
-// all-in-one routing: one brain (DeepSeek), the whole family behind it
+// all-in-one routing: one brain, every AI family behind it
 function autoEngine(q: string, safe: Msg[]): string {
   const s = (q || "").toLowerCase();
   const tech =
@@ -377,7 +376,7 @@ function autoEngine(q: string, safe: Msg[]): string {
     m => m.role === "user" && (m.content.includes("```") || tech.test(m.content.slice(0, 400).toLowerCase()))
   );
   const heavy = s.length >= 140 || tech.test(s) || deepTech;
-  return heavy ? DPSK_FLAGSHIP : DPSK_QUICK;
+  return heavy ? GLM_FLAGSHIP : GLM_QUICK;
 }
 
 // free GLM engines via the ZAI SDK (OpenAI-style messages, verified live)
@@ -565,27 +564,27 @@ export async function POST(req: Request) {
   // ---- AGENT MODE — autonomous multi-step loop ----
   // The model answers OR emits one tool directive per step; the server runs it
   // (live web search / image gen / video gen) and feeds the result back until
-  // the task is done or the budget is spent. DeepSeek flagship drives it.
+  // the task is done or the budget is spent. GLM flagship drives it.
   if (mode === "agent") {
     const MAX_STEPS = 4;
     const trace: string[] = [];
-    const agentModel = DPSK_FLAGSHIP;
+    const agentModel = GLM_FLAGSHIP;
     let engineOut = agentModel;
     for (let step = 0; step < MAX_STEPS; step++) {
       const r = await glmChat(sys, chatText, agentModel);
       if (r.quota) {
         await new Promise(r2 => setTimeout(r2, 3000));
-        const retry = await glmChat(sys, chatText, GLM_QUICK);
+        const retry = await glmChat(sys, chatText, DPSK_QUICK);
         if (retry.text) {
-          return NextResponse.json({ ok: true, text: retry.text, engine: GLM_QUICK, mode, vision: visionBlock || undefined });
+          return NextResponse.json({ ok: true, text: retry.text, engine: DPSK_QUICK, mode, vision: visionBlock || undefined });
         }
         return NextResponse.json({ ok: false, error: RATE_LIMITED });
       }
       if (!r.text) {
         // one cross-family rescue, then give up honestly
-        const rescue = await glmChat(sys, chatText, GLM_FLAGSHIP);
+        const rescue = await glmChat(sys, chatText, DPSK_FLAGSHIP);
         if (rescue.text) {
-          return NextResponse.json({ ok: true, text: rescue.text, engine: GLM_FLAGSHIP, mode, vision: visionBlock || undefined });
+          return NextResponse.json({ ok: true, text: rescue.text, engine: DPSK_FLAGSHIP, mode, vision: visionBlock || undefined });
         }
         return NextResponse.json({ ok: false, error: "agent stalled — try again in a moment" });
       }
@@ -661,9 +660,9 @@ export async function POST(req: Request) {
   // to ride out momentary spikes), then fail fast with a friendly message.
   // Failing fast keeps one user message ≈ 2-3 upstream calls instead of ~80,
   // which is what lets the quota window actually recover.
-  // DeepSeek first (default brain), then the rest of the family as quiet
-  // fallbacks: dpsk pair → glm pair → argon tail.
-  const family = [...DPSK_FALLBACKS, ...GLM_FALLBACKS, ...EXTRA_FALLBACKS];
+  // Every AI in one chain, GLM first (yesterday-night order): glm pair →
+  // deepseek pair → argon tail.
+  const family = [...GLM_FALLBACKS, ...DPSK_FALLBACKS, ...EXTRA_FALLBACKS];
   const chain = [chosen, ...family.filter(m => m !== chosen)];
   let actText: string | null = null;
   let engineUsed = "";
@@ -672,11 +671,11 @@ export async function POST(req: Request) {
     const r = await glmChat(sys, chatText, engine);
     if (r.quota) {
       await new Promise(r2 => setTimeout(r2, 3000));
-      const retry = await glmChat(sys, chatText, GLM_QUICK);
+      const retry = await glmChat(sys, chatText, DPSK_QUICK);
       if (retry.text) {
         const a2 = parseAction(retry.text);
-        if (a2) { actText = retry.text; engineUsed = GLM_QUICK; act = a2; break; }
-        return NextResponse.json({ ok: true, text: retry.text, engine: GLM_QUICK, mode, vision: visionBlock || undefined });
+        if (a2) { actText = retry.text; engineUsed = DPSK_QUICK; act = a2; break; }
+        return NextResponse.json({ ok: true, text: retry.text, engine: DPSK_QUICK, mode, vision: visionBlock || undefined });
       }
       return NextResponse.json({ ok: false, error: RATE_LIMITED });
     }
