@@ -473,22 +473,21 @@ type Part = {
 type RawMsg = { role?: string; content?: string | Part[] };
 type Msg = { role: "user" | "assistant"; content: string };
 
-// ---- all-in-one GLM brain (server-side only — never shipped to the browser) ----
+// ---- all-in-one chat brain (server-side only — never shipped to the browser) ----
 
-// the brain's engine: GLM first (user directive — "the first model"), with
-// emergency free-model lanes behind it (user directive: "if the quota error
-// comes, switch to other free models"). glm-4.5-flash is the original
-// first/default engine that answered every message in the early builds — it
-// takes every request; the dpsk/glm-4.6/argon lanes only get probed when the
-// primary answers 429. GLM also powers the vision preprocessor, so
+// the brain's engine: Kimi AI primary (user directive — "update to kimi ai").
+// kimi-k2 takes every request; if it's throttled or absent on the gateway, the
+// chain walks the emergency lanes — GLM (the original first model) first, then
+// dpsk / glm-4.6 / argon. GLM still powers the vision preprocessor, so
 // photo/video attachments still get described.
-const GLM_FIRST = "glm-4.5-flash"; // the original first model — the primary engine
-const KNOWN_MODELS = new Set([GLM_FIRST]);
+const PRIMARY = "kimi-k2"; // Kimi AI — the new primary engine
+const GLM_FIRST = "glm-4.5-flash"; // the original first model — first fallback lane
+const KNOWN_MODELS = new Set([PRIMARY, GLM_FIRST]);
 // emergency lanes on the same gateway, different model families → separate
-// quota buckets: when the GLM bucket is dry another family often has headroom.
-// A dead lane 429s in ~100ms, so probing them is nearly free. Tried in order;
-// the first live one answers.
-const FALLBACK_MODELS = ["dpsk-4.1-flash", "dpsk-4.1", "glm-4.6", "argon-1.0", "kimi-k2"];
+// quota buckets: when the primary's bucket is dry another family often has
+// headroom. A dead lane 429s in ~100ms (a missing model 404s in ~200ms), so
+// probing them is nearly free. Tried in order; the first live one answers.
+const FALLBACK_MODELS = [GLM_FIRST, "dpsk-4.1-flash", "dpsk-4.1", "glm-4.6", "argon-1.0"];
 
 // chat engines via the ZAI SDK (OpenAI-style messages, verified live)
 type ChatResult = { text: string | null; quota: boolean };
@@ -641,9 +640,9 @@ export async function POST(req: Request) {
     TOOL_RULES +
     (mode === "agent" ? AGENT_SEARCH_RULE : "");
   const lastUser = [...safe].reverse().find(m => m.role === "user");
-  // one brain, one engine: the original first GLM model, always
+  // one brain, one engine: Kimi AI primary, always
   const wanted = typeof body?.model === "string" ? body.model.trim() : "";
-  const chosen = KNOWN_MODELS.has(wanted) ? wanted : GLM_FIRST;
+  const chosen = KNOWN_MODELS.has(wanted) ? wanted : PRIMARY;
   // the user is talking about THEIR attachment — web search would only distract.
   // GLM ALWAYS RIDES GOOGLE: Koder and QnA ground every real question in live
   // Google results and the reply ends with a canonical Sources list
@@ -688,19 +687,19 @@ export async function POST(req: Request) {
   // ---- AGENT MODE — autonomous multi-step loop ----
   // The model answers OR emits one tool directive per step; the server runs it
   // (live web search / image gen / video gen) and feeds the result back until
-  // the task is done or the budget is spent. The first GLM model drives it.
+  // the task is done or the budget is spent. Kimi drives it.
   if (mode === "agent") {
     const MAX_STEPS = 4;
     const trace: string[] = [];
-    const agentModel = GLM_FIRST;
+    const agentModel = PRIMARY;
     let engineOut = agentModel;
     for (let step = 0; step < MAX_STEPS; step++) {
       const r = await glmChat(sys, chatText, agentModel);
       if (r.quota) {
         await new Promise(r2 => setTimeout(r2, 3000));
-        const retry = await glmChat(sys, chatText, GLM_FIRST);
+        const retry = await glmChat(sys, chatText, agentModel);
         if (retry.text) {
-          return NextResponse.json({ ok: true, text: retry.text, engine: GLM_FIRST, mode, vision: visionBlock || undefined });
+          return NextResponse.json({ ok: true, text: retry.text, engine: agentModel, mode, vision: visionBlock || undefined });
         }
         // quota storm — probe the other free lanes once each; first live one wins
         for (const fm of FALLBACK_MODELS) {
@@ -820,11 +819,11 @@ export async function POST(req: Request) {
       if (engine !== chosen) continue; // fallback lane dry — next lane
       // primary is throttled: one grace retry, then the remaining lanes
       await new Promise(r2 => setTimeout(r2, 3000));
-      const retry = await glmChat(sys, chatText, GLM_FIRST);
+      const retry = await glmChat(sys, chatText, chosen);
       if (retry.text) {
         const a2 = parseAction(retry.text);
-        if (a2) { actText = retry.text; engineUsed = GLM_FIRST; act = a2; break; }
-        return NextResponse.json({ ok: true, text: withSources(retry.text, mode, lastSearch), engine: GLM_FIRST, mode, vision: visionBlock || undefined });
+        if (a2) { actText = retry.text; engineUsed = chosen; act = a2; break; }
+        return NextResponse.json({ ok: true, text: withSources(retry.text, mode, lastSearch), engine: chosen, mode, vision: visionBlock || undefined });
       }
       continue;
     }
