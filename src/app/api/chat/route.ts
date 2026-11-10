@@ -4,6 +4,7 @@ import type { VisionMessage } from "z-ai-web-dev-sdk";
 import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
+import { assetDir } from "../../../lib/asset-dir";
 
 // XR-Code hosted brain — no API keys in the client, no modes, nothing to configure.
 // One highly capable agent: reads each message and automatically responds the
@@ -184,7 +185,7 @@ function parseAction(reply: string | null): Action | null {
 
 const IMG_SIZES = new Set(["1024x1024", "768x1344", "864x1152", "1344x768", "1152x864", "1440x720", "720x1440"]);
 // stable asset dir OUTSIDE .next — survives rebuilds (standalone cwd is .next/standalone)
-const ASSET_DIR = process.env.XR_ASSET_DIR || path.resolve(process.cwd(), "../../db/assets");
+const ASSET_DIR = assetDir();
 
 async function runImageGen(prompt: string, size?: string): Promise<{ url: string } | null> {
   try {

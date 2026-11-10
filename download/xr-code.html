@@ -354,6 +354,11 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .msg > .gen-media{margin:4px 0 2px;border-radius:12px;overflow:hidden;border:1px solid var(--line);max-width:340px;background:#000}
 .gen-media img{display:block;width:100%}
 .gen-media video{display:block;width:100%}
+.gen-dl{ display:flex; justify-content:center; margin:8px 0 2px; }
+.gen-dl-btn{ display:inline-flex; align-items:center; gap:6px; background:var(--bg2); border:1px solid var(--line); border-radius:999px; color:var(--text); font-size:12px; padding:5px 12px; cursor:pointer; transition:border-color .15s, color .15s; }
+.gen-dl-btn:hover{ border-color:var(--accent); color:var(--accent); }
+.paint-label{ font-size:13px; opacity:.75; animation:pulse 1.2s ease-in-out infinite; }
+@keyframes pulse{ 0%,100%{ opacity:.45 } 50%{ opacity:.9 } }
 .act-row{display:flex;gap:8px;margin:6px 0 2px}
 .act-row button{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;transition:border-color .15s,color .15s}
 .act-row button:hover{border-color:var(--accent);color:var(--accent)}
@@ -482,6 +487,13 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
   padding:13px 16px;font-size:14px;outline:none;min-width:0;
 }
 .composer input:focus{border-color:var(--accent)}
+.gen-chips{ flex:1 1 100%; display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; }
+.gen-chips[hidden]{ display:none; }
+.chip-row{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.chip-row + .chip-row{ padding-left:12px; border-left:1px solid var(--line); }
+.gen-chip{ background:var(--bg2); border:1px solid var(--line); border-radius:999px; color:var(--text); font-size:12px; padding:5px 12px; cursor:pointer; transition:border-color .15s, background .15s; }
+.gen-chip:hover{ border-color:var(--accent); }
+.gen-chip.on{ background:var(--accent); border-color:var(--accent); color:#fff; }
 /* ============================================================
    AI ENGINE (lives in Settings now)
    ============================================================ */
@@ -733,6 +745,7 @@ body.kbd-open .composer{padding-bottom:10px}
               <button type="button" data-mode="koder"><b>Koder Mode</b><small>code, debug &amp; build — the full developer brain</small></button>
               <button type="button" data-mode="qna"><b>QnA Mode</b><small>sources never shown</small></button>
               <button type="button" data-mode="sight"><b>Sight Mode</b><small>photo &amp; video AI — imagine it, see it</small></button>
+              <button type="button" data-mode="imagine"><b>Imagine Mode</b><small>text → art — Kimi writes the prompt, nano banana pro paints it</small></button>
             </div>
           </div>
           <input id="homeInput" autocomplete="off" placeholder="What would you like to do with XR-Code?">
@@ -759,7 +772,12 @@ body.kbd-open .composer{padding-bottom:10px}
             <button type="button" data-mode="koder"><b>Koder Mode</b><small>code, debug &amp; build — the full developer brain</small></button>
             <button type="button" data-mode="qna"><b>QnA Mode</b><small>sources never shown</small></button>
             <button type="button" data-mode="sight"><b>Sight Mode</b><small>photo &amp; video AI — imagine it, see it</small></button>
+            <button type="button" data-mode="imagine"><b>Imagine Mode</b><small>text → art — Kimi writes the prompt, nano banana pro paints it</small></button>
           </div>
+        </div>
+        <div class="gen-chips" id="genChips" hidden>
+          <div class="chip-row" id="styleChips"></div>
+          <div class="chip-row" id="sizeChips"></div>
         </div>
         <input id="chatInput" autocomplete="off" placeholder="Message XR Code...">
         <button class="send-btn" type="submit" title="Send"><i class="ic" data-ic="i-send"></i></button>
@@ -856,7 +874,7 @@ body.kbd-open .composer{padding-bottom:10px}
     im.src = ASSETS[im.dataset.asset] || '';
     im.decoding = 'async';
   });
-  document.body.insertAdjacentHTML('afterbegin', '<svg width="0" height="0" style="position:absolute" aria-hidden="true">\n  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></symbol>\n  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>\n  <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>\n  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></symbol>\n  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>\n  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></symbol>\n  <symbol id="i-key" viewBox="0 0 24 24"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></symbol>\n  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></symbol>\n  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></symbol>\n  <symbol id="i-trash" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>\n  <symbol id="i-down" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>\n  <symbol id="i-chevd" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></symbol>\n  <symbol id="i-sync" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></symbol>\n  <symbol id="i-clip" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>\n  <symbol id="i-file" viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></symbol>\n  <symbol id="i-qna" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>\n  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></symbol>\n  <symbol id="i-bug" viewBox="0 0 24 24"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6z"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></symbol>\n  <symbol id="i-book" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>\n  <symbol id="i-chev" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></symbol><symbol id="i-send" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></symbol>\n  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></symbol>\n  \n</svg>');
+  document.body.insertAdjacentHTML('afterbegin', '<svg width="0" height="0" style="position:absolute" aria-hidden="true">\n  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></symbol>\n  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>\n  <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>\n  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></symbol>\n  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>\n  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></symbol>\n  <symbol id="i-key" viewBox="0 0 24 24"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></symbol>\n  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></symbol>\n  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></symbol>\n  <symbol id="i-trash" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>\n  <symbol id="i-down" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>\n  <symbol id="i-chevd" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></symbol>\n  <symbol id="i-sync" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></symbol>\n  <symbol id="i-clip" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>\n  <symbol id="i-file" viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></symbol>\n  <symbol id="i-qna" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>\n  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></symbol>\n  <symbol id="i-img" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></symbol>\n  <symbol id="i-bug" viewBox="0 0 24 24"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6z"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></symbol>\n  <symbol id="i-book" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>\n  <symbol id="i-chev" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></symbol><symbol id="i-send" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></symbol>\n  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></symbol>\n  \n</svg>');
   document.querySelectorAll('i[data-ic]').forEach(function(el){
     el.outerHTML = '<svg class="' + el.className + '"><use href="#' + el.dataset.ic + '"/></svg>';
   });
@@ -880,7 +898,9 @@ function defaults(){
     chats: [],
     active: null,
     model: 'glm-4.6',          // one GLM brain — flagship default
-    mode: 'koder',             // 'koder' | 'qna' — the two personalities
+    mode: 'koder',             // 'koder' | 'qna' | 'sight' | 'imagine'
+    imgStyle: 'auto',          // Imagine mode style preset
+    imgSize: '1024x1024',      // Imagine mode canvas ratio
     lastSync: null
   };
 }
@@ -890,7 +910,9 @@ let S = load() || defaults();
   delete S.models; delete S.routing; delete S.tokensSaved;  // model options removed
   delete S.startupDone; delete S.gemini; delete S.local;    // leftovers from old versions
   if(!S.model || !/^glm-/.test(S.model)) S.model = 'glm-4.6';  // one GLM brain (stale prime values migrate)
-  if(S.mode !== 'koder' && S.mode !== 'qna' && S.mode !== 'sight') S.mode = 'koder';   // three modes: koder | qna | sight
+  if(S.mode !== 'koder' && S.mode !== 'qna' && S.mode !== 'sight' && S.mode !== 'imagine') S.mode = 'koder';   // four modes: koder | qna | sight | imagine
+  if(!['auto','photoreal','anime','cinematic','digital','render3d','watercolor','pixel'].includes(S.imgStyle)) S.imgStyle = 'auto';
+  if(!['1024x1024','768x1344','864x1152','1344x768','1152x864'].includes(S.imgSize)) S.imgSize = '1024x1024';
   if(S.user && S.user.provider === 'api') S.user = null;
   delete S.api;
 })();
@@ -1083,7 +1105,7 @@ function renderChatList(){
 }
 
 /* ---------- mode picker — Koder / QnA (the GLM family stays behind it) ---------- */
-const MODES = { koder: { n: 'Koder', ic: 'i-cpu' }, qna: { n: 'QnA', ic: 'i-qna' }, sight: { n: 'Sight', ic: 'i-eye' } };
+const MODES = { koder: { n: 'Koder', ic: 'i-cpu' }, qna: { n: 'QnA', ic: 'i-qna' }, sight: { n: 'Sight', ic: 'i-eye' }, imagine: { n: 'Imagine', ic: 'i-img' } };
 function renderModel(){
   const md = MODES[S.mode] || MODES.koder;
   $$('.model-pill').forEach(pill => {
@@ -1091,7 +1113,33 @@ function renderModel(){
     const use = pill.querySelector('svg.ic use'); if(use) use.setAttribute('href', '#' + md.ic);
   });
   $$('#homeModeMenu button,#chatModeMenu button').forEach(b => b.classList.toggle('current', b.dataset.mode === S.mode));
+  const gc = $('#genChips'); if(gc) gc.hidden = S.mode !== 'imagine';
+  const ci = $('#chatInput'); if(ci) ci.placeholder = S.mode === 'imagine' ? 'Describe the image to paint…' : 'Message XR Code...';
 }
+/* ---------- Imagine mode: style + ratio chips ---------- */
+const IMG_STYLES = [ ['auto','Auto'], ['photoreal','Photoreal'], ['anime','Anime'], ['cinematic','Cinematic'], ['digital','Art'], ['render3d','3D'], ['watercolor','Watercolor'], ['pixel','Pixel'] ];
+const IMG_RATIOS = [ ['1024x1024','1:1'], ['864x1152','3:4'], ['1152x864','4:3'], ['768x1344','9:16'], ['1344x768','16:9'] ];
+function paintChips(){
+  $$('#styleChips .gen-chip').forEach(b => b.classList.toggle('on', (S.imgStyle || 'auto') === b.dataset.v));
+  $$('#sizeChips .gen-chip').forEach(b => b.classList.toggle('on', (S.imgSize || '1024x1024') === b.dataset.v));
+}
+function buildGenChips(){
+  const sc = $('#styleChips'), zc = $('#sizeChips');
+  if(!sc || !zc || sc.dataset.built) return;
+  sc.dataset.built = '1';
+  IMG_STYLES.forEach(([v, n]) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'gen-chip'; b.textContent = n; b.dataset.v = v;
+    b.onclick = () => { S.imgStyle = v; save(); paintChips(); };
+    sc.append(b);
+  });
+  IMG_RATIOS.forEach(([v, n]) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'gen-chip ratio'; b.textContent = n; b.dataset.v = v;
+    b.onclick = () => { S.imgSize = v; save(); paintChips(); };
+    zc.append(b);
+  });
+  paintChips();
+}
+buildGenChips();
 function closeMenus(){ $$('.mmenu.open').forEach(m => m.classList.remove('open')); }
 $$('.model-pill').forEach(pill => {
   pill.addEventListener('click', (e) => {
@@ -1170,6 +1218,21 @@ function assetEl(as){
   const w = document.createElement('div'); w.className = 'gen-media';
   if(as && as.type === 'image' && as.url){
     const im = document.createElement('img'); im.src = as.url; im.alt = (as.prompt || 'generated image').slice(0, 80); im.loading = 'lazy'; w.append(im);
+    const dl = document.createElement('div'); dl.className = 'gen-dl';
+    const db = document.createElement('button'); db.type = 'button'; db.className = 'gen-dl-btn';
+    db.innerHTML = '<svg class="ic small"><use href="#i-down"/></svg><span>Download</span>';
+    db.onclick = async () => {
+      try{
+        const r = await fetch(as.url); const b = await r.blob();
+        const head = new Uint8Array(await b.slice(0, 4).arrayBuffer());
+        const ext = (head[0] === 0x89 && head[1] === 0x50) ? 'png' : 'jpg';
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(b);
+        a.download = 'xr-imagine-' + (as.url.split('/').pop() || 'art') + '.' + ext;
+        a.click(); URL.revokeObjectURL(a.href);
+      }catch(e){ toast('Download failed'); }
+    };
+    dl.append(db); w.append(dl);
   }else if(as && as.type === 'video' && as.url){
     const v = document.createElement('video'); v.src = as.url; v.controls = true; v.playsInline = true; v.preload = 'metadata';
     if(as.cover) v.poster = as.cover;
@@ -1369,6 +1432,33 @@ async function askBrain(c, text, atts){
   pen.append(who0, body0);
   if(currentChat().id === c.id) box0.append(pen);
   box0.scrollTop = box0.scrollHeight;
+  if(S.mode === 'imagine' && (text || '').trim()){       // Imagine mode — Kimi writes the prompt, nano banana pro paints it
+    chip.textContent = 'painting…';
+    body0.innerHTML = '<span class="paint-label">composing the prompt…</span>';
+    let d = null;
+    for(let attempt = 0; attempt < 2 && !d; attempt++){
+      if(attempt){ chip.textContent = 'busy · retrying…'; await new Promise(r => setTimeout(r, 4000)); }
+      try{
+        const res = await fetch(API_BASE + '/api/imagine', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: text, style: S.imgStyle || 'auto', size: S.imgSize || '1024x1024' })
+        });
+        d = await res.json().catch(() => null);
+        if(!(d && d.ok)) d = null;
+      }catch(e){ d = null; }
+    }
+    if(d){
+      chip.textContent = 'online';
+      const cap = (d.enhanced ? '✦ ' + d.enhanced : '✦ Here it is.');
+      typeReply(c, Object.assign(splitFence(cap), { asset: { type: 'image', url: d.url, prompt: text } }), pen);
+    }else{
+      chip.textContent = 'offline';
+      pen.remove();
+      typeReply(c, splitFence('The painters are all cooling down right now — give it a minute and send the prompt again.'), null);
+    }
+    return;
+  }
   let last = text;                               // feed file contents to the hosted brain
   (atts || []).forEach(a => {
     if(a.au && a.txt) last += '\n\n[attached audio: ' + a.n + ' — transcribed]\n' + String(a.txt).slice(0, 6000);
