@@ -488,7 +488,7 @@ const KNOWN_MODELS = new Set([GLM_FIRST]);
 // quota buckets: when the GLM bucket is dry another family often has headroom.
 // A dead lane 429s in ~100ms, so probing them is nearly free. Tried in order;
 // the first live one answers.
-const FALLBACK_MODELS = ["dpsk-4.1-flash", "dpsk-4.1", "glm-4.6", "argon-1.0"];
+const FALLBACK_MODELS = ["dpsk-4.1-flash", "dpsk-4.1", "glm-4.6", "argon-1.0", "kimi-k2"];
 
 // chat engines via the ZAI SDK (OpenAI-style messages, verified live)
 type ChatResult = { text: string | null; quota: boolean };
