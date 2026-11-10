@@ -13,6 +13,7 @@
 import { NextResponse } from "next/server";
 import { mintToken, authCookie, verifyHandoff } from "@/lib/xrauth";
 import { exchangeAndVerify } from "@/lib/xrverify";
+import { originOf } from "@/lib/xrorigins";
 
 const LOCAL = process.env.DISCORD_LOCAL_REDIRECT || "http://localhost:3000";
 
@@ -58,7 +59,8 @@ export async function POST(req: Request) {
   if (!code) return NextResponse.json({ ok: false, error: "paste" }, { status: 400 });
   // only two redirect bases are legitimate: the registered localhost one and
   // this deployment's own origin — anything else is not our callback
-  const self = new URL(req.url).origin;
+  // (originOf, NOT raw req.url — the brain rewrites req.url to 0.0.0.0:3000)
+  const self = originOf(req);
   const allowed = new Set([LOCAL, self]);
   if (!allowed.has(u.origin)) {
     return NextResponse.json({ ok: false, error: "paste" }, { status: 400 });

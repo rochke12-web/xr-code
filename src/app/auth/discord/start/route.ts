@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { XR_SECRETS } from "@/lib/xrsecrets";
-import { safeOrigin, b64u } from "@/lib/xrorigins";
+import { safeOrigin, b64u, originOf } from "@/lib/xrorigins";
 
 // Step 1 of the Discord OAuth (authorization-code flow):
 // bounce the user to Discord's consent screen with a CSRF state cookie.
@@ -15,11 +15,8 @@ import { safeOrigin, b64u } from "@/lib/xrorigins";
 // differs from the pinned origin the state carries it along (rand.b64url(ret))
 // and the callback hands the verification back via a one-time handoff token.
 
-function originOf(req: Request): string {
-  const u = new URL(req.url);
-  const proto = req.headers.get("x-forwarded-proto") || u.protocol.replace(":", "");
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || u.host;
-  return `${proto}://${host}`;
+function originOfReq(req: Request): string {
+  return originOf(req);
 }
 
 export async function GET(req: Request) {
@@ -27,7 +24,7 @@ export async function GET(req: Request) {
   // redirect_uri MUST match one registered in the Discord developer console.
   // Gateway headers can expose an internal FC host, so a pinned origin wins
   // when configured (set on the hosted deployment; unset on localhost dev).
-  const origin = process.env.DISCORD_REDIRECT_ORIGIN || XR_SECRETS.DISCORD_REDIRECT_ORIGIN || originOf(req);
+  const origin = process.env.DISCORD_REDIRECT_ORIGIN || XR_SECRETS.DISCORD_REDIRECT_ORIGIN || originOfReq(req);
   const url = new URL(req.url);
   const ret = safeOrigin(url.searchParams.get("ret") || "") || origin;
   const popup = url.searchParams.get("popup") === "1";
@@ -44,6 +41,10 @@ export async function GET(req: Request) {
     // verify before the XR-Auth role id gets pinned (members still need it).
     scope: "identify guilds guilds.members.read",
     state,
+    // force the consent screen so a re-authorization picks up scope CHANGES:
+    // Discord silently re-issues the previously granted scope set otherwise,
+    // which left the `guilds` scope (owner check) off for early authorizers
+    prompt: "consent",
   });
   const res = NextResponse.redirect("https://discord.com/oauth2/authorize?" + params.toString(), 302);
   res.headers.append("Set-Cookie", `xr_state=${rand}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`);

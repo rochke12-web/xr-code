@@ -19,8 +19,8 @@ export default function DiscordDone() {
         alignItems: 'center',
         justifyContent: 'center',
         gap: 14,
-        background: 'radial-gradient(1200px 600px at 50% -10%, #17253f 0%, #0a0e17 55%)',
-        color: '#e8eefc',
+        background: 'radial-gradient(1100px 520px at 50% -12%, rgba(255,255,255,.07), transparent 62%), #0a0a0a',
+        color: '#fafafa',
         fontFamily: 'ui-sans-serif, system-ui, sans-serif',
         textAlign: 'center',
         padding: 24,
@@ -29,22 +29,23 @@ export default function DiscordDone() {
       <div
         style={{
           width: 64, height: 64, borderRadius: 18, display: 'grid', placeItems: 'center',
-          fontSize: 34, background: 'linear-gradient(145deg, #5865f2, #404eed)',
-          boxShadow: '0 12px 40px rgba(88,101,242,.45)',
+          fontSize: 34, background: '#ffffff', color: '#0a0a0a',
+          border: '1px solid rgba(255,255,255,.25)',
+          boxShadow: '0 12px 40px rgba(0,0,0,.6)',
         }}
         aria-hidden
       >
         ✓
       </div>
-      <h1 style={{ fontSize: 22, margin: 0, fontWeight: 700 }}>Verified</h1>
-      <p style={{ margin: 0, opacity: .75, fontSize: 14 }}>
+      <h1 style={{ fontSize: 22, margin: 0, fontWeight: 700, letterSpacing: '.02em' }}>Verified</h1>
+      <p style={{ margin: 0, opacity: .7, fontSize: 14 }}>
         Welcome in — you can close this window.
       </p>
       <button
         onClick={() => { try { window.close(); } catch { /* blocked */ } }}
         style={{
-          marginTop: 8, padding: '9px 22px', borderRadius: 12, border: '1px solid rgba(232,238,252,.22)',
-          background: 'rgba(232,238,252,.08)', color: '#e8eefc', fontSize: 14, cursor: 'pointer',
+          marginTop: 8, padding: '9px 22px', borderRadius: 12, border: '1px solid rgba(255,255,255,.18)',
+          background: 'rgba(255,255,255,.06)', color: '#fafafa', fontSize: 14, cursor: 'pointer',
         }}
         type="button"
       >

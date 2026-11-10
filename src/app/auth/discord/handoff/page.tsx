@@ -76,8 +76,8 @@ export default function DiscordHandoff() {
         alignItems: 'center',
         justifyContent: 'center',
         gap: 14,
-        background: 'radial-gradient(1200px 600px at 50% -10%, #17253f 0%, #0a0e17 55%)',
-        color: '#e8eefc',
+        background: 'radial-gradient(1100px 520px at 50% -12%, rgba(255,255,255,.07), transparent 62%), #0a0a0a',
+        color: '#fafafa',
         fontFamily: 'ui-sans-serif, system-ui, sans-serif',
         textAlign: 'center',
         padding: 24,
@@ -86,8 +86,11 @@ export default function DiscordHandoff() {
       <div
         style={{
           width: 64, height: 64, borderRadius: 18, display: 'grid', placeItems: 'center',
-          fontSize: 30, background: state === 'ok' ? 'linear-gradient(145deg, #5865f2, #404eed)' : 'rgba(232,238,252,.08)',
-          boxShadow: state === 'ok' ? '0 12px 40px rgba(88,101,242,.45)' : 'none',
+          fontSize: 30,
+          background: state === 'ok' ? '#ffffff' : 'rgba(255,255,255,.06)',
+          color: state === 'ok' ? '#0a0a0a' : '#fafafa',
+          border: '1px solid rgba(255,255,255,.22)',
+          boxShadow: state === 'ok' ? '0 12px 40px rgba(0,0,0,.6)' : 'none',
         }}
         aria-hidden
       >
@@ -100,8 +103,8 @@ export default function DiscordHandoff() {
       <button
         onClick={() => { try { window.close(); } catch { /* blocked */ } }}
         style={{
-          marginTop: 8, padding: '9px 22px', borderRadius: 12, border: '1px solid rgba(232,238,252,.22)',
-          background: 'rgba(232,238,252,.08)', color: '#e8eefc', fontSize: 14, cursor: 'pointer',
+          marginTop: 8, padding: '9px 22px', borderRadius: 12, border: '1px solid rgba(255,255,255,.18)',
+          background: 'rgba(255,255,255,.06)', color: '#fafafa', fontSize: 14, cursor: 'pointer',
         }}
         type="button"
       >

@@ -1,15 +1,16 @@
-// Discord verification entry point — bounces the visitor to the Discord
-// consent screen. Same flow the lock-screen button builds inline; redirect_uri
-// follows the current origin so localhost:3000 and the live preview domain
-// both work (each must be registered in the Discord app's OAuth2 redirects).
-import { NextResponse } from "next/server";
+// Legacy Discord verification entry (kept for old links — the setup page and
+// earlier payloads point here). It no longer builds its own authorize URL:
+// that build derived redirect_uri from raw req.url, which is the INTERNAL
+// bind address (http://0.0.0.0:3000) on the hosted brain, and it carried the
+// deprecated guilds.join scope. Delegate to /auth/discord/start, which owns
+// the pinned-origin redirect_uri, the CSRF state cookie and prompt=consent.
+import { originOf } from "@/lib/xrorigins";
 
 export async function GET(req: Request) {
-  const cid = process.env.DISCORD_CLIENT_ID || "1569300109790023772";
-  const url = new URL("https://discord.com/oauth2/authorize");
-  url.searchParams.set("client_id", cid);
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("redirect_uri", new URL(req.url).origin + "/auth/discord/callback");
-  url.searchParams.set("scope", "identify guilds guilds.join guilds.members.read");
-  return NextResponse.redirect(url.toString());
+  const ret = originOf(req);
+  const loc = "/auth/discord/start?ret=" + encodeURIComponent(ret);
+  return new Response(null, {
+    status: 302,
+    headers: { Location: loc },
+  });
 }
