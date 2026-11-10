@@ -15,6 +15,8 @@ const nextConfig: NextConfig = {
     return {
       beforeFiles: [
         { source: "/api/:path*", destination: `${BRAIN}/api/:path*` },
+        // Discord OAuth routes live on the brain too (the secret never ships here)
+        { source: "/auth/discord/:path*", destination: `${BRAIN}/auth/discord/:path*` },
       ],
       afterFiles: [],
       fallback: [],

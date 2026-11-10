@@ -3,13 +3,20 @@
 // every AI call must carry it. No cookie / bad signature / kicked ->
 // the AI refuses to answer.
 import { createHmac, timingSafeEqual } from "crypto";
+import { XR_SECRETS } from "./xrsecrets";
 
 export const AUTH_COOKIE = "xr_ds";
 const DAY = 24 * 60 * 60;
 export const MAX_AGE = 30 * DAY; // re-verify once a month -> live membership stays truthful
 
 function secret(): string {
-  return process.env.XR_AUTH_SECRET || process.env.DISCORD_CLIENT_SECRET || "xr-dev-secret-change-me";
+  return (
+    process.env.XR_AUTH_SECRET ||
+    XR_SECRETS.XR_AUTH_SECRET ||
+    process.env.DISCORD_CLIENT_SECRET ||
+    XR_SECRETS.DISCORD_CLIENT_SECRET ||
+    "xr-dev-secret-change-me"
+  );
 }
 
 export function sign(uid: string, iat: number): string {

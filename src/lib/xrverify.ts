@@ -7,13 +7,17 @@
 // XR-Auth role id by name needs a bot token — OR the owner pins DISCORD_ROLE_ID
 // directly (no bot required, works with the user-token member record).
 import { mintToken } from "./xrauth";
+import { XR_SECRETS } from "./xrsecrets";
 
 const CID = process.env.DISCORD_CLIENT_ID || "1569300109790023772";
 const GID = process.env.DISCORD_GUILD_ID || "1568895668368711692";
-const SECRET = process.env.DISCORD_CLIENT_SECRET || "";
+const SECRET = process.env.DISCORD_CLIENT_SECRET || XR_SECRETS.DISCORD_CLIENT_SECRET || "";
 const BOT = process.env.DISCORD_BOT_TOKEN || "";
 const ROLE_ID = process.env.DISCORD_ROLE_ID || "";
 const ROLE_NAME = (process.env.DISCORD_ROLE_NAME || "XR-Auth").trim().toLowerCase();
+
+// 10-minute cache for the bot-token role-name -> id lookup
+let roleCache: { id: string; at: number } | null = null;
 
 // owner policy: role gate is ALWAYS on. Resolve the target role id by:
 // 1. DISCORD_ROLE_ID env (pin it, no bot needed) — preferred

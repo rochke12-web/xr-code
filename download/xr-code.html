@@ -600,6 +600,7 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 @keyframes loginPulse{50%{box-shadow:0 0 0 3px var(--col-line)}}
 
 /* ---------- light theme: strict white & black ---------- */
+:root[data-theme="light"] .hero h2{background:linear-gradient(110deg,#0e1013 10%,#3a3e46 32%,#101216 50%,#3a3e46 68%,#0e1013 90%);background-size:220% 100%}
 :root[data-theme="light"] .hero h2 .thin{background:linear-gradient(160deg,#1a1c20 8%,#3c4046 46%,#85898f 82%);-webkit-background-clip:text;background-clip:text}
 :root[data-theme="light"] .msg.u .bubble{background:linear-gradient(135deg,#3a3d43,#101216);color:#ffffff}
 :root[data-theme="light"] .scene.light-only{filter:grayscale(1) contrast(1.07) brightness(1.03)}
@@ -719,9 +720,142 @@ body.kbd-open .composer{padding-bottom:10px}
   .ds-btn:hover{filter:brightness(1.08);transform:translateY(-1px)}
   .ds-btn:active{transform:translateY(0)}
   .ds-btn .ic{width:18px;height:18px}
-  .ds-invite{display:inline-block;margin-top:12px;font-size:12px;color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--muted)}
+  .ds-steps{display:flex;align-items:center;justify-content:center;gap:6px;margin:0 0 18px;flex-wrap:wrap}
+  .ds-step{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;color:var(--muted);letter-spacing:.02em;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:5px 10px;white-space:nowrap}
+  .ds-step b:first-child{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:var(--accent);color:#fff;font-size:9px}
+  .ds-step:hover b:first-child{animation:xr-tabpop .35s ease}
+  .ds-arrow{color:var(--muted);font-size:11px;opacity:.7}
+  .ds-invite{display:inline-flex;align-items:center;gap:8px;margin-top:12px;font-size:12.5px;font-weight:600;color:#B9BBE2;background:rgba(88,101,242,.12);border:1px solid rgba(88,101,242,.42);border-radius:12px;padding:11px 20px;text-decoration:none;transition:transform .15s,background .15s,box-shadow .15s}
+  .ds-invite .ic{width:17px;height:17px}
+  .ds-invite:hover{background:rgba(88,101,242,.2);transform:translateY(-1px);box-shadow:0 8px 24px rgba(88,101,242,.25)}
+  .ds-invite:active{transform:translateY(0)}
   .ds-fine{margin:16px 0 0;font-size:10.5px;color:var(--muted);letter-spacing:.04em}
   :root[data-theme="light"] .ds-lock{background:rgba(247,247,248,.72)}
+
+/* ============================================================
+   XR AURORA — ambient nebula + starfield + living surfaces
+   (v1.1 look & feel; pure CSS, zero JS surface changes)
+   ============================================================ */
+/* drifting aurora — sits above the canvas marble, below all content */
+body::before{
+  content:"";position:fixed;inset:-22%;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(42% 36% at 22% 26%, rgba(110,86,207,.17), transparent 62%),
+    radial-gradient(38% 32% at 80% 18%, rgba(47,164,178,.14), transparent 64%),
+    radial-gradient(46% 42% at 60% 82%, rgba(88,101,242,.13), transparent 62%),
+    radial-gradient(30% 26% at 10% 70%, rgba(37,99,235,.10), transparent 60%);
+  animation:xr-aurora 30s ease-in-out infinite alternate;
+  will-change:transform;
+}
+/* twinkling starfield — dark mode only */
+body::after{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background-image:
+    radial-gradient(1.3px 1.3px at 22px 34px, rgba(255,255,255,.9), transparent 55%),
+    radial-gradient(1px 1px at 130px 92px, rgba(255,255,255,.55), transparent 55%),
+    radial-gradient(1.5px 1.5px at 74px 168px, rgba(255,255,255,.7), transparent 55%),
+    radial-gradient(1px 1px at 182px 44px, rgba(255,255,255,.45), transparent 55%),
+    radial-gradient(1.2px 1.2px at 118px 200px, rgba(255,255,255,.6), transparent 55%);
+  background-size:230px 240px;
+  opacity:.5;
+  animation:xr-twinkle 8s ease-in-out infinite alternate;
+}
+:root[data-theme="light"] body::before{opacity:.5;filter:saturate(1.35)}
+:root[data-theme="light"] body::after{display:none}
+@keyframes xr-aurora{
+  0%{transform:translate3d(-2.5%,-2%,0) scale(1) rotate(0deg)}
+  33%{transform:translate3d(2%,1.5%,0) scale(1.06) rotate(2.5deg)}
+  66%{transform:translate3d(1.5%,-1%,0) scale(1.03) rotate(-2deg)}
+  100%{transform:translate3d(-1.5%,2.5%,0) scale(1.08) rotate(1.5deg)}
+}
+@keyframes xr-twinkle{from{opacity:.26}to{opacity:.7}}
+
+/* ---------- topbar energy line ---------- */
+.topbar::after{
+  content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;pointer-events:none;
+  background:linear-gradient(90deg,transparent 4%,rgba(139,92,246,.65) 30%,rgba(88,101,242,.75) 52%,rgba(56,189,248,.4) 70%,transparent 96%);
+  background-size:220% 100%;
+  animation:hShimmer 10s linear infinite;
+  opacity:.85;
+}
+
+/* ---------- hero pill: slow conic halo ---------- */
+@property --gp{syntax:'<angle>';inherits:false;initial-value:0deg}
+@keyframes gp-spin{to{--gp:360deg}}
+.hero-pill{position:relative}
+.hero-pill::before{
+  content:"";position:absolute;inset:-1.5px;border-radius:999px;padding:1.5px;
+  background:conic-gradient(from var(--gp),
+    transparent 0turn .55turn, rgba(139,92,246,.9) .72turn,
+    rgba(56,189,248,.9) .86turn, transparent 1turn);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;
+  animation:gp-spin 5.5s linear infinite;
+  opacity:.6;pointer-events:none;
+}
+
+/* ---------- big search: breathing underglow ---------- */
+:root[data-theme="dark"] .big-search{animation:bs-glow 7s ease-in-out infinite}
+@keyframes bs-glow{
+  0%,100%{box-shadow:var(--shadow),0 10px 44px -14px rgba(139,92,246,.22)}
+  50%{box-shadow:var(--shadow),0 10px 58px -12px rgba(88,101,242,.4)}
+}
+
+/* ---------- chat: message entrance + bubble auras ---------- */
+.msg{animation:xr-rise .38s cubic-bezier(.2,.7,.2,1) backwards}
+.msg.a .bubble{background:linear-gradient(168deg,rgba(139,92,246,.075),transparent 42%),var(--panel-2)}
+:root[data-theme="dark"] .msg.u .bubble{box-shadow:0 10px 30px -14px rgba(240,242,246,.28)}
+:root[data-theme="dark"] .msg.a .bubble{box-shadow:0 10px 30px -16px rgba(139,92,246,.3)}
+
+/* ---------- mode menu: hover accent bar ---------- */
+.mmenu button{position:relative}
+.mmenu button::before{
+  content:"";position:absolute;left:2px;top:9px;bottom:9px;width:2px;border-radius:2px;
+  background:linear-gradient(180deg,#8b5cf6,#5865F2);opacity:0;transition:opacity .15s;
+}
+.mmenu button:hover::before{opacity:1}
+
+/* ---------- dark scrollbar glow ---------- */
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb{
+  background:linear-gradient(180deg,rgba(139,92,246,.42),rgba(88,101,242,.42));
+  box-shadow:inset 0 0 4px rgba(139,92,246,.4);
+}
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover{
+  background:linear-gradient(180deg,rgba(139,92,246,.65),rgba(88,101,242,.65));
+}
+
+/* ---------- the temple gate: glowing conic ring + auras ---------- */
+.ds-card{
+  position:relative;
+  background:linear-gradient(180deg,var(--panel-2),var(--panel));
+  animation:stIn .4s cubic-bezier(.2,.8,.2,1) backwards;
+}
+.ds-card::before{
+  content:"";position:absolute;inset:-2px;border-radius:24px;padding:2px;z-index:0;
+  background:conic-gradient(from var(--gp),
+    rgba(88,101,242,0) 0turn .6turn,
+    #5865F2 .78turn, #8b5cf6 .9turn, #38bdf8 .97turn,
+    rgba(88,101,242,0) 1turn);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;
+  animation:gp-spin 6s linear infinite;
+  pointer-events:none;
+}
+.ds-card > *{position:relative;z-index:1}
+.ds-logo{animation:ds-breathe 4.5s ease-in-out infinite}
+@keyframes ds-breathe{
+  0%,100%{filter:drop-shadow(0 0 10px rgba(139,92,246,.35))}
+  50%{filter:drop-shadow(0 0 26px rgba(139,92,246,.7))}
+}
+.ds-btn{animation:ds-pulse 3.4s ease-in-out infinite}
+@keyframes ds-pulse{
+  0%,100%{box-shadow:0 6px 26px -6px rgba(88,101,242,.5)}
+  50%{box-shadow:0 8px 40px -4px rgba(139,92,246,.85)}
+}
+@media (prefers-reduced-motion:reduce){
+  body::before,body::after,.topbar::after,.hero-pill::before,
+  .big-search,.ds-card::before,.ds-logo,.ds-btn{animation:none}
+}
 </style>
 </head>
 <body>
@@ -733,8 +867,9 @@ body.kbd-open .composer{padding-bottom:10px}
     <h2>Members only</h2>
     <p class="ds-sub">XR-Code AI is available to verified members of the XR server.<br>Join the server, take the <b>XR-Auth</b> role, then verify below.</p>
     <div class="ds-err" id="dsErr" hidden></div>
+    <div class="ds-steps"><span class="ds-step"><b>1</b> Join server</span><span class="ds-arrow">&rarr;</span><span class="ds-step"><b>2</b> XR-Auth</span><span class="ds-arrow">&rarr;</span><span class="ds-step"><b>3</b> Verify</span></div>
     <button class="ds-btn" id="dsBtn" type="button"><svg class="ic"><use href="#i-discord"/></svg>Verify with Discord</button>
-    <br><a class="ds-invite" id="dsInvite" href="#" target="_blank" rel="noopener" hidden>Join the XR server</a>
+    <a class="ds-invite" id="dsInvite" href="https://discord.gg/YPqmsrMRr5" target="_blank" rel="noopener"><svg class="ic"><use href="#i-discord"/></svg>Join the XR server</a>
     <p class="ds-fine">Verification happens on Discord &mdash; this app never sees your password.</p>
   </div>
 </div>
@@ -896,7 +1031,7 @@ body.kbd-open .composer{padding-bottom:10px}
     join:    'You are not in the XR server yet. Join it, take the XR-Auth role, then verify again.',
     pending: 'Your membership is still pending \u2014 finish server verification, then tap Verify again.',
     role:    'You need the XR-Auth role in the XR server to use the AI. Ask an admin, then verify again.',
-    roleconf:'The role check cannot run right now (gate configuration). Access stays closed \u2014 the owner needs to pin the XR-Auth role id.',
+    roleconf:'Owner one-time setup: the XR-Auth role ID is not pinned yet. In Discord: Server Settings \u2192 Roles \u2192 right-click XR-Auth \u2192 Copy ID, then share it with the owner to enable. Access stays closed until then.',
     verify:  'Verification could not be completed \u2014 please try again.',
     expired: 'Verification expired (30 days) \u2014 verify again to continue.',
     bad:     'Invalid verification cookie \u2014 verify again.',
@@ -948,7 +1083,8 @@ body.kbd-open .composer{padding-bottom:10px}
     try{
       const res = await fetch(API_BASE + '/api/discord/check', { method: 'POST', cache: 'no-store' });
       const d = await res.json().catch(() => null);
-      if(d && d.invite){ inv.href = d.invite; inv.hidden = false; } else { inv.hidden = true; }
+      if(d && d.invite){ inv.href = d.invite; }
+      inv.hidden = false; /* hardcoded default href — never a dead '#' link */
       if(d && d.ok){ verified = true; uid = d.uid || ''; hide(); }
       else { verified = false; show(d && d.error || 'none'); }
     }catch(e){ /* server unreachable \u2014 never lock on a network error; the send path re-checks via 401 */ }
