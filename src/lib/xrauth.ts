@@ -65,3 +65,48 @@ export function authCookie(token: string): string {
 export function clearAuthCookie(): string {
   return `${AUTH_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
 }
+
+/* ---- cross-origin verification handoff ----
+ * The OAuth callback always runs on the PINNED origin (the redirect_uri that
+ * is registered in the Discord portal), but the app UI can be browsed under a
+ * different origin (the Z.ai preview panel serves the shell under its own
+ * subdomain). Cookies are origin-scoped, so a cookie minted on the pinned
+ * origin is invisible to the browsing origin. The callback therefore bounces
+ * the popup to the browsing origin with a short-lived signed "handoff" token
+ * in the URL fragment (fragments never reach any server). The browsing
+ * origin's /api/discord/handoff exchanges it for a LOCAL verification cookie.
+ * The token is bound to the OAuth state random; the consuming origin must
+ * still hold the matching xr_state cookie — so a stolen token alone (or a
+ * replay in another browser) mints nothing.
+ */
+const HANDOFF_TTL = 120; // seconds — popup completes the hop in well under this
+
+function hsig(uid: string, iat: number, rand: string): string {
+  return createHmac("sha256", secret())
+    .update("handoff." + uid + "." + iat + "." + rand)
+    .digest("hex")
+    .slice(0, 40);
+}
+
+export function mintHandoff(uid: string, rand: string): string {
+  const iat = Math.floor(Date.now() / 1000);
+  return `h1.${uid}.${iat}.${rand}.${hsig(uid, iat, rand)}`;
+}
+
+export type HandoffVer = { ok: boolean; uid?: string; rand?: string; error?: string };
+
+export function verifyHandoff(t: string | undefined | null): HandoffVer {
+  if (!t) return { ok: false, error: "bad" };
+  const p = t.split(".");
+  if (p.length !== 5 || p[0] !== "h1") return { ok: false, error: "bad" };
+  const uid = p[1];
+  const iat = parseInt(p[2], 10);
+  const rand = p[3];
+  const sig = p[4];
+  if (!uid || !iat || !rand || !sig) return { ok: false, error: "bad" };
+  const got = Buffer.from(sig);
+  const want = Buffer.from(hsig(uid, iat, rand));
+  if (got.length !== want.length || !timingSafeEqual(got, want)) return { ok: false, error: "bad" };
+  if (Math.floor(Date.now() / 1000) - iat > HANDOFF_TTL) return { ok: false, error: "expired" };
+  return { ok: true, uid, rand };
+}

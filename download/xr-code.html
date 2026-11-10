@@ -1032,6 +1032,9 @@ body::after{
     pending: 'Your membership is still pending \u2014 finish server verification, then tap Verify again.',
     role:    'You need the XR-Auth role in the XR server to use the AI. Ask an admin, then verify again.',
     roleconf:'Owner one-time setup: the XR-Auth role ID is not pinned yet. In Discord: Server Settings \u2192 Roles \u2192 right-click XR-Auth \u2192 Copy ID, then share it with the owner to enable. Access stays closed until then.',
+    wait:    'Finish the Discord window \u2014 this page unlocks on its own once you are in.',
+    popup:   'The pop-up window was blocked \u2014 allow pop-ups for this site, or open XR-Code in its own browser tab, then tap Verify again.',
+    denied:  'Authorization cancelled \u2014 tap Verify with Discord and allow the access prompt.',
     verify:  'Verification could not be completed \u2014 please try again.',
     expired: 'Verification expired (30 days) \u2014 verify again to continue.',
     bad:     'Invalid verification cookie \u2014 verify again.',
@@ -1041,7 +1044,7 @@ body::after{
   const errBox = document.getElementById('dsErr');
   const btn = document.getElementById('dsBtn');
   const inv = document.getElementById('dsInvite');
-  let verified = false, uid = '', busy = false;
+  let verified = false, uid = '', busy = false, pollTimer = null;
 
   function show(code){
     lock.hidden = false;
@@ -1053,7 +1056,52 @@ body::after{
   window.dsShowLock = show;
   window.dsHideLock = hide;
 
-  btn.addEventListener('click', () => { window.location.href = '/auth/discord/start'; });
+  /* the UI always runs inside the shell's srcdoc iframe (and the Z.ai preview
+   * panel adds a second frame) — navigating THIS frame to Discord is blocked
+   * by X-Frame-Options ("discord.com refused to connect"), so verification
+   * always goes through a pop-up window; the app polls and unlocks itself. */
+  const IN_FRAME = (function(){ try { return window.self !== window.top; } catch(e){ return true; } })();
+
+  function startVerify(){
+    if(busy) return; busy = true;
+    const base = (typeof API_BASE === 'string') ? API_BASE : '';
+    let ret = '';
+    try { if(/^https:/i.test(location.protocol)) ret = location.origin; } catch(e){}
+    let w = null;
+    try {
+      w = window.open(base + '/auth/discord/start?popup=1' + (ret ? '&ret=' + encodeURIComponent(ret) : ''), 'xrverify', 'width=540,height=760');
+    } catch(e){}
+    if(w){
+      show('wait');
+      if(pollTimer) clearInterval(pollTimer);
+      const t0 = Date.now();
+      pollTimer = setInterval(() => {
+        let closed = false;
+        try { closed = w.closed; } catch(e){}
+        if(closed || Date.now() - t0 > 300000){
+          clearInterval(pollTimer); pollTimer = null; busy = false; check(); return;
+        }
+        fetch(base + '/api/discord/check', { method: 'POST', cache: 'no-store' })
+          .then(r => r.json()).then(d => {
+            if(d && d.ok){
+              clearInterval(pollTimer); pollTimer = null; busy = false;
+              verified = true; uid = d.uid || '';
+              try { w.close(); } catch(e){}
+              hide(); toast('Verified \u2014 welcome in');
+              if(typeof renderAccounts === 'function') renderAccounts();
+            }
+          }).catch(() => {});
+      }, 1500);
+    } else if(!IN_FRAME){
+      busy = false;
+      window.location.href = base + '/auth/discord/start';
+    } else {
+      busy = false;
+      show('popup');
+    }
+  }
+
+  btn.addEventListener('click', startVerify);
 
   function accRow(){
     const r = document.createElement('div'); r.className = 'acc-row';
@@ -1070,7 +1118,7 @@ body::after{
         toast('Un-verified \u2014 the members gate is back on');
         setTimeout(check, 400);
       } else {
-        window.location.href = '/auth/discord/start';
+        startVerify();
       }
     };
     i.append(n, st); r.append(i, b);
@@ -1092,13 +1140,22 @@ body::after{
   }
 
   setTimeout(() => {
-    const q = new URLSearchParams(location.search);
-    if(q.get('dserr')){
-      show(q.get('dserr'));
-      history.replaceState(null, '', location.pathname);
-    } else if(q.get('dsok')){
-      toast('Verified \u2014 welcome back');
-      history.replaceState(null, '', location.pathname);
+    /* dserr / dsok can land on any frame of the shell (the srcdoc frame itself
+     * has no query string) — scan self, parent and top, then clean up */
+    let hit = null;
+    const locs = [location];
+    try { if(window.parent && window.parent !== window) locs.push(window.parent.location); } catch(e){}
+    try { if(window.top && window.top !== window) locs.push(window.top.location); } catch(e){}
+    for(const loc of locs){
+      try {
+        const s = new URLSearchParams(loc.search);
+        if(s.get('dserr') || s.get('dsok')){ hit = { s: s, loc: loc }; break; }
+      } catch(e){}
+    }
+    if(hit){
+      if(hit.s.get('dserr')) show(hit.s.get('dserr'));
+      else { verified = true; uid = ''; hide(); toast('Verified \u2014 welcome back'); }
+      try { hit.loc.history.replaceState(null, '', hit.loc.pathname); } catch(e){}
     }
     check();
   }, 350);

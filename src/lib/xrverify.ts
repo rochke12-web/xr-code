@@ -47,6 +47,23 @@ async function roleGate(roles: string[]): Promise<string | null> {
   return roles.includes(target) ? null : "role";
 }
 
+// The `guilds` scope lets the user token list its own guilds with the owner
+// flag. The server owner is the person who manages roles — they pass the gate
+// even before the XR-Auth role id is pinned (members do NOT get this pass;
+// for them the gate stays fail-closed until the role id is set).
+async function isGuildOwner(H: Record<string, string>): Promise<boolean> {
+  try {
+    const r = await fetch("https://discord.com/api/v10/users/@me/guilds", {
+      headers: H, signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) return false;
+    const gs = (await r.json()) as { id?: string; owner?: boolean }[];
+    return Array.isArray(gs) && gs.some(g => g && g.id === GID && g.owner === true);
+  } catch {
+    return false;
+  }
+}
+
 export type VerifyResult = { ok: true; uid: string } | { ok: false; error: string };
 
 // exchange + identify + membership in one shot; error codes feed the lock screen
@@ -87,8 +104,11 @@ export async function exchangeAndVerify(code: string, redirectUri: string): Prom
       const mem = (await memRes.json()) as { pending?: boolean; roles?: string[] };
       if (mem.pending) return { ok: false, error: "pending" };
       const rerr = await roleGate(Array.isArray(mem.roles) ? mem.roles : []);
-      if (rerr) return { ok: false, error: rerr };
-      return { ok: true, uid: me.id };
+      if (!rerr) return { ok: true, uid: me.id };
+      // role gate failed: the OWNER still passes (they manage the roles);
+      // every other member stays closed with the gate error.
+      if (await isGuildOwner(H)) return { ok: true, uid: me.id };
+      return { ok: false, error: rerr };
     }
     if (memRes.status === 404) return { ok: false, error: "join" };
 
