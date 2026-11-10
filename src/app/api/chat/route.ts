@@ -446,6 +446,21 @@ function withSources(text: string, mode: string, items: SearchItem[]): string {
   return `${clean}\n\nSources:\n${links}`;
 }
 
+// QnA outage fallback — when the LLM quota is exhausted but live Google results
+// are already in hand, the search engine still answers: the top results are
+// formatted directly. QnA IS the app's Google search engine — it must never go
+// dark just because the text brain is throttled. The app appends Sources.
+function googleFallback(q: string, items: SearchItem[]): string {
+  const head =
+    'Here\'s what Google turns up for "' + q.slice(0, 120) + '" — ' +
+    "the AI-written summary is rate-limited right now, so here are the live search results directly:";
+  const body = items
+    .slice(0, 5)
+    .map((it, i) => `${i + 1}. ${it.name}${it.date ? ` (${it.date})` : ""}\n   ${String(it.snippet || "").slice(0, 300)}`)
+    .join("\n\n");
+  return `${head}\n\n${body}`;
+}
+
 type ImgSource = { type?: string; media_type?: string; data?: string };
 type Part = {
   type: string;
@@ -760,10 +775,21 @@ export async function POST(req: Request) {
   // one brain, DEEPSEEK ONLY (user directive) — plain replies return; action
   // directives run the tools. No cross-family escape hatches: GLM and argon
   // are retired from the chat chain entirely.
-  // Quota storm policy: a 429 means the shared key is exhausted — one grace
-  // retry on the quick DeepSeek model after 3s to ride out momentary spikes,
-  // then fail fast with a friendly message. Error text must never match the
+  // Quota storm policy: a 429 means the shared key is exhausted. Ride out
+  // minute-scale spikes with a bounded patience ladder (3s → 8s grace retries),
+  // then fail — but QnA never goes dark: with live Google results in hand it
+  // answers straight from the search engine. Error text must never match the
   // client's /engine/i auto-retry regex, or one message would spin 5 retries.
+  const qnaOutage = (): NextResponse | null =>
+    mode === "qna" && lastSearch.length
+      ? NextResponse.json({
+          ok: true,
+          text: withSources(googleFallback(searchQuery(safe), lastSearch), mode, lastSearch),
+          engine: "google-search",
+          mode,
+          vision: visionBlock || undefined,
+        })
+      : null;
   const chain = [chosen, ...[DPSK_QUICK, DPSK_FLAGSHIP].filter(m => m !== chosen)];
   let actText: string | null = null;
   let engineUsed = "";
@@ -771,14 +797,24 @@ export async function POST(req: Request) {
   for (const engine of chain) {
     const r = await glmChat(sys, chatText, engine);
     if (r.quota) {
-      await new Promise(r2 => setTimeout(r2, 3000));
-      const retry = await glmChat(sys, chatText, DPSK_QUICK);
-      if (retry.text) {
-        const a2 = parseAction(retry.text);
-        if (a2) { actText = retry.text; engineUsed = DPSK_QUICK; act = a2; break; }
-        return NextResponse.json({ ok: true, text: withSources(retry.text, mode, lastSearch), engine: DPSK_QUICK, mode, vision: visionBlock || undefined });
+      // patience ladder — brief throttle windows open quickly
+      let saved = false;
+      for (const [i, wait] of [3000, 8000].entries()) {
+        await new Promise(r2 => setTimeout(r2, wait));
+        const graceModel = i % 2 === 0 ? DPSK_QUICK : DPSK_FLAGSHIP;
+        const retry = await glmChat(sys, chatText, graceModel);
+        if (retry.text) {
+          const a2 = parseAction(retry.text);
+          if (a2) { actText = retry.text; engineUsed = graceModel; act = a2; saved = true; break; }
+          return NextResponse.json({ ok: true, text: withSources(retry.text, mode, lastSearch), engine: graceModel, mode, vision: visionBlock || undefined });
+        }
       }
-      return NextResponse.json({ ok: false, error: RATE_LIMITED });
+      if (!saved) {
+        const out = qnaOutage();
+        if (out) return out;
+        return NextResponse.json({ ok: false, error: RATE_LIMITED });
+      }
+      break; // rescued via an action directive — fall through to the asset path
     }
     if (!r.text) continue;
     const t = r.text;
@@ -791,8 +827,11 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ ok: true, text: withSources(t, mode, lastSearch), engine, mode, vision: visionBlock || undefined });
   }
-  if (!actText || !act)
+  if (!actText || !act) {
+    const out = qnaOutage();
+    if (out) return out;
     return NextResponse.json({ ok: false, error: "I can't reach the AI service right now — give it a moment and try again." });
+  }
 
   // creation request — build the real asset, then present it in one natural line
   const asset =
