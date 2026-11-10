@@ -9,11 +9,11 @@ import { randomUUID } from "crypto";
 // One highly capable agent: reads each message and automatically responds the
 // best way — complete runnable code, precise debugging, clear explanations, or
 // direct answers to any question (riding live web results when useful).
-// Engine: DEEPSEEK ONLY (user directive) via the ZAI SDK (OpenAI-style) —
-// koder / qna / sight / agent all ride the DeepSeek pair (flagship dpsk-4.1
-// for real work, dpsk-4.1-flash for quick hits). GLM and argon are retired
-// from the chat chain; GLM survives only inside the vision preprocessor,
-// because the gateway has no DeepSeek vision endpoint.
+// Engine: GLM ONLY (user directive — "the first model", the one the app
+// launched with) via the ZAI SDK (OpenAI-style). koder / qna / sight / agent
+// all ride glm-4.5-flash — no fallback models, one predictable engine.
+// GLM also powers the vision preprocessor, so photo/video attachments
+// still get described.
 // QnA mode is the app's Google-powered search engine: answers ride live
 // Google results and end with a visible Sources list.
 // Prime gateway is removed for now; its config stays in .env.local.
@@ -472,30 +472,16 @@ type Part = {
 type RawMsg = { role?: string; content?: string | Part[] };
 type Msg = { role: "user" | "assistant"; content: string };
 
-// ---- all-in-one DeepSeek brain (server-side only — never shipped to the browser) ----
+// ---- all-in-one GLM brain (server-side only — never shipped to the browser) ----
 
-// the brain's engines: DeepSeek only (all verified live via the ZAI SDK)
-// Every chat path — koder, qna, sight and agent — rides the DeepSeek pair via
-// the ZAI SDK. GLM and argon are retired from the chat chain entirely; GLM
-// survives only in the vision preprocessor (the gateway has no DeepSeek
-// vision endpoint), so photo/video attachments still get described.
-const DPSK_QUICK = "dpsk-4.1-flash"; // fastest — short, casual messages
-const DPSK_FLAGSHIP = "dpsk-4.1";    // flagship — real work
-const KNOWN_MODELS = new Set([DPSK_QUICK, DPSK_FLAGSHIP]);
-
-// all-in-one routing: one brain, the DeepSeek pair behind it
-function autoEngine(q: string, safe: Msg[]): string {
-  const s = (q || "").toLowerCase();
-  const tech =
-    /(code|debug|fix|error|write|build|implement|refactor|explain|analy[sz]e|compare|design|architect|why|algorithm|sql|regex)/;
-  // heavy now, or the conversation is already deep in technical territory —
-  // short follow-ups like "still failing" deserve the flagship too
-  const deepTech = safe.slice(-6).some(
-    m => m.role === "user" && (m.content.includes("```") || tech.test(m.content.slice(0, 400).toLowerCase()))
-  );
-  const heavy = s.length >= 140 || tech.test(s) || deepTech;
-  return heavy ? DPSK_FLAGSHIP : DPSK_QUICK;
-}
+// the brain's engine: GLM only (user directive — "the first model").
+// glm-4.5-flash is the original first/default engine that answered every
+// message in the early builds (glm-4.6 handled only flagged heavy work).
+// No fallback chain: every chat path — koder, qna, sight and agent — rides
+// this single model via the ZAI SDK. GLM also powers the vision
+// preprocessor, so photo/video attachments still get described.
+const GLM_FIRST = "glm-4.5-flash"; // the original first model — the only chat engine
+const KNOWN_MODELS = new Set([GLM_FIRST]);
 
 // chat engines via the ZAI SDK (OpenAI-style messages, verified live)
 type ChatResult = { text: string | null; quota: boolean };
@@ -510,8 +496,8 @@ async function glmChat(sys: string, msgs: { role: "user" | "assistant"; content:
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const zai = await ZAI.create();
-      // thinking toggle is a GLM-specific knob — don't send it to other
-      // families (dpsk/argon may reject unknown params)
+      // thinking toggle is a GLM knob — every chat model is GLM now, so this
+      // always applies (kept model-gated for safety anyway)
       const glmish = model.startsWith("glm");
       const res = (await Promise.race([
         zai.chat.completions.create({
@@ -639,9 +625,9 @@ export async function POST(req: Request) {
     TOOL_RULES +
     (mode === "agent" ? AGENT_SEARCH_RULE : "");
   const lastUser = [...safe].reverse().find(m => m.role === "user");
-  // one brain, DeepSeek only: an explicit DeepSeek member is honored, otherwise auto-route
+  // one brain, one engine: the original first GLM model, always
   const wanted = typeof body?.model === "string" ? body.model.trim() : "";
-  const chosen = KNOWN_MODELS.has(wanted) ? wanted : autoEngine(lastUser?.content || "", safe);
+  const chosen = KNOWN_MODELS.has(wanted) ? wanted : GLM_FIRST;
   // the user is talking about THEIR attachment — web search would only distract.
   // QnA mode grounds almost every real question in live Google results and the
   // reply ends with a canonical Sources list (withSources).
@@ -684,27 +670,27 @@ export async function POST(req: Request) {
   // ---- AGENT MODE — autonomous multi-step loop ----
   // The model answers OR emits one tool directive per step; the server runs it
   // (live web search / image gen / video gen) and feeds the result back until
-  // the task is done or the budget is spent. DeepSeek flagship drives it.
+  // the task is done or the budget is spent. The first GLM model drives it.
   if (mode === "agent") {
     const MAX_STEPS = 4;
     const trace: string[] = [];
-    const agentModel = DPSK_FLAGSHIP;
+    const agentModel = GLM_FIRST;
     let engineOut = agentModel;
     for (let step = 0; step < MAX_STEPS; step++) {
       const r = await glmChat(sys, chatText, agentModel);
       if (r.quota) {
         await new Promise(r2 => setTimeout(r2, 3000));
-        const retry = await glmChat(sys, chatText, DPSK_QUICK);
+        const retry = await glmChat(sys, chatText, GLM_FIRST);
         if (retry.text) {
-          return NextResponse.json({ ok: true, text: retry.text, engine: DPSK_QUICK, mode, vision: visionBlock || undefined });
+          return NextResponse.json({ ok: true, text: retry.text, engine: GLM_FIRST, mode, vision: visionBlock || undefined });
         }
         return NextResponse.json({ ok: false, error: RATE_LIMITED });
       }
       if (!r.text) {
         // one rescue on the quick model, then give up honestly
-        const rescue = await glmChat(sys, chatText, DPSK_QUICK);
+        const rescue = await glmChat(sys, chatText, GLM_FIRST);
         if (rescue.text) {
-          return NextResponse.json({ ok: true, text: rescue.text, engine: DPSK_FLAGSHIP, mode, vision: visionBlock || undefined });
+          return NextResponse.json({ ok: true, text: rescue.text, engine: GLM_FIRST, mode, vision: visionBlock || undefined });
         }
         return NextResponse.json({ ok: false, error: "agent stalled — try again in a moment" });
       }
@@ -772,14 +758,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "agent ran out of steps — try again" });
   }
 
-  // one brain, DEEPSEEK ONLY (user directive) — plain replies return; action
-  // directives run the tools. No cross-family escape hatches: GLM and argon
-  // are retired from the chat chain entirely.
+  // one brain, GLM ONLY (user directive — the original first model) — plain
+  // replies return; action directives run the tools. No fallback models: one
+  // engine, one quota bucket, predictable behavior.
   // Quota storm policy: a 429 means the shared key is exhausted. Ride out
-  // minute-scale spikes with a bounded patience ladder (3s → 8s grace retries),
-  // then fail — but QnA never goes dark: with live Google results in hand it
-  // answers straight from the search engine. Error text must never match the
-  // client's /engine/i auto-retry regex, or one message would spin 5 retries.
+  // minute-scale spikes with a bounded patience ladder (3s → 8s grace retries
+  // on the same model), then fail — but QnA never goes dark: with live Google
+  // results in hand it answers straight from the search engine. Error text
+  // must never match the client's /engine/i auto-retry regex, or one message
+  // would spin 5 retries.
   const qnaOutage = (): NextResponse | null =>
     mode === "qna" && lastSearch.length
       ? NextResponse.json({
@@ -790,7 +777,7 @@ export async function POST(req: Request) {
           vision: visionBlock || undefined,
         })
       : null;
-  const chain = [chosen, ...[DPSK_QUICK, DPSK_FLAGSHIP].filter(m => m !== chosen)];
+  const chain = [chosen]; // single engine — the original first GLM model
   let actText: string | null = null;
   let engineUsed = "";
   let act: Action | null = null;
@@ -799,14 +786,13 @@ export async function POST(req: Request) {
     if (r.quota) {
       // patience ladder — brief throttle windows open quickly
       let saved = false;
-      for (const [i, wait] of [3000, 8000].entries()) {
+      for (const wait of [3000, 8000]) {
         await new Promise(r2 => setTimeout(r2, wait));
-        const graceModel = i % 2 === 0 ? DPSK_QUICK : DPSK_FLAGSHIP;
-        const retry = await glmChat(sys, chatText, graceModel);
+        const retry = await glmChat(sys, chatText, GLM_FIRST);
         if (retry.text) {
           const a2 = parseAction(retry.text);
-          if (a2) { actText = retry.text; engineUsed = graceModel; act = a2; saved = true; break; }
-          return NextResponse.json({ ok: true, text: withSources(retry.text, mode, lastSearch), engine: graceModel, mode, vision: visionBlock || undefined });
+          if (a2) { actText = retry.text; engineUsed = GLM_FIRST; act = a2; saved = true; break; }
+          return NextResponse.json({ ok: true, text: withSources(retry.text, mode, lastSearch), engine: GLM_FIRST, mode, vision: visionBlock || undefined });
         }
       }
       if (!saved) {
