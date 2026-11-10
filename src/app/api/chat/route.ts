@@ -9,11 +9,11 @@ import { randomUUID } from "crypto";
 // One highly capable agent: reads each message and automatically responds the
 // best way — complete runnable code, precise debugging, clear explanations, or
 // direct answers to any question (riding live web results when useful).
-// Engine: the FREE GLM FAMILY via the ZAI SDK (OpenAI-style), all-in-one —
-// the app exposes a single "GLM" brain and the server picks the right family
-// member per message (flagship glm-4.6 for real work, glm-4.5-flash for quick
-// hits, with a quiet in-family fallback chain). Prime gateway is removed for
-// now; its config stays in .env.local and can be restored later.
+// Engine: DEEPSEEK FIRST via the ZAI SDK (OpenAI-style), all-in-one — the app
+// exposes a single brain and the server picks the right member per message
+// (dpsk-4.1 for real work, dpsk-4.1-flash for quick hits, with the GLM family
+// and argon as quiet fallbacks). Prime gateway is removed for now; its config
+// stays in .env.local and can be restored later.
 // Server-side only: no keys ever reach the browser.
 // Real vision: photos & video keyframes are DESCRIBED here by a vision
 // preprocessor and the description rides to the brain as a [VISION] block.
@@ -329,14 +329,18 @@ const GLM_MODELS = new Set([
   "dpsk-4.1-flash",
   "dpsk-4.1",
 ]);
-const GLM_FLAGSHIP = "glm-4.6"; // smartest — default for real work
-const GLM_QUICK = "glm-4.5-flash"; // fastest — short, casual messages
+const GLM_FLAGSHIP = "glm-4.6"; // smartest GLM — now a fallback family member
+const GLM_QUICK = "glm-4.5-flash"; // fastest GLM — grace-retry model
 const GLM_FALLBACKS = [GLM_QUICK, GLM_FLAGSHIP]; // quiet in-family chain
-// last-resort cross-family chain — GLM first (preferred), argon/dpsk only if
-// every GLM member fails (e.g. gateway-wide 429 on the GLM pool)
-const EXTRA_FALLBACKS = ["argon", "argon-flash", "dpsk-4.1-flash", "dpsk-4.1"];
+// DeepSeek — the DEFAULT brain (user directive): every message routes to dpsk
+// first; GLM + argon stay behind it as quiet fallbacks.
+const DPSK_FLAGSHIP = "dpsk-4.1"; // deepseek flagship — real work
+const DPSK_QUICK = "dpsk-4.1-flash"; // deepseek fast — short, casual messages
+const DPSK_FALLBACKS = [DPSK_QUICK, DPSK_FLAGSHIP];
+// last-resort cross-family tail — only if every dpsk AND glm member fails
+const EXTRA_FALLBACKS = ["argon", "argon-flash"];
 
-// all-in-one routing: one brain, the whole family behind it
+// all-in-one routing: one brain (DeepSeek), the whole family behind it
 function autoEngine(q: string, safe: Msg[]): string {
   const s = (q || "").toLowerCase();
   const tech =
@@ -347,7 +351,7 @@ function autoEngine(q: string, safe: Msg[]): string {
     m => m.role === "user" && (m.content.includes("```") || tech.test(m.content.slice(0, 400).toLowerCase()))
   );
   const heavy = s.length >= 140 || tech.test(s) || deepTech;
-  return heavy ? GLM_FLAGSHIP : GLM_QUICK;
+  return heavy ? DPSK_FLAGSHIP : DPSK_QUICK;
 }
 
 // free GLM engines via the ZAI SDK (OpenAI-style messages, verified live)
@@ -363,11 +367,14 @@ async function glmChat(sys: string, msgs: { role: "user" | "assistant"; content:
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const zai = await ZAI.create();
+      // thinking toggle is a GLM-specific knob — don't send it to other
+      // families (dpsk/argon may reject unknown params)
+      const glmish = model.startsWith("glm");
       const res = (await Promise.race([
         zai.chat.completions.create({
           model,
           messages: [{ role: "system", content: sys }, ...msgs],
-          thinking: { type: "disabled" as const },
+          ...(glmish ? { thinking: { type: "disabled" as const } } : {}),
         }),
         new Promise<null>(r => setTimeout(() => r(null), 60000)),
       ])) as { choices?: { message?: { content?: string } }[] } | null;
@@ -533,11 +540,10 @@ export async function POST(req: Request) {
   // to ride out momentary spikes), then fail fast with a friendly message.
   // Failing fast keeps one user message ≈ 2-3 upstream calls instead of ~80,
   // which is what lets the quota window actually recover.
-  const chain = [
-    chosen,
-    ...GLM_FALLBACKS.filter(m => m !== chosen),
-    ...EXTRA_FALLBACKS.filter(m => m !== chosen && !GLM_FALLBACKS.includes(m as typeof GLM_FALLBACKS[number])),
-  ];
+  // DeepSeek first (default brain), then the rest of the family as quiet
+  // fallbacks: dpsk pair → glm pair → argon tail.
+  const family = [...DPSK_FALLBACKS, ...GLM_FALLBACKS, ...EXTRA_FALLBACKS];
+  const chain = [chosen, ...family.filter(m => m !== chosen)];
   let actText: string | null = null;
   let engineUsed = "";
   let act: Action | null = null;
