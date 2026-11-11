@@ -20,11 +20,12 @@ import { XR_SECRETS } from "../../../lib/xrsecrets";
 // QnA mode is the app's Google-powered search engine: answers ride live
 // Google results (Sources lists are removed by user directive).
 // Prime Gateway is BACK (user directive — "add a model", 2026-11): the owner's
-// personal AI gateway, Anthropic-style /v1/messages, two selectable engines
-// (prime-v1-flash / prime-v1-vision). Server-side only: the key never reaches
-// the browser. Verified live 2026-11: both models answer; the vision alias is
-// TEXT-ONLY through this gateway (image blocks are accepted but unseen), so
-// photos still ride the Z.ai vision preprocessor for every engine.
+// personal AI gateway, Anthropic-style /v1/messages, three selectable engines
+// (prime-v1 / prime-v1-flash / prime-vision — lineup + key refreshed 2026-11-11).
+// Server-side only: the key never reaches the browser. Verified live 2026-11-11:
+// all three answer (glm-5.3 / glm-5.3-flash behind the gateway); image blocks
+// are accepted but unseen, so photos still ride the Z.ai vision preprocessor
+// for every engine.
 // Server-side only: no keys ever reach the browser.
 // Real vision: photos & video keyframes are DESCRIBED here by a vision
 // preprocessor and the description rides to the brain as a [VISION] block.
@@ -495,16 +496,20 @@ const PRIMARY = "kimi-k2"; // Kimi AI — the new primary engine
 const GLM_FIRST = "glm-4.5-flash"; // the original first model — first fallback lane
 
 // ---- Prime Gateway (owner's personal gateway, Anthropic-style) ----
-// Two selectable engines ride this gateway; everything else keeps the Z.ai
+// Three selectable engines ride this gateway; everything else keeps the Z.ai
 // brain. The gateway ALSO gets a lane at the very end of the Z.ai emergency
 // chain — a separate quota bucket for the darkest moments.
 const PRIME_BASE = (process.env.PRIME_BASE_URL || XR_SECRETS.PRIME_API_BASE || "").replace(/\/+$/, "");
 const PRIME_KEY = process.env.PRIME_API_KEY || XR_SECRETS.PRIME_API_KEY || "";
-const PRIME_FLASH = "prime-v1-flash";
-const PRIME_VISION = "prime-v1-vision";
-const PRIME_MODELS = new Set([PRIME_FLASH, PRIME_VISION]);
+const PRIME_FLAG = "prime-v1"; // flagship brain
+const PRIME_FLASH = "prime-v1-flash"; // fast lane
+const PRIME_VISION = "prime-vision"; // vision-tuned
+// "prime-v1-vision" is the vision engine's OLD id — kept as an alias so stale
+// cached clients with it saved as their engine keep answering (it resolves on
+// the gateway) instead of silently dropping to Auto.
+const PRIME_MODELS = new Set([PRIME_FLAG, PRIME_FLASH, PRIME_VISION, "prime-v1-vision"]);
 
-const KNOWN_MODELS = new Set([PRIMARY, GLM_FIRST, PRIME_FLASH, PRIME_VISION]);
+const KNOWN_MODELS = new Set([PRIMARY, GLM_FIRST, PRIME_FLAG, PRIME_FLASH, PRIME_VISION, "prime-v1-vision"]);
 // emergency lanes on the same gateway, different model families → separate
 // quota buckets: when the primary's bucket is dry another family often has
 // headroom. A dead lane 429s in ~100ms (a missing model 404s in ~200ms), so

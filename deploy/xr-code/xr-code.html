@@ -978,8 +978,9 @@ body.kbd-open .composer{padding-bottom:10px}
               <button type="button" data-mode="imagine"><b>Imagine Mode</b><small>text → art — Kimi writes the prompt, nano banana pro paints it</small></button>
               <div class="msec">Engine</div>
               <button type="button" data-model="auto"><b>Auto — XR flagship</b><small>the hosted brain · always the best default</small></button>
+              <button type="button" data-model="prime-v1"><b>Prime</b><small>flagship brain · deep reasoning &amp; big builds</small></button>
               <button type="button" data-model="prime-v1-flash"><b>Prime Flash</b><small>fast lane · quick answers &amp; code</small></button>
-              <button type="button" data-model="prime-v1-vision"><b>Prime Vision</b><small>vision-tuned brain · photos &amp; deep reads</small></button>
+              <button type="button" data-model="prime-vision"><b>Prime Vision</b><small>vision-tuned brain · photos &amp; deep reads</small></button>
             </div>
           </div>
           <input id="homeInput" autocomplete="off" placeholder="What would you like to do with XR-Code?">
@@ -1009,8 +1010,9 @@ body.kbd-open .composer{padding-bottom:10px}
             <button type="button" data-mode="imagine"><b>Imagine Mode</b><small>text → art — Kimi writes the prompt, nano banana pro paints it</small></button>
             <div class="msec">Engine</div>
             <button type="button" data-model="auto"><b>Auto — XR flagship</b><small>the hosted brain · always the best default</small></button>
+            <button type="button" data-model="prime-v1"><b>Prime</b><small>flagship brain · deep reasoning &amp; big builds</small></button>
             <button type="button" data-model="prime-v1-flash"><b>Prime Flash</b><small>fast lane · quick answers &amp; code</small></button>
-            <button type="button" data-model="prime-v1-vision"><b>Prime Vision</b><small>vision-tuned brain · photos &amp; deep reads</small></button>
+            <button type="button" data-model="prime-vision"><b>Prime Vision</b><small>vision-tuned brain · photos &amp; deep reads</small></button>
           </div>
         </div>
         <div class="gen-chips" id="genChips" hidden>
@@ -1323,7 +1325,7 @@ function defaults(){
     user: null,              // reserved
     chats: [],
     active: null,
-    model: 'auto',             // engine: 'auto' (flagship brain) | 'prime-v1-flash' | 'prime-v1-vision'
+    model: 'auto',             // engine: 'auto' (flagship brain) | 'prime-v1' | 'prime-v1-flash' | 'prime-vision'
     mode: 'koder',             // 'koder' | 'qna' | 'sight' | 'imagine'
     imgStyle: 'auto',          // Imagine mode style preset
     imgSize: '1024x1024',      // Imagine mode canvas ratio
@@ -1336,6 +1338,7 @@ let S = load() || defaults();
   delete S.models; delete S.routing; delete S.tokensSaved;  // model options removed
   delete S.startupDone; delete S.gemini; delete S.local;    // leftovers from old versions
   if(!S.model || !/^(auto$|prime-)/.test(S.model)) S.model = 'auto';  // legacy glm-* values map to Auto
+  if(S.model === 'prime-v1-vision') S.model = 'prime-vision';         // vision engine renamed by the gateway
   if(S.mode !== 'koder' && S.mode !== 'qna' && S.mode !== 'sight' && S.mode !== 'imagine') S.mode = 'koder';   // four modes: koder | qna | sight | imagine
   if(!['auto','photoreal','anime','cinematic','digital','render3d','watercolor','pixel'].includes(S.imgStyle)) S.imgStyle = 'auto';
   if(!['1024x1024','768x1344','864x1152','1344x768','1152x864'].includes(S.imgSize)) S.imgSize = '1024x1024';
@@ -1542,7 +1545,7 @@ function renderModel(){
   $$('#homeModeMenu button[data-mode],#chatModeMenu button[data-mode]').forEach(b => b.classList.toggle('current', b.dataset.mode === S.mode));
   $$('#homeModeMenu button[data-model],#chatModeMenu button[data-model]').forEach(b => b.classList.toggle('current', b.dataset.model === S.model));
   const chip = $('#chatModelChip');
-  if(chip) chip.textContent = S.model === 'prime-v1-flash' ? 'Prime Flash' : S.model === 'prime-v1-vision' ? 'Prime Vision' : 'Hosted by Z.ai';
+  if(chip) chip.textContent = S.model === 'prime-v1' ? 'Prime' : S.model === 'prime-v1-flash' ? 'Prime Flash' : S.model === 'prime-vision' ? 'Prime Vision' : 'Hosted by Z.ai';
   const gc = $('#genChips'); if(gc) gc.hidden = S.mode !== 'imagine';
   const ci = $('#chatInput'); if(ci) ci.placeholder = S.mode === 'imagine' ? 'Describe the image to paint…' : 'Message XR Code...';
 }
@@ -1593,7 +1596,7 @@ $$('#homeModeMenu button[data-model],#chatModeMenu button[data-model]').forEach(
     e.stopPropagation();
     S.model = b.dataset.model;
     save(); renderModel(); closeMenus();
-    toast('Engine: ' + ({ 'auto': 'Auto — XR flagship', 'prime-v1-flash': 'Prime Flash', 'prime-v1-vision': 'Prime Vision' }[S.model] || S.model));
+    toast('Engine: ' + ({ 'auto': 'Auto — XR flagship', 'prime-v1': 'Prime', 'prime-v1-flash': 'Prime Flash', 'prime-vision': 'Prime Vision' }[S.model] || S.model));
   });
 });
 document.addEventListener('click', closeMenus);

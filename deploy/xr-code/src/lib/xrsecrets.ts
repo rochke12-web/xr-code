@@ -17,5 +17,5 @@ export const XR_SECRETS = {
   // Prime Gateway (owner's personal AI gateway, Anthropic-style /v1/messages).
   // Server-side only — this file is never imported by client components.
   PRIME_API_BASE: "https://r1de49ege2k1-d.space-z.ai",
-  PRIME_API_KEY: "sk-gw-b0926268e31dd0dcbbdfacd44d1119a1b64e8dd2fc901e1a",
+  PRIME_API_KEY: "sk-gw-2d2877685ca7eadff273f709a82781f0042556ead44b7d8a",
 };
