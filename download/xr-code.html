@@ -612,6 +612,31 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .acc-row .ai2{flex:1;min-width:0}
 .acc-row .an{font-size:13.5px;font-weight:600}
 .acc-row .as{font-size:11.5px;color:var(--muted)}
+/* owner role-link card (Settings → accounts, verified guild owner, role unpinned) */
+.ds-pin{
+  display:flex;flex-direction:column;gap:8px;border:1px dashed var(--line);border-radius:12px;
+  padding:12px 15px;margin-top:8px;background:var(--bg2);animation:fadeUp .4s var(--ease) both;
+}
+.ds-pin-l{font-size:11px;color:var(--muted);line-height:1.5}
+.ds-pin-r{display:flex;gap:8px}
+.ds-pin-r input{
+  flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:8px 12px;font:500 12.5px var(--font-mono);color:var(--text);letter-spacing:.04em;
+  transition:border-color .2s,background .2s;
+}
+.ds-pin-r input:focus{outline:none;border-color:var(--accent-2);background:var(--panel-2)}
+.ds-pin-r input::placeholder{color:var(--faint);letter-spacing:0}
+.ds-pin-b{
+  border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);
+  border-radius:10px;padding:8px 16px;font:600 12px var(--font-body);cursor:pointer;
+  transition:transform .25s var(--spring),opacity .2s;
+}
+.ds-pin-b:hover{transform:translateY(-1px)}
+.ds-pin-b:active{transform:scale(.95)}
+.ds-pin-b:disabled{opacity:.5;cursor:wait}
+.ds-pin-m{font-size:10.5px;color:var(--muted);line-height:1.5}
+.ds-pin-m:empty{display:none}
+.ds-pin-m.bad{color:var(--text)}
 .mini-btn{
   border:1px solid var(--line);border-radius:10px;padding:7px 14px;font-size:12px;color:var(--muted);
   display:inline-flex;align-items:center;gap:7px;
@@ -899,7 +924,7 @@ body.kbd-open .composer{padding-bottom:10px}
     <div class="ds-steps"><span class="ds-step"><b>1</b> Join server</span><span class="ds-arrow">&rarr;</span><span class="ds-step"><b>2</b> XR-Auth</span><span class="ds-arrow">&rarr;</span><span class="ds-step"><b>3</b> Verify</span></div>
     <button class="ds-btn" id="dsBtn" type="button"><svg class="ic"><use href="#i-discord"/></svg>Verify with Discord</button>
     <a class="ds-invite" id="dsInvite" href="https://discord.gg/YPqmsrMRr5" target="_blank" rel="noopener"><svg class="ic"><use href="#i-discord"/></svg>Join the XR server</a>
-    <p class="ds-fine">Verification happens on Discord &mdash; this app never sees your password. Owners may be asked for <b>Manage Server</b>: used once, to link the XR-Auth role automatically.</p>
+    <p class="ds-fine">Verification happens on Discord &mdash; this app never sees your password. Server owner: after verifying, link the <b>XR-Auth</b> role once in Settings &rarr; Accounts (paste its Role ID) so members pass the gate.</p>
   </div>
 </div>
 
@@ -1060,7 +1085,7 @@ body.kbd-open .composer{padding-bottom:10px}
     join:    'You are not in the XR server yet. Join it, take the XR-Auth role, then verify again.',
     pending: 'Your membership is still pending \u2014 finish server verification, then tap Verify again.',
     role:    'You need the XR-Auth role in the XR server to use the AI. Ask an admin, then verify again.',
-    roleconf:'The XR-Auth role is not linked yet. Server owner: tap Verify with Discord — approve the Manage Server prompt and the role links itself automatically. Members: ask the owner to verify once first.',
+    roleconf:'The XR-Auth role is not linked yet. Server owner: verify with Discord, then open Settings → Accounts and paste the XR-Auth Role ID (Discord → Server Settings → Roles → right-click the role → Copy Role ID). Members: ask the owner to do this once first.',
     wait:    'Finish the Discord window \u2014 this page unlocks on its own once you are in.',
     popup:   'The pop-up window was blocked \u2014 allow pop-ups for this site, or open XR-Code in its own browser tab, then tap Verify again.',
     denied:  'Authorization cancelled \u2014 tap Verify with Discord and allow the access prompt.',
@@ -1074,6 +1099,7 @@ body.kbd-open .composer{padding-bottom:10px}
   const btn = document.getElementById('dsBtn');
   const inv = document.getElementById('dsInvite');
   let verified = false, uid = '', busy = false, pollTimer = null;
+  let dsOwner = false, dsRolePinned = false; /* from /api/discord/check: guild-owner proof + linked role */
 
   function show(code){
     lock.hidden = false;
@@ -1115,6 +1141,7 @@ body.kbd-open .composer{padding-bottom:10px}
             if(d && d.ok){
               clearInterval(pollTimer); pollTimer = null; busy = false;
               verified = true; uid = d.uid || '';
+              dsOwner = !!d.owner; dsRolePinned = !!d.roleId;
               try { w.close(); } catch(e){}
               hide(); toast('Verified \u2014 welcome in');
               if(typeof renderAccounts === 'function') renderAccounts();
@@ -1143,7 +1170,7 @@ body.kbd-open .composer{padding-bottom:10px}
     b.onclick = async () => {
       if(verified){
         try{ await fetch(API_BASE + '/api/discord/logout', { method: 'POST' }); }catch(e){}
-        verified = false; uid = '';
+        verified = false; uid = ''; dsOwner = false;
         toast('Un-verified \u2014 the members gate is back on');
         setTimeout(check, 400);
       } else {
@@ -1151,7 +1178,55 @@ body.kbd-open .composer{padding-bottom:10px}
       }
     };
     i.append(n, st); r.append(i, b);
-    return r;
+    const frag = document.createDocumentFragment();
+    frag.append(r);
+    /* owner self-service: link the XR-Auth role id while ownership proof is
+     * fresh (30 min from the last Verify). Members never see this box. */
+    if(verified && dsOwner && !dsRolePinned){
+      const pin = document.createElement('div'); pin.className = 'ds-pin';
+      const lab = document.createElement('div'); lab.className = 'ds-pin-l';
+      lab.textContent = 'Owner step \u00b7 link the XR-Auth role so members pass the gate';
+      const row = document.createElement('div'); row.className = 'ds-pin-r';
+      const inp = document.createElement('input');
+      inp.type = 'text'; inp.inputMode = 'numeric'; inp.autocomplete = 'off';
+      inp.placeholder = 'Paste Role ID';
+      inp.setAttribute('aria-label', 'XR-Auth role id');
+      const go = document.createElement('button'); go.type = 'button'; go.className = 'ds-pin-b';
+      go.textContent = 'Link role';
+      const msg = document.createElement('div'); msg.className = 'ds-pin-m';
+      go.onclick = async () => {
+        if(go.disabled) return;
+        go.disabled = true; inp.disabled = true; msg.textContent = ''; msg.className = 'ds-pin-m';
+        try{
+          const res = await fetch(API_BASE + '/api/discord/pinrole', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ roleId: inp.value.trim() })
+          });
+          const d = await res.json().catch(() => null);
+          if(res.ok && d && d.ok){
+            dsRolePinned = true;
+            inp.value = ''; /* clear so renderAccounts' typing-guard lets the rebuild through */
+            toast('XR-Auth role linked \u2014 members can verify now');
+            if(typeof renderAccounts === 'function') renderAccounts();
+          } else if(d && d.error === 'owner'){
+            msg.textContent = 'Ownership proof expired \u2014 tap Verify with Discord once more, then link.';
+            msg.className = 'ds-pin-m bad';
+          } else {
+            msg.textContent = 'That does not look like a Role ID \u2014 Discord \u2192 Server Settings \u2192 Roles \u2192 right-click XR-Auth \u2192 Copy Role ID.';
+            msg.className = 'ds-pin-m bad';
+          }
+        }catch(e){
+          msg.textContent = 'Could not reach the server \u2014 try again.';
+          msg.className = 'ds-pin-m bad';
+        }
+        go.disabled = false; inp.disabled = false;
+      };
+      inp.addEventListener('keydown', ev => { if(ev.key === 'Enter'){ ev.preventDefault(); go.click(); } });
+      row.append(inp, go);
+      pin.append(lab, row, msg);
+      frag.append(pin);
+    }
+    return frag;
   }
   window.dsAccRow = accRow;
 
@@ -1162,8 +1237,8 @@ body.kbd-open .composer{padding-bottom:10px}
       const d = await res.json().catch(() => null);
       if(d && d.invite){ inv.href = d.invite; }
       inv.hidden = false; /* hardcoded default href — never a dead '#' link */
-      if(d && d.ok){ verified = true; uid = d.uid || ''; hide(); }
-      else { verified = false; show(d && d.error || 'none'); }
+      if(d && d.ok){ verified = true; uid = d.uid || ''; dsOwner = !!d.owner; dsRolePinned = !!d.roleId; hide(); if(typeof renderAccounts === 'function') renderAccounts(); }
+      else { verified = false; dsOwner = false; dsRolePinned = !!d && !!d.roleId; show(d && d.error || 'none'); if(typeof renderAccounts === 'function') renderAccounts(); }
     }catch(e){ /* server unreachable \u2014 never lock on a network error; the send path re-checks via 401 */ }
     busy = false;
   }
@@ -1912,7 +1987,12 @@ async function askBrain(c, text, atts){
 
 /* ---------- accounts / sync UI ---------- */
 function renderAccounts(){
-  const box = $('#accBox'); box.innerHTML = '';
+  const box = $('#accBox');
+  /* don't wipe a half-typed Role ID: netCheck re-renders accounts every 20s,
+   * and that must never erase the owner's in-progress role-link input */
+  const pinInput = box.querySelector('.ds-pin input');
+  if(pinInput && (document.activeElement === pinInput || pinInput.value.trim() !== '')) return;
+  box.innerHTML = '';
   const r = document.createElement('div'); r.className = 'acc-row';
   const i = document.createElement('div'); i.className = 'ai2';
   const n = document.createElement('div'); n.className = 'an'; n.textContent = 'This browser';

@@ -4,8 +4,11 @@
 // AND currently hold the XR-Auth role. No role check -> no access, even if
 // membership itself could be proven (fail closed, handoff invariant 1).
 // The member record needs the guilds.members.read scope; resolving the
-// XR-Auth role id by name needs a bot token — OR the owner pins DISCORD_ROLE_ID
-// directly (no bot required, works with the user-token member record).
+// XR-Auth role id by name needs a bot token — OR the owner pins the role id
+// directly (DISCORD_ROLE_ID env, or the in-app owner link in Settings →
+// Discord, persisted in the DB / process memory). User tokens can NEVER read
+// the guild's role list — that endpoint is bot-only — so the role id must be
+// pinned by the owner one way or another.
 import { mintToken } from "./xrauth";
 import { XR_SECRETS } from "./xrsecrets";
 import { db } from "./db";
@@ -14,23 +17,73 @@ const CID = process.env.DISCORD_CLIENT_ID || "1569300109790023772";
 const GID = process.env.DISCORD_GUILD_ID || "1568895668368711692";
 const SECRET = process.env.DISCORD_CLIENT_SECRET || XR_SECRETS.DISCORD_CLIENT_SECRET || "";
 const BOT = process.env.DISCORD_BOT_TOKEN || "";
-const ROLE_ID = process.env.DISCORD_ROLE_ID || "";
+const ROLE_ID = process.env.DISCORD_ROLE_ID || XR_SECRETS.DISCORD_ROLE_ID || "";
 const ROLE_NAME = (process.env.DISCORD_ROLE_NAME || "XR-Auth").trim().toLowerCase();
 const ROLE_KEY = "xr_auth_role_id";
 
 // 10-minute cache for the resolved role id (DB pin or bot-token lookup)
 let roleCache: { id: string; at: number } | null = null;
+// DB-unavailable fallback: pin lives in process memory until restart
+let memPin = "";
+
+// owner marks: uids that PROVED guild ownership at verify time. The in-app
+// role link (/api/discord/pinrole) is only accepted for these, within the
+// TTL. In-memory by design — ownership is re-proven on every fresh verify,
+// so a restart merely asks the owner to tap Verify once more.
+const OWNER_TTL = 30 * 60_000;
+const ownerMarks = new Map<string, number>();
+
+export function markOwner(uid: string) {
+  ownerMarks.set(uid, Date.now());
+  if (ownerMarks.size > 500) {
+    const now = Date.now();
+    for (const [k, t] of ownerMarks) if (now - t > OWNER_TTL) ownerMarks.delete(k);
+  }
+}
+
+export function isRecentOwner(uid: string): boolean {
+  const t = ownerMarks.get(uid);
+  return !!t && Date.now() - t < OWNER_TTL;
+}
+
+// Discord snowflakes: 17-20 digits today; accept a slightly wider band so
+// future ids still validate, while garbage / other guild's junk does not.
+const SNOWFLAKE_RE = /^\d{15,25}$/;
+
+// owner self-service linking (Settings → Discord → Link role): the caller
+// must be a verified member who proved guild ownership within OWNER_TTL.
+// The role id is pasted by the owner (Discord → Server Settings → Roles →
+// right-click XR-Auth → Copy Role ID) — user tokens cannot enumerate roles,
+// so this paste replaces the old (impossible) user-token auto-link.
+export async function pinRoleByOwner(uid: string, roleId: string): Promise<{ ok: boolean; error?: string }> {
+  if (!isRecentOwner(uid)) return { ok: false, error: "owner" };
+  const id = String(roleId || "").trim();
+  if (!SNOWFLAKE_RE.test(id)) return { ok: false, error: "format" };
+  memPin = id;
+  roleCache = { id, at: Date.now() };
+  try {
+    await db.discordConfig.upsert({
+      where: { key: ROLE_KEY },
+      update: { value: id },
+      create: { key: ROLE_KEY, value: id },
+    });
+  } catch { /* db unavailable — the memory pin keeps this boot working */ }
+  return { ok: true };
+}
 
 // owner policy: role gate is ALWAYS on. Resolve the target role id by:
 // 1. DISCORD_ROLE_ID env (pin it, no bot needed) — preferred
-// 2. the DB pin, auto-linked by the server owner's own verification
-// 3. bot token + role name lookup (cached 10 min)
+// 2. the DB pin, linked by the server owner in Settings (survives restarts)
+// 3. process-memory pin (DB unavailable fallback)
+// 4. bot token + role name lookup (cached 10 min)
 async function targetRoleId(): Promise<string> {
   if (ROLE_ID) return ROLE_ID;
+  if (memPin) return memPin;
   if (roleCache && Date.now() - roleCache.at < 600_000) return roleCache.id;
   try {
     const row = await db.discordConfig.findUnique({ where: { key: ROLE_KEY } });
     if (row && row.value) {
+      memPin = row.value;
       roleCache = { id: row.value, at: Date.now() };
       return row.value;
     }
@@ -45,38 +98,11 @@ async function targetRoleId(): Promise<string> {
   const hit = (Array.isArray(roles) ? roles : []).find(
     x => x && typeof x.name === "string" && x.name.trim().toLowerCase() === ROLE_NAME
   );
-  if (hit?.id) roleCache = { id: hit.id, at: Date.now() };
-  return hit?.id || "";
-}
-
-// Owner self-service linking: the server owner's own OAuth token (manage_guild
-// scope + their MANAGE_GUILD permission) may read the guild's role list. When
-// they verify while the XR-Auth role id is unpinned, resolve it by name and
-// persist it — every member's verify uses the same pin afterwards. No bot in
-// the server, no hand-copying of role IDs.
-async function pinXRAuthRole(H: Record<string, string>): Promise<string> {
-  try {
-    const r = await fetch(`https://discord.com/api/v10/guilds/${GID}/roles`, {
-      headers: H, signal: AbortSignal.timeout(15000),
-    });
-    if (!r.ok) return "";
-    const roles = (await r.json()) as { id?: string; name?: string }[];
-    const hit = (Array.isArray(roles) ? roles : []).find(
-      x => x && typeof x.name === "string" && x.name.trim().toLowerCase() === ROLE_NAME
-    );
-    if (!hit?.id) return "";
+  if (hit?.id) {
+    memPin = hit.id;
     roleCache = { id: hit.id, at: Date.now() };
-    try {
-      await db.discordConfig.upsert({
-        where: { key: ROLE_KEY },
-        update: { value: hit.id },
-        create: { key: ROLE_KEY, value: hit.id },
-      });
-    } catch { /* db unavailable — this verify still works via the cache */ }
-    return hit.id;
-  } catch {
-    return "";
   }
+  return hit?.id || "";
 }
 
 // policy: joined AND holds the XR-Auth role. No resolvable target or no role
@@ -148,17 +174,17 @@ export async function exchangeAndVerify(code: string, redirectUri: string): Prom
       const mem = (await memRes.json()) as { pending?: boolean; roles?: string[] };
       if (mem.pending) return { ok: false, error: "pending" };
       const owner = await isGuildOwner(H);
+      if (owner) markOwner(me.id); // unlocks the in-app role link for 30 min
       const rerr = await roleGate(Array.isArray(mem.roles) ? mem.roles : []);
       if (!rerr) return { ok: true, uid: me.id };
       if (owner) {
-        // the owner manages the roles — while they are here, link the
-        // XR-Auth role by name so members can pass the gate without any
-        // manual role-ID copy-paste
-        if (rerr === "roleconf") await pinXRAuthRole(H);
+        // the owner manages the roles — they pass while the role id is
+        // unpinned, and Settings → Discord now offers them the one-tap
+        // Role-ID link so members can pass the gate too
         return { ok: true, uid: me.id };
       }
       // role gate failed and the visitor is not the owner: closed, with the
-      // gate error (members wait for the owner's one-click link)
+      // gate error (members wait for the owner's one-time link)
       return { ok: false, error: rerr };
     }
     if (memRes.status === 404) return { ok: false, error: "join" };

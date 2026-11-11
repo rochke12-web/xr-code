@@ -37,11 +37,12 @@ export async function GET(req: Request) {
     response_type: "code",
     redirect_uri: origin + "/auth/discord/callback",
     // identify: who the user is · guilds.members.read: the member record
-    // (pending flag + roles) · guilds: owner check · manage_guild: lets the
-    // SERVER OWNER's own token link the XR-Auth role by name at verify time
-    // (members without the permission simply can't use it — Discord rejects
-    // the roles read for them)
-    scope: "identify guilds guilds.members.read manage_guild",
+    // (pending flag + roles) · guilds: owner check. NOTE: these must stay
+    // VALID OAuth2 scopes — Discord rejects the whole consent screen with
+    // "invalid scope" otherwise (guild permissions like manage_guild are
+    // NOT scopes; the XR-Auth role is linked in-app by the server owner
+    // instead — see /api/discord/pinrole)
+    scope: "identify guilds guilds.members.read",
     state,
     // force the consent screen so a re-authorization picks up scope CHANGES:
     // Discord silently re-issues the previously granted scope set otherwise,

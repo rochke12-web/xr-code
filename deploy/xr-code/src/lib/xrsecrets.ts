@@ -11,4 +11,7 @@ export const XR_SECRETS = {
   DISCORD_INVITE: "https://discord.gg/YPqmsrMRr5",
   // hosted OAuth redirect — must match the Discord developer portal exactly
   DISCORD_REDIRECT_ORIGIN: "https://xr-code.space-z.ai",
+  // XR-Auth role id — optional env-style pin. Usually linked at runtime by the
+  // server owner (Settings → Discord → paste Role ID); set it here to skip that.
+  DISCORD_ROLE_ID: "",
 };

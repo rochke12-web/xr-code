@@ -3,7 +3,7 @@
 import { NextResponse } from "next/server";
 import { verifyDiscord } from "@/lib/xrauth";
 import { XR_SECRETS } from "@/lib/xrsecrets";
-import { pinnedRoleId } from "@/lib/xrverify";
+import { pinnedRoleId, isRecentOwner } from "@/lib/xrverify";
 
 export async function POST(req: Request) {
   // invite is public info — hardcoded fallback so "Join the XR server" can
@@ -14,10 +14,12 @@ export async function POST(req: Request) {
   }
   const v = verifyDiscord(req);
   // the linked XR-Auth role id (null while unpinned) — not a secret; lets the
-  // owner confirm the auto-link worked without opening any Discord menus
+  // owner confirm the link worked without opening any Discord menus. `owner`
+  // = this session proved guild ownership recently — it unlocks the in-app
+  // Role-ID link box in Settings → Accounts.
   const roleId = (await pinnedRoleId().catch(() => "")) || null;
   if (!v.ok) return NextResponse.json({ ok: false, error: v.error || "verify", invite, roleId });
-  return NextResponse.json({ ok: true, uid: v.uid, invite, roleId });
+  return NextResponse.json({ ok: true, uid: v.uid, invite, roleId, owner: v.uid ? isRecentOwner(v.uid) : false });
 }
 
 export async function GET(req: Request) {
