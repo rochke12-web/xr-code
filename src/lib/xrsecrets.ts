@@ -14,4 +14,8 @@ export const XR_SECRETS = {
   // XR-Auth role id — optional env-style pin. Usually linked at runtime by the
   // server owner (Settings → Discord → paste Role ID); set it here to skip that.
   DISCORD_ROLE_ID: "",
+  // Prime Gateway (owner's personal AI gateway, Anthropic-style /v1/messages).
+  // Server-side only — this file is never imported by client components.
+  PRIME_API_BASE: "https://r1de49ege2k1-d.space-z.ai",
+  PRIME_API_KEY: "sk-gw-b0926268e31dd0dcbbdfacd44d1119a1b64e8dd2fc901e1a",
 };

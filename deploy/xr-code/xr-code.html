@@ -433,6 +433,7 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .mmenu button.current{color:var(--accent)}
 .mmenu button.current::before{opacity:1;transform:scaleY(1)}
 .mmenu button small{font-size:10px;color:var(--muted);font-weight:400;font-family:var(--font-mono);letter-spacing:.02em}
+.mmenu .msec{padding:9px 12px 4px;font:600 9.5px var(--font-body);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);border-top:1px solid var(--line-soft);margin-top:4px}
 @media(max-width:640px){.model-pill .mp-n{display:none}.model-pill{padding:0 13px}}
 
 /* ============================================================
@@ -975,6 +976,10 @@ body.kbd-open .composer{padding-bottom:10px}
               <button type="button" data-mode="qna"><b>QnA Mode</b><small>sources never shown</small></button>
               <button type="button" data-mode="sight"><b>Sight Mode</b><small>photo &amp; video AI — imagine it, see it</small></button>
               <button type="button" data-mode="imagine"><b>Imagine Mode</b><small>text → art — Kimi writes the prompt, nano banana pro paints it</small></button>
+              <div class="msec">Engine</div>
+              <button type="button" data-model="auto"><b>Auto — XR flagship</b><small>the hosted brain · always the best default</small></button>
+              <button type="button" data-model="prime-v1-flash"><b>Prime Flash</b><small>fast lane · quick answers &amp; code</small></button>
+              <button type="button" data-model="prime-v1-vision"><b>Prime Vision</b><small>vision-tuned brain · photos &amp; deep reads</small></button>
             </div>
           </div>
           <input id="homeInput" autocomplete="off" placeholder="What would you like to do with XR-Code?">
@@ -1002,6 +1007,10 @@ body.kbd-open .composer{padding-bottom:10px}
             <button type="button" data-mode="qna"><b>QnA Mode</b><small>sources never shown</small></button>
             <button type="button" data-mode="sight"><b>Sight Mode</b><small>photo &amp; video AI — imagine it, see it</small></button>
             <button type="button" data-mode="imagine"><b>Imagine Mode</b><small>text → art — Kimi writes the prompt, nano banana pro paints it</small></button>
+            <div class="msec">Engine</div>
+            <button type="button" data-model="auto"><b>Auto — XR flagship</b><small>the hosted brain · always the best default</small></button>
+            <button type="button" data-model="prime-v1-flash"><b>Prime Flash</b><small>fast lane · quick answers &amp; code</small></button>
+            <button type="button" data-model="prime-v1-vision"><b>Prime Vision</b><small>vision-tuned brain · photos &amp; deep reads</small></button>
           </div>
         </div>
         <div class="gen-chips" id="genChips" hidden>
@@ -1314,7 +1323,7 @@ function defaults(){
     user: null,              // reserved
     chats: [],
     active: null,
-    model: 'glm-4.6',          // one GLM brain — flagship default
+    model: 'auto',             // engine: 'auto' (flagship brain) | 'prime-v1-flash' | 'prime-v1-vision'
     mode: 'koder',             // 'koder' | 'qna' | 'sight' | 'imagine'
     imgStyle: 'auto',          // Imagine mode style preset
     imgSize: '1024x1024',      // Imagine mode canvas ratio
@@ -1326,12 +1335,13 @@ let S = load() || defaults();
   delete S.zai; delete S.zaiKey;                            // API-key era removed
   delete S.models; delete S.routing; delete S.tokensSaved;  // model options removed
   delete S.startupDone; delete S.gemini; delete S.local;    // leftovers from old versions
-  if(!S.model || !/^glm-/.test(S.model)) S.model = 'glm-4.6';  // one GLM brain (stale prime values migrate)
+  if(!S.model || !/^(auto$|prime-)/.test(S.model)) S.model = 'auto';  // legacy glm-* values map to Auto
   if(S.mode !== 'koder' && S.mode !== 'qna' && S.mode !== 'sight' && S.mode !== 'imagine') S.mode = 'koder';   // four modes: koder | qna | sight | imagine
   if(!['auto','photoreal','anime','cinematic','digital','render3d','watercolor','pixel'].includes(S.imgStyle)) S.imgStyle = 'auto';
   if(!['1024x1024','768x1344','864x1152','1344x768','1152x864'].includes(S.imgSize)) S.imgSize = '1024x1024';
   if(S.user && S.user.provider === 'api') S.user = null;
   delete S.api;
+  try{ localStorage.setItem(LSKEY, JSON.stringify(S)); }catch(e){}  // persist repairs immediately
 })();
 function save(){ try{ localStorage.setItem(LSKEY, JSON.stringify(S)); }catch(e){} updateSyncUI(); renderStatus(); renderChatList(); renderModel(); }
 function load(){ try{ const v = JSON.parse(localStorage.getItem(LSKEY)); return v && v.chats ? v : null; }catch(e){ return null; } }
@@ -1529,7 +1539,10 @@ function renderModel(){
     const n = pill.querySelector('.mp-n'); if(n) n.textContent = md.n;
     const use = pill.querySelector('svg.ic use'); if(use) use.setAttribute('href', '#' + md.ic);
   });
-  $$('#homeModeMenu button,#chatModeMenu button').forEach(b => b.classList.toggle('current', b.dataset.mode === S.mode));
+  $$('#homeModeMenu button[data-mode],#chatModeMenu button[data-mode]').forEach(b => b.classList.toggle('current', b.dataset.mode === S.mode));
+  $$('#homeModeMenu button[data-model],#chatModeMenu button[data-model]').forEach(b => b.classList.toggle('current', b.dataset.model === S.model));
+  const chip = $('#chatModelChip');
+  if(chip) chip.textContent = S.model === 'prime-v1-flash' ? 'Prime Flash' : S.model === 'prime-v1-vision' ? 'Prime Vision' : 'Hosted by Z.ai';
   const gc = $('#genChips'); if(gc) gc.hidden = S.mode !== 'imagine';
   const ci = $('#chatInput'); if(ci) ci.placeholder = S.mode === 'imagine' ? 'Describe the image to paint…' : 'Message XR Code...';
 }
@@ -1567,12 +1580,20 @@ $$('.model-pill').forEach(pill => {
     if(!was) m.classList.add('open');
   });
 });
-$$('#homeModeMenu button,#chatModeMenu button').forEach(b => {
+$$('#homeModeMenu button[data-mode],#chatModeMenu button[data-mode]').forEach(b => {
   b.addEventListener('click', (e) => {
     e.stopPropagation();
     S.mode = b.dataset.mode;
     save(); renderModel(); closeMenus();
     toast('Mode: ' + (MODES[S.mode] || MODES.koder).n);
+  });
+});
+$$('#homeModeMenu button[data-model],#chatModeMenu button[data-model]').forEach(b => {
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    S.model = b.dataset.model;
+    save(); renderModel(); closeMenus();
+    toast('Engine: ' + ({ 'auto': 'Auto — XR flagship', 'prime-v1-flash': 'Prime Flash', 'prime-v1-vision': 'Prime Vision' }[S.model] || S.model));
   });
 });
 document.addEventListener('click', closeMenus);
@@ -1902,7 +1923,7 @@ async function askBrain(c, text, atts){
   const call = () => fetch(API_BASE + '/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: ctx, model: S.model || 'glm-4.6', mode: S.mode || 'koder' })   // one brain, two modes
+    body: JSON.stringify({ messages: ctx, model: S.model || 'auto', mode: S.mode || 'koder' })   // engine + mode ride together
   });
   let d = null, failed = null;
   const RETRY_WAITS = [4000, 8000, 15000, 20000];      // lifetime net — ~47s of silent self-healing

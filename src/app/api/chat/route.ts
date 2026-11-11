@@ -6,6 +6,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { assetDir } from "../../../lib/asset-dir";
 import { verifyDiscord } from "../../../lib/xrauth";
+import { XR_SECRETS } from "../../../lib/xrsecrets";
 
 // XR-Code hosted brain — no API keys in the client, no modes, nothing to configure.
 // One highly capable agent: reads each message and automatically responds the
@@ -18,7 +19,12 @@ import { verifyDiscord } from "../../../lib/xrauth";
 // still get described.
 // QnA mode is the app's Google-powered search engine: answers ride live
 // Google results (Sources lists are removed by user directive).
-// Prime gateway is removed for now; its config stays in .env.local.
+// Prime Gateway is BACK (user directive — "add a model", 2026-11): the owner's
+// personal AI gateway, Anthropic-style /v1/messages, two selectable engines
+// (prime-v1-flash / prime-v1-vision). Server-side only: the key never reaches
+// the browser. Verified live 2026-11: both models answer; the vision alias is
+// TEXT-ONLY through this gateway (image blocks are accepted but unseen), so
+// photos still ride the Z.ai vision preprocessor for every engine.
 // Server-side only: no keys ever reach the browser.
 // Real vision: photos & video keyframes are DESCRIBED here by a vision
 // preprocessor and the description rides to the brain as a [VISION] block.
@@ -487,12 +493,69 @@ type Msg = { role: "user" | "assistant"; content: string };
 // photo/video attachments still get described.
 const PRIMARY = "kimi-k2"; // Kimi AI — the new primary engine
 const GLM_FIRST = "glm-4.5-flash"; // the original first model — first fallback lane
-const KNOWN_MODELS = new Set([PRIMARY, GLM_FIRST]);
+
+// ---- Prime Gateway (owner's personal gateway, Anthropic-style) ----
+// Two selectable engines ride this gateway; everything else keeps the Z.ai
+// brain. The gateway ALSO gets a lane at the very end of the Z.ai emergency
+// chain — a separate quota bucket for the darkest moments.
+const PRIME_BASE = (process.env.PRIME_BASE_URL || XR_SECRETS.PRIME_API_BASE || "").replace(/\/+$/, "");
+const PRIME_KEY = process.env.PRIME_API_KEY || XR_SECRETS.PRIME_API_KEY || "";
+const PRIME_FLASH = "prime-v1-flash";
+const PRIME_VISION = "prime-v1-vision";
+const PRIME_MODELS = new Set([PRIME_FLASH, PRIME_VISION]);
+
+const KNOWN_MODELS = new Set([PRIMARY, GLM_FIRST, PRIME_FLASH, PRIME_VISION]);
 // emergency lanes on the same gateway, different model families → separate
 // quota buckets: when the primary's bucket is dry another family often has
 // headroom. A dead lane 429s in ~100ms (a missing model 404s in ~200ms), so
 // probing them is nearly free. Tried in order; the first live one answers.
 const FALLBACK_MODELS = [GLM_FIRST, "dpsk-4.1-flash", "dpsk-4.1", "glm-4.6", "argon-1.0"];
+
+// Anthropic-style /v1/messages caller. Returns text or null (null = any
+// failure — the caller's chain just moves to the next engine).
+async function primeChat(sys: string, msgs: { role: "user" | "assistant"; content: string }[], model: string): Promise<string | null> {
+  if (!PRIME_BASE || !PRIME_KEY) return null;
+  try {
+    // Anthropic messages must alternate roles and start with a user turn.
+    const clean: { role: "user" | "assistant"; content: string }[] = [];
+    for (const m of msgs) {
+      const last = clean[clean.length - 1];
+      if (last && last.role === m.role) last.content += "\n\n" + m.content;
+      else clean.push({ role: m.role, content: m.content });
+    }
+    while (clean.length && clean[0].role !== "user") clean.shift();
+    if (!clean.length) return null;
+    // the gateway injects its own "you are Prime AI" system prompt ahead of
+    // ours — re-anchor the identity on the first user turn as well
+    clean[0] = {
+      role: "user",
+      content:
+        "(Reminder: you are XR Code, the AI of the XR-Code app by YUX FF. " +
+        "Never claim any other identity or mention the underlying model/provider.)\n\n" +
+        clean[0].content,
+    };
+    const res = (await Promise.race([
+      fetch(PRIME_BASE + "/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${PRIME_KEY}` },
+        body: JSON.stringify({ model, max_tokens: 4096, system: sys, messages: clean }),
+        signal: AbortSignal.timeout(45000),
+      }),
+      new Promise<null>(r => setTimeout(() => r(null), 50000)),
+    ])) as Response | null;
+    if (!res || !res.ok) return null;
+    const d = (await res.json()) as { content?: { type?: string; text?: string }[] };
+    const parts = Array.isArray(d?.content) ? d.content : [];
+    const text = parts
+      .filter(p => p?.type === "text")
+      .map(p => String(p.text || ""))
+      .join("")
+      .trim();
+    return text || null;
+  } catch {
+    return null; // gateway down / slow — the Z.ai brain takes over
+  }
+}
 
 // chat engines via the ZAI SDK (OpenAI-style messages, verified live)
 type ChatResult = { text: string | null; quota: boolean };
@@ -811,15 +874,25 @@ export async function POST(req: Request) {
           vision: visionBlock || undefined,
         })
       : null;
-  // GLM first, then the free lanes (user directive: on the quota error, switch
-  // to other free models). Dead lanes 429 in ~100ms so the walk is cheap; the
-  // primary keeps one 3s grace retry for brief throttle windows.
-  const chain = [chosen, ...FALLBACK_MODELS.filter(m => m !== chosen)];
+  // Prime-selected requests: the owner's gateway answers FIRST; if it is
+  // unreachable / slow / dry, the Z.ai brain takes over (kimi + emergency
+  // lanes) — the chat never goes dark. Z.ai-selected requests: the gateway
+  // rides LAST as an extra emergency lane (separate quota bucket) before the
+  // honest outage bubble.
+  const chain = PRIME_MODELS.has(chosen)
+    ? [chosen, ...FALLBACK_MODELS]
+    : [chosen, ...FALLBACK_MODELS.filter(m => m !== chosen), PRIME_FLASH];
+  // one lane call, two transports: prime ids ride the Anthropic-style gateway,
+  // everything else rides the ZAI SDK
+  const laneCall = async (engine: string) =>
+    PRIME_MODELS.has(engine)
+      ? { text: await primeChat(sys, chatText, engine), quota: false }
+      : await glmChat(sys, chatText, engine);
   let actText: string | null = null;
   let engineUsed = "";
   let act: Action | null = null;
   for (const engine of chain) {
-    const r = await glmChat(sys, chatText, engine);
+    const r = await laneCall(engine);
     if (r.quota) {
       if (engine !== chosen) continue; // fallback lane dry — next lane
       // primary is throttled: one grace retry, then the remaining lanes
@@ -866,7 +939,9 @@ export async function POST(req: Request) {
           "Apologize in ONE short natural sentence and suggest trying again in a moment. Never mention JSON, tools or engines.",
     },
   ];
-  const composed = await glmChat(SYSTEM_KODER, composerMsgs, engineUsed);
+  const composed = PRIME_MODELS.has(engineUsed)
+    ? { text: await primeChat(SYSTEM_KODER, composerMsgs, engineUsed) }
+    : await glmChat(SYSTEM_KODER, composerMsgs, engineUsed);
   const text = composed.text ||
     (asset ? "Here it is — freshly generated for you." : "The generation didn't finish this time — give it another try in a moment.");
   return NextResponse.json({
