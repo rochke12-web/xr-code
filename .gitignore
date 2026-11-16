@@ -59,3 +59,4 @@ db/usage/
 # generated media + video-edit job artifacts
 /db/assets/
 /db/videoedits/
+/db/videojobs/
