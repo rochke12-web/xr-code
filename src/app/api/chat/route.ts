@@ -7,6 +7,7 @@ import { randomUUID } from "crypto";
 import { assetDir } from "../../../lib/asset-dir";
 import { verifyDiscord } from "../../../lib/xrauth";
 import { XR_SECRETS } from "../../../lib/xrsecrets";
+import { addUsage, overLimit, DAILY_TOKEN_LIMIT, estTokens } from "../../../lib/xrstore";
 
 // XR-Code hosted brain — no API keys in the client, no modes, nothing to configure.
 // One highly capable agent: reads each message and automatically responds the
@@ -27,6 +28,10 @@ import { XR_SECRETS } from "../../../lib/xrsecrets";
 // are accepted but unseen, so photos still ride the Z.ai vision preprocessor
 // for every engine.
 // Server-side only: no keys ever reach the browser.
+// Per-account daily quota (2026-11-16): every reply's tokens are counted
+// against the user's Discord id — 10M tokens/day per id, bucket resets at
+// 00:00 UTC (xrstore.ts). Cloud chats: /api/chats stores each account's chats
+// keyed by the same id.
 // Real vision: photos & video keyframes are DESCRIBED here by a vision
 // preprocessor and the description rides to the brain as a [VISION] block.
 // GET  /api/chat → health probe { ok: true } for the status bar
@@ -518,7 +523,7 @@ const FALLBACK_MODELS = [GLM_FIRST, "dpsk-4.1-flash", "dpsk-4.1", "glm-4.6", "ar
 
 // Anthropic-style /v1/messages caller. Returns text or null (null = any
 // failure — the caller's chain just moves to the next engine).
-async function primeChat(sys: string, msgs: { role: "user" | "assistant"; content: string }[], model: string): Promise<string | null> {
+async function primeChat(sys: string, msgs: { role: "user" | "assistant"; content: string }[], model: string): Promise<{ text: string; tokens: number } | null> {
   if (!PRIME_BASE || !PRIME_KEY) return null;
   try {
     // Anthropic messages must alternate roles and start with a user turn.
@@ -549,21 +554,29 @@ async function primeChat(sys: string, msgs: { role: "user" | "assistant"; conten
       new Promise<null>(r => setTimeout(() => r(null), 50000)),
     ])) as Response | null;
     if (!res || !res.ok) return null;
-    const d = (await res.json()) as { content?: { type?: string; text?: string }[] };
+    const d = (await res.json()) as { content?: { type?: string; text?: string }[]; usage?: { input_tokens?: number; output_tokens?: number } };
     const parts = Array.isArray(d?.content) ? d.content : [];
     const text = parts
       .filter(p => p?.type === "text")
       .map(p => String(p.text || ""))
       .join("")
       .trim();
-    return text || null;
+    if (!text) return null;
+    // token accounting: the gateway reports real usage when it has one;
+    // otherwise a chars/4 estimate keeps the daily bucket honest
+    const usage = d?.usage;
+    const tokens =
+      typeof usage?.input_tokens === "number" || typeof usage?.output_tokens === "number"
+        ? (usage?.input_tokens || 0) + (usage?.output_tokens || 0)
+        : estTokens(sys) + clean.reduce((a, m) => a + estTokens(m.content), 0) + estTokens(text);
+    return { text, tokens };
   } catch {
     return null; // gateway down / slow — the Z.ai brain takes over
   }
 }
 
 // chat engines via the ZAI SDK (OpenAI-style messages, verified live)
-type ChatResult = { text: string | null; quota: boolean };
+type ChatResult = { text: string | null; quota: boolean; tokens?: number };
 
 async function glmChat(sys: string, msgs: { role: "user" | "assistant"; content: string }[], model: string): Promise<ChatResult> {
   // self-healing: up to 2 attempts, re-creating the engine client each time —
@@ -587,7 +600,15 @@ async function glmChat(sys: string, msgs: { role: "user" | "assistant"; content:
         new Promise<null>(r => setTimeout(() => r(null), 60000)),
       ])) as { choices?: { message?: { content?: string } }[] } | null;
       const text = String(res?.choices?.[0]?.message?.content || "").trim();
-      if (text) return { text, quota: false };
+      if (text) {
+        const usage = (res as { usage?: { total_tokens?: number } } | null)?.usage;
+        const inTok = estTokens(sys) + msgs.reduce((a, m) => a + estTokens(m.content), 0);
+        return {
+          text,
+          quota: false,
+          tokens: typeof usage?.total_tokens === "number" ? usage.total_tokens : inTok + estTokens(text),
+        };
+      }
       // empty reply is an engine hiccup, not a quota signal — retry once
     } catch (e) {
       const msg = String((e as Error)?.message || e);
@@ -597,6 +618,28 @@ async function glmChat(sys: string, msgs: { role: "user" | "assistant"; content:
     if (attempt < 1) await new Promise(r => setTimeout(r, 1200));
   }
   return { text: null, quota: false }; // caller tries the next engine
+}
+
+// one engine lane call + token accounting: prime ids ride the Anthropic-style
+// gateway, everything else rides the ZAI SDK. Every token spent lands in the
+// request's tally, which the per-account daily bucket sweeps on exit.
+async function spendLane(
+  engine: string,
+  sys: string,
+  msgs: { role: "user" | "assistant"; content: string }[],
+  tally: { n: number }
+): Promise<ChatResult> {
+  if (PRIME_MODELS.has(engine)) {
+    const p = await primeChat(sys, msgs, engine);
+    if (p) {
+      tally.n += p.tokens;
+      return { text: p.text, quota: false, tokens: p.tokens };
+    }
+    return { text: null, quota: false, tokens: 0 };
+  }
+  const r = await glmChat(sys, msgs, engine);
+  tally.n += r.tokens || 0;
+  return r;
 }
 
 // what the user sees when the shared quota window is exhausted. The served
@@ -689,6 +732,31 @@ export async function POST(req: Request) {
   const gv = verifyDiscord(req);
   if (!gv.ok)
     return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
+  const uid = gv.uid || "";
+  const TALLY = { n: 0 }; // tokens spent by this request → swept into the id's daily bucket on exit
+  // ---- per-account daily quota (user directive: 10M tokens/day per Discord id) ----
+  // Pre-flight gate: a dry bucket is refused BEFORE any engine is called —
+  // an over-quota id burns nothing. The calm ok:true bubble keeps the served
+  // client's "unreachable" failure branch out of the story.
+  if (overLimit(uid).over)
+    return NextResponse.json({
+      ok: true,
+      limit: true,
+      engine: "xr-code",
+      text:
+        "You've used up today's 10M-token allowance for this account — it resets at 00:00 UTC. " +
+        "Your chats are saved and safe; send your message again after the reset.",
+    });
+  // every successful exit goes through done() so the spent tokens land in the id's bucket
+  const done = (o: Record<string, unknown>) => {
+    try {
+      const u = addUsage(uid, TALLY.n);
+      (o as { usage?: unknown }).usage = { used: u.tokens, limit: DAILY_TOKEN_LIMIT, day: u.day };
+    } catch {
+      /* accounting never breaks a reply */
+    }
+    return NextResponse.json(o);
+  };
   let body: { messages?: RawMsg[]; model?: string; mode?: string } | null = null;
   try {
     body = await req.json();
@@ -746,6 +814,8 @@ export async function POST(req: Request) {
   if (imgs.length) {
     const desc = await describeImages(imgs);
     if (desc) {
+      // the preprocessor is a real model call — its burn counts against the bucket too
+      TALLY.n += estTokens(desc) + imgs.length * 850;
       visionBlock = "\n\n[VISION — what the attached images show]\n" + desc + "\n[end VISION]";
       sys = sys.replace(ATT_BLIND, ATT_VISION);
     }
@@ -767,35 +837,35 @@ export async function POST(req: Request) {
     const agentModel = PRIMARY;
     let engineOut = agentModel;
     for (let step = 0; step < MAX_STEPS; step++) {
-      const r = await glmChat(sys, chatText, agentModel);
+      const r = await spendLane(agentModel, sys, chatText, TALLY);
       if (r.quota) {
         await new Promise(r2 => setTimeout(r2, 3000));
-        const retry = await glmChat(sys, chatText, agentModel);
+        const retry = await spendLane(agentModel, sys, chatText, TALLY);
         if (retry.text) {
-          return NextResponse.json({ ok: true, text: retry.text, engine: "xr-code", mode, vision: visionBlock || undefined });
+          return done({ ok: true, text: retry.text, engine: "xr-code", mode, vision: visionBlock || undefined });
         }
         // quota storm — probe the other free lanes once each; first live one wins
         for (const fm of FALLBACK_MODELS) {
-          const fr = await glmChat(sys, chatText, fm);
+          const fr = await spendLane(fm, sys, chatText, TALLY);
           if (fr.text) {
-            return NextResponse.json({ ok: true, text: fr.text, engine: "xr-code", mode, vision: visionBlock || undefined });
+            return done({ ok: true, text: fr.text, engine: "xr-code", mode, vision: visionBlock || undefined });
           }
         }
-        return NextResponse.json({ ok: true, text: outageReply(mode), engine: "xr-code", mode, vision: visionBlock || undefined });
+        return done({ ok: true, text: outageReply(mode), engine: "xr-code", mode, vision: visionBlock || undefined });
       }
       if (!r.text) {
         // one rescue on the quick model, then give up honestly
-        const rescue = await glmChat(sys, chatText, GLM_FIRST);
+        const rescue = await spendLane(GLM_FIRST, sys, chatText, TALLY);
         if (rescue.text) {
-          return NextResponse.json({ ok: true, text: rescue.text, engine: "xr-code", mode, vision: visionBlock || undefined });
+          return done({ ok: true, text: rescue.text, engine: "xr-code", mode, vision: visionBlock || undefined });
         }
-        return NextResponse.json({ ok: true, text: outageReply(mode), engine: "xr-code", mode, vision: visionBlock || undefined });
+        return done({ ok: true, text: outageReply(mode), engine: "xr-code", mode, vision: visionBlock || undefined });
       }
       const a = parseAction(r.text);
       if (!a) {
         // final answer delivered
         const prefix = trace.length ? `Agent · ${trace.join(" → ")}\n\n` : "";
-        return NextResponse.json({ ok: true, text: prefix + r.text, engine: "xr-code", mode, trace, vision: visionBlock || undefined });
+        return done({ ok: true, text: prefix + r.text, engine: "xr-code", mode, trace, vision: visionBlock || undefined });
       }
       if (a.action === "search") {
         trace.push(`search "${a.query}"`);
@@ -827,17 +897,17 @@ export async function POST(req: Request) {
               "Never mention JSON, tools, URLs or engines.",
           },
         ];
-        const composed = await glmChat(sys, composerMsgs, agentModel);
+        const composed = await spendLane(agentModel, sys, composerMsgs, TALLY);
         const prefix = trace.length ? `Agent · ${trace.join(" → ")}\n\n` : "";
-        return NextResponse.json({
-          ok: true,
-          text: prefix + (composed.text || (a.action === "image" ? "Here it is — freshly generated for you." : "Here's your clip — freshly generated for you.")),
-          engine: "xr-code",
-          mode,
-          asset: { type: a.action, ...asset, prompt: (a as { prompt: string }).prompt },
-          trace,
-          vision: visionBlock || undefined,
-        });
+      return done({
+        ok: true,
+        text: prefix + (composed.text || (a.action === "image" ? "Here it is — freshly generated for you." : "Here's your clip — freshly generated for you.")),
+        engine: "xr-code",
+        mode,
+        asset: { type: a.action, ...asset, prompt: (a as { prompt: string }).prompt },
+        trace,
+        vision: visionBlock || undefined,
+      });
       }
       chatText.push({ role: "assistant", content: JSON.stringify(a) });
       chatText.push({
@@ -847,12 +917,12 @@ export async function POST(req: Request) {
     }
     // budget spent — force the final answer
     chatText.push({ role: "user", content: "TOOL BUDGET REACHED — deliver your final answer NOW, no more tool calls." });
-    const last = await glmChat(sys, chatText, agentModel);
+    const last = await spendLane(agentModel, sys, chatText, TALLY);
     const prefix = trace.length ? `Agent · ${trace.join(" → ")}\n\n` : "";
     if (last.text) {
-      return NextResponse.json({ ok: true, text: prefix + last.text, engine: "xr-code", mode, trace, vision: visionBlock || undefined });
+      return done({ ok: true, text: prefix + last.text, engine: "xr-code", mode, trace, vision: visionBlock || undefined });
     }
-    return NextResponse.json({ ok: false, error: "agent ran out of steps — try again" });
+    return done({ ok: false, error: "agent ran out of steps — try again" });
   }
 
   // one brain first: GLM (the original first model) — plain replies return;
@@ -871,7 +941,7 @@ export async function POST(req: Request) {
   // dead and live search results are already in hand — the chat never goes dark
   const googleOutage = (): NextResponse | null =>
     (mode === "qna" || mode === "koder") && lastSearch.length
-      ? NextResponse.json({
+      ? done({
           ok: true,
           text: withSources(googleFallback(searchQuery(safe), lastSearch), mode, lastSearch),
           engine: "google-search",
@@ -888,25 +958,21 @@ export async function POST(req: Request) {
     ? [chosen, ...FALLBACK_MODELS]
     : [chosen, ...FALLBACK_MODELS.filter(m => m !== chosen), PRIME_FLASH];
   // one lane call, two transports: prime ids ride the Anthropic-style gateway,
-  // everything else rides the ZAI SDK
-  const laneCall = async (engine: string) =>
-    PRIME_MODELS.has(engine)
-      ? { text: await primeChat(sys, chatText, engine), quota: false }
-      : await glmChat(sys, chatText, engine);
+  // everything else rides the ZAI SDK — spendLane also feeds the token tally
   let actText: string | null = null;
   let engineUsed = "";
   let act: Action | null = null;
   for (const engine of chain) {
-    const r = await laneCall(engine);
+    const r = await spendLane(engine, sys, chatText, TALLY);
     if (r.quota) {
       if (engine !== chosen) continue; // fallback lane dry — next lane
       // primary is throttled: one grace retry, then the remaining lanes
       await new Promise(r2 => setTimeout(r2, 3000));
-      const retry = await glmChat(sys, chatText, chosen);
+      const retry = await spendLane(chosen, sys, chatText, TALLY);
       if (retry.text) {
         const a2 = parseAction(retry.text);
         if (a2) { actText = retry.text; engineUsed = chosen; act = a2; break; }
-        return NextResponse.json({ ok: true, text: withSources(retry.text, mode, lastSearch), engine: "xr-code", mode, vision: visionBlock || undefined });
+        return done({ ok: true, text: withSources(retry.text, mode, lastSearch), engine: "xr-code", mode, vision: visionBlock || undefined });
       }
       continue;
     }
@@ -919,12 +985,12 @@ export async function POST(req: Request) {
       act = a;
       break;
     }
-    return NextResponse.json({ ok: true, text: withSources(t, mode, lastSearch), engine: "xr-code", mode, vision: visionBlock || undefined });
+    return done({ ok: true, text: withSources(t, mode, lastSearch), engine: "xr-code", mode, vision: visionBlock || undefined });
   }
   if (!actText || !act) {
     const out = googleOutage();
     if (out) return out;
-    return NextResponse.json({ ok: true, text: outageReply(mode), engine: "xr-code", mode, vision: visionBlock || undefined });
+    return done({ ok: true, text: outageReply(mode), engine: "xr-code", mode, vision: visionBlock || undefined });
   }
 
   // creation request — build the real asset, then present it in one natural line
@@ -944,12 +1010,10 @@ export async function POST(req: Request) {
           "Apologize in ONE short natural sentence and suggest trying again in a moment. Never mention JSON, tools or engines.",
     },
   ];
-  const composed = PRIME_MODELS.has(engineUsed)
-    ? { text: await primeChat(SYSTEM_KODER, composerMsgs, engineUsed) }
-    : await glmChat(SYSTEM_KODER, composerMsgs, engineUsed);
+  const composed = await spendLane(engineUsed, SYSTEM_KODER, composerMsgs, TALLY);
   const text = composed.text ||
     (asset ? "Here it is — freshly generated for you." : "The generation didn't finish this time — give it another try in a moment.");
-  return NextResponse.json({
+  return done({
     ok: true,
     text,
     engine: "xr-code",

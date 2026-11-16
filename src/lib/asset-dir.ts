@@ -7,7 +7,14 @@ import path from "path";
 // XR_ASSET_DIR always wins when set.
 export function assetDir(): string {
   if (process.env.XR_ASSET_DIR) return process.env.XR_ASSET_DIR;
-  const local = path.resolve(process.cwd(), "db/assets");
+  const cwd = process.cwd();
+  // hosted standalone CHDIRS into .next/standalone at boot — assets must
+  // survive rebuilds, so always resolve to the project-root db/ from in there
+  if (cwd.includes(`${path.sep}.next`)) {
+    const up = path.resolve(cwd, "../../db/assets");
+    if (fs.existsSync(path.dirname(up))) return up;
+  }
+  const local = path.resolve(cwd, "db/assets");
   if (fs.existsSync(local)) return local;
-  return path.resolve(process.cwd(), "../../db/assets");
+  return path.resolve(cwd, "../../db/assets");
 }

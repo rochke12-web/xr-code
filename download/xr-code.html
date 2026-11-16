@@ -1248,7 +1248,7 @@ body.kbd-open .composer{padding-bottom:10px}
       const d = await res.json().catch(() => null);
       if(d && d.invite){ inv.href = d.invite; }
       inv.hidden = false; /* hardcoded default href — never a dead '#' link */
-      if(d && d.ok){ verified = true; uid = d.uid || ''; dsOwner = !!d.owner; dsRolePinned = !!d.roleId; hide(); if(typeof renderAccounts === 'function') renderAccounts(); }
+      if(d && d.ok){ verified = true; uid = d.uid || ''; dsOwner = !!d.owner; dsRolePinned = !!d.roleId; hide(); if(window.__xrCloudPull) window.__xrCloudPull(); if(typeof renderAccounts === 'function') renderAccounts(); }
       else { verified = false; dsOwner = false; dsRolePinned = !!d && !!d.roleId; show(d && d.error || 'none'); if(typeof renderAccounts === 'function') renderAccounts(); }
     }catch(e){ /* server unreachable \u2014 never lock on a network error; the send path re-checks via 401 */ }
     busy = false;
@@ -1269,7 +1269,7 @@ body.kbd-open .composer{padding-bottom:10px}
     }
     if(hit){
       if(hit.s.get('dserr')) show(hit.s.get('dserr'));
-      else { verified = true; uid = ''; hide(); toast('Verified \u2014 welcome back'); }
+      else { verified = true; uid = ''; hide(); if(window.__xrCloudPull) window.__xrCloudPull(); toast('Verified \u2014 welcome back'); }
       try { hit.loc.history.replaceState(null, '', hit.loc.pathname); } catch(e){}
     }
     check();
@@ -1346,8 +1346,60 @@ let S = load() || defaults();
   delete S.api;
   try{ localStorage.setItem(LSKEY, JSON.stringify(S)); }catch(e){}  // persist repairs immediately
 })();
-function save(){ try{ localStorage.setItem(LSKEY, JSON.stringify(S)); }catch(e){} updateSyncUI(); renderStatus(); renderChatList(); renderModel(); }
+function save(){ try{ localStorage.setItem(LSKEY, JSON.stringify(S)); }catch(e){} updateSyncUI(); renderStatus(); renderChatList(); renderModel(); if(window.__xrCloudSchedule) window.__xrCloudSchedule(); }
 function load(){ try{ const v = JSON.parse(localStorage.getItem(LSKEY)); return v && v.chats ? v : null; }catch(e){ return null; } }
+
+/* ---------- cloud sync — chats follow the Discord account ---------- */
+/* The server keeps each verified member's chats keyed by their Discord id
+ * (db/chats/<uid>.json). Pull merges on boot, every save pushes (debounced),
+ * so the same account sees the same chats from any browser or device. */
+(function(){
+  let armed = false, timer = null, pulling = false, pushing = false;
+  function fmtTok(t){
+    t = Math.max(0, t|0);
+    return t >= 1e6 ? (t/1e6).toFixed(2) + 'M' : t >= 1e3 ? Math.floor(t/1e3) + 'K' : String(t);
+  }
+  window.__xrCloudFmt = fmtTok;
+  async function pull(){
+    if(pulling || !API_BASE) return; pulling = true;
+    try{
+      const r = await fetch(API_BASE + '/api/chats', { cache: 'no-store' });
+      if(r.ok){
+        const d = await r.json().catch(() => null);
+        if(d && d.ok && Array.isArray(d.chats)){
+          const byId = {};
+          S.chats.forEach(c => { if(c && c.id) byId[c.id] = c; });
+          d.chats.forEach(sc => { if(sc && sc.id && (!byId[sc.id] || (sc.ts||0) > (byId[sc.id].ts||0))) byId[sc.id] = sc; });
+          const merged = Object.values(byId).sort((a,b) => (b.ts||0) - (a.ts||0));
+          S.chats = merged;
+          if(S.active && !merged.find(x => x.id === S.active)) S.active = merged.length ? merged[0].id : null;
+          try{ localStorage.setItem(LSKEY, JSON.stringify(S)); }catch(e){}
+          armed = true; window.__xrCloudOn = true;
+          renderChatList(); if(curView === 'chat') renderChat();
+          updateSyncUI(d.tokens, d.limit);
+          push();                                   // converged copy goes straight back
+        }
+      }
+    }catch(e){}
+    pulling = false;
+  }
+  async function push(){
+    if(!armed || pushing || !API_BASE) return; pushing = true;
+    try{
+      const r = await fetch(API_BASE + '/api/chats', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chats: S.chats })
+      });
+      if(r.ok) updateSyncUI();
+    }catch(e){}
+    pushing = false;
+  }
+  window.__xrCloudSchedule = function(){ if(!armed) return; clearTimeout(timer); timer = setTimeout(push, 2500); };
+  window.__xrCloudPull = pull;
+  window.__xrCloudNow = push;
+  window.__xrCloudReset = function(){ armed = false; window.__xrCloudOn = false; clearTimeout(timer); };
+})();
 
 /* ---------- toasts ---------- */
 function toast(msg){
@@ -1966,7 +2018,8 @@ async function askBrain(c, text, atts){
       if(um && !um.vision) um.vision = d.vision;
       save();
     }
-    chip.textContent = 'Hosted by Z.ai';                       // one brain — no model names shown
+    chip.textContent = d.limit ? 'daily limit' : 'Hosted by Z.ai';   // one brain — no model names shown
+    if(d.limit) toast('Daily token limit reached — resets at 00:00 UTC');
     NET.live = true; renderStatus();
     typeReply(c, Object.assign(splitFence((d.text || '').trim()), { asset: d.asset }), pen);
     return;
@@ -2021,12 +2074,12 @@ function renderAccounts(){
   const i = document.createElement('div'); i.className = 'ai2';
   const n = document.createElement('div'); n.className = 'an'; n.textContent = 'This browser';
   const s = document.createElement('div'); s.className = 'as';
-  s.textContent = 'Chats save automatically on this device · ' + (NET.live ? 'Hosted by Z.ai' : 'offline');
+  s.textContent = (window.__xrCloudOn ? 'Chats sync automatically to your Discord account · ' : 'Chats save automatically on this device · ') + (NET.live ? 'Hosted by Z.ai' : 'offline');
   i.append(n, s);
   r.append(i); box.append(r);
   if(window.dsAccRow) box.append(window.dsAccRow());
 }
-function updateSyncUI(){
+function updateSyncUI(tok, lim){
   const el = $('#syncLine');
   if(!el) return;
   el.innerHTML = '';
@@ -2035,7 +2088,9 @@ function updateSyncUI(){
   const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
   use.setAttribute('href', '#i-cloud'); ic.append(use);
   const span = document.createElement('span');
-  span.textContent = 'Chats save in this browser.';
+  span.textContent = window.__xrCloudOn
+    ? 'Chats sync to your Discord account' + (typeof tok === 'number' ? ' · ' + window.__xrCloudFmt(tok) + ' / ' + window.__xrCloudFmt(lim || 10000000) + ' tokens today' : '')
+    : 'Chats save in this browser.';
   el.append(ic, span);
 }
 function renderStatus(){                    // status bar removed — safe no-op
@@ -2055,6 +2110,7 @@ function exportChats(){
 function clearAll(){
   localStorage.removeItem(LSKEY);
   S = defaults(); applyTheme(); renderChat(); renderAccounts(); renderChatList(); renderModel();
+  if(window.__xrCloudOn && window.__xrCloudNow) window.__xrCloudNow();   // "all data cleared" clears the cloud copy too
   toast('All data cleared');
 }
 
