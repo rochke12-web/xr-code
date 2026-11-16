@@ -5,8 +5,8 @@ from playwright.sync_api import sync_playwright
 with sync_playwright() as p:
     b = p.chromium.launch()
     pg = b.new_page(viewport={"width": 1280, "height": 800})
-    pg.goto("http://localhost:3000", wait_until="networkidle", timeout=60000)
-    pg.wait_for_timeout(3000)
+    pg.goto("http://localhost:3000", wait_until="domcontentloaded", timeout=60000)
+    pg.wait_for_timeout(8000)
     frame = None
     for f in pg.frames:
         if f != pg.main_frame and "XR-Code" in (f.url or "about:srcdoc"):
