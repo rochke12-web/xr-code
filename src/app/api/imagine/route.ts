@@ -51,14 +51,20 @@ function withJail(ms: number): Promise<null> {
 // Kimi turns the user's idea into one vivid English image prompt. Never
 // blocks the generator: any failure just returns null and the raw idea
 // (plus the chosen style suffix) is painted as-is.
-async function enhance(prompt: string, style: string): Promise<{ text: string; model: string } | null> {
+async function enhance(prompt: string, style: string, base: string): Promise<{ text: string; model: string } | null> {
   const styleLine = STYLES[style] || "";
   const sys =
     "You are the prompt engineer inside an image generator. Rewrite the user's idea as ONE vivid, " +
     "concrete English image prompt for a text-to-image model: name the subject, the setting, the " +
     "lighting, the mood and the composition. Keep every fact of the original idea intact, never ask " +
     "questions, never add captions, watermarks or text into the scene unless the user asked for text. " +
-    "Maximum 90 words. Reply with ONLY the prompt sentence(s) — no quotes, no preface, no explanations.";
+    "Maximum 90 words. Reply with ONLY the prompt sentence(s) — no quotes, no preface, no explanations." +
+    (base
+      ? "\n\nAn earlier image in this conversation was painted from this prompt: \"" + base.slice(0, 600) + "\". " +
+        "If the user's message is a tweak or continuation of it (\"make it night\", \"add snow\", \"same but red\", " +
+        "\"now a close-up\"), EDIT that earlier prompt: apply the change, keep everything else that made it work. " +
+        "If the message is a completely new unrelated image request, ignore the earlier prompt and write fresh."
+      : "");
   const user = styleLine
     ? `${prompt}\n\n(Extra style direction to weave in: ${styleLine})`
     : prompt;
@@ -127,7 +133,7 @@ export async function POST(req: Request) {
   if (!gv.ok)
     return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
   const t0 = Date.now();
-  let body: { prompt?: unknown; style?: unknown; size?: unknown } = {};
+  let body: { prompt?: unknown; style?: unknown; size?: unknown; base?: unknown } = {};
   try {
     body = await req.json();
   } catch {
@@ -141,8 +147,10 @@ export async function POST(req: Request) {
   const style = typeof body.style === "string" && STYLES[body.style] !== undefined ? body.style : "auto";
   const size = typeof body.size === "string" && SIZES.has(body.size) ? body.size : "1024x1024";
 
-  console.log("[imagine] job:", JSON.stringify({ prompt: prompt.slice(0, 80), style, size }));
-  const enhanced = await enhance(prompt, style);
+  const base = typeof body.base === "string" ? body.base.slice(0, 600) : "";
+
+  console.log("[imagine] job:", JSON.stringify({ prompt: prompt.slice(0, 80), style, size, refine: !!base }));
+  const enhanced = await enhance(prompt, style, base);
   const paintPrompt = enhanced ? enhanced.text : `${prompt}${STYLES[style] ? ". " + STYLES[style] : ""}`;
   const painted = await paint(paintPrompt, size);
 

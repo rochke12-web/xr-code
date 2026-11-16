@@ -1601,7 +1601,7 @@ function renderModel(){
   const chip = $('#chatModelChip');
   if(chip) chip.textContent = S.model === 'prime-v1' ? 'Prime' : S.model === 'prime-v1-flash' ? 'Prime Flash' : S.model === 'prime-vision' ? 'Prime Vision' : 'Hosted by Z.ai';
   const gc = $('#genChips'); if(gc) gc.hidden = S.mode !== 'imagine';
-  const ci = $('#chatInput'); if(ci) ci.placeholder = S.mode === 'imagine' ? 'Describe the image to paint…' : S.mode === 'video' ? 'Describe the film to direct…' : 'Message XR Code...';
+  const ci = $('#chatInput'); if(ci) ci.placeholder = S.mode === 'imagine' ? 'Describe the image to paint… (a follow-up like “make it night” refines the last one)' : S.mode === 'video' ? 'Describe the film to direct…' : 'Message XR Code...';
 }
 /* ---------- Imagine mode: style + ratio chips ---------- */
 const IMG_STYLES = [ ['auto','Auto'], ['photoreal','Photoreal'], ['anime','Anime'], ['cinematic','Cinematic'], ['digital','Art'], ['render3d','3D'], ['watercolor','Watercolor'], ['pixel','Pixel'] ];
@@ -1937,7 +1937,7 @@ async function askBrain(c, text, atts){
         const res = await fetch(API_BASE + '/api/imagine', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: text, style: S.imgStyle || 'auto', size: S.imgSize || '1024x1024' })
+          body: JSON.stringify({ prompt: text, style: S.imgStyle || 'auto', size: S.imgSize || '1024x1024', base: (c.lastEnhanced || '') })
         });
         d = await res.json().catch(() => null);
         if(res.status === 401 && d && d.error === 'auth'){      // members gate bounced this painting
@@ -1949,6 +1949,7 @@ async function askBrain(c, text, atts){
     }
     if(d){
       chip.textContent = 'Hosted by Z.ai';
+      if(d.enhanced){ c.lastEnhanced = d.enhanced; save(); }   // remember for conversational refine ("make it night")
       const cap = (d.enhanced ? '✦ ' + d.enhanced : '✦ Here it is.');
       typeReply(c, Object.assign(splitFence(cap), { asset: { type: 'image', url: d.url, prompt: text } }), pen);
     }else{

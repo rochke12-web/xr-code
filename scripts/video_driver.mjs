@@ -134,6 +134,25 @@ async function brainText(sys, user, { model = "glm-4.6", timeout = 240000 } = {}
   return String(res?.choices?.[0]?.message?.content || "").trim();
 }
 
+// ---- clip prompt polish: a short idea gets the director treatment, exactly
+// like the storyboard path — action verb, camera move, lighting, style. Long
+// detailed prompts are already directed and skip the LLM hop.
+async function polishClip(prompt) {
+  if (String(prompt).length >= 200) return prompt;
+  try {
+    const sys = "You are a video director writing one shot prompt for a text-to-video generator.";
+    const user = `Expand this video idea into ONE vivid 5-second cinematic shot prompt: keep every fact of the idea, add the subject's action, one camera move, the setting, lighting and style. Max 60 words. No on-screen text, no watermarks. Reply with ONLY the prompt.\n\nIdea: ${prompt}`;
+    const out = await brainText(sys, user, { timeout: 60000 });
+    const clean = out.replace(/^["'`\s]+|["'`\s]+$/g, "");
+    if (clean && clean.length > 20 && clean.length < 1200 && !/^[{\[]/.test(clean)) {
+      log("clip-polish:", clean.slice(0, 100));
+      return clean;
+    }
+  } catch (e) { /* fall through — never block the shot */ }
+  log("clip-polish: kept raw prompt");
+  return prompt;
+}
+
 // ---- ffmpeg assembly ----
 async function assemble(files, spec, narrations) {
   step("assemble", "stitching scenes + mixdown", 82);
@@ -220,7 +239,9 @@ function publish(final) {
       publish(final);
     } else {
       step("clip", "generating the shot", 20);
-      const f = await genScene(spec.prompt, spec, "clip");
+      const polished = await polishClip(spec.prompt);
+      if (polished !== spec.prompt) save({ polishedPrompt: polished });
+      const f = await genScene(polished, spec, "clip");
       if (!f) throw new Error("video generation failed (see driver.log)");
       publish(f);
     }
