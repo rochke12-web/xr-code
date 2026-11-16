@@ -37,7 +37,11 @@ const SIZES = new Set(["1024x1024", "768x1344", "864x1152", "1344x768", "1152x86
 // stable asset dir — same store the chat brain already uses
 const ASSET_DIR = assetDir();
 
-const ENHANCERS = ["kimi-k2", "glm-4.5-flash", "dpsk-4.1-flash", "glm-4.6"];
+// enhancer lanes: flash models FIRST (2-5s), kimi as quality backup. The
+// painter engine itself needs ~34s through the gateway (measured 2026-11-16),
+// so the enhancer must never add real latency — an 8s cap keeps the total
+// paint job as close to the engine floor as physics allows.
+const ENHANCERS = ["glm-4.5-flash", "dpsk-4.1-flash", "kimi-k2", "glm-4.6"];
 const PAINTERS: (string | undefined)[] = [
   "gemini-3-pro-image-preview", // nano banana pro — primary painter
   "gemini-2.5-flash-image", // nano banana — first fallback
@@ -80,7 +84,7 @@ async function enhance(prompt: string, style: string, base: string): Promise<{ t
           ],
           thinking: { type: "disabled" },
         }),
-        withJail(15000),
+        withJail(8000),
       ])) as { choices?: { message?: { content?: string } }[] } | null;
       const text = (res?.choices?.[0]?.message?.content || "").trim();
       if (text && text.length > 8 && text.length < 1200) {

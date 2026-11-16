@@ -142,7 +142,7 @@ async function polishClip(prompt) {
   try {
     const sys = "You are a video director writing one shot prompt for a text-to-video generator.";
     const user = `Expand this video idea into ONE vivid 5-second cinematic shot prompt: keep every fact of the idea, add the subject's action, one camera move, the setting, lighting and style. Max 60 words. No on-screen text, no watermarks. Reply with ONLY the prompt.\n\nIdea: ${prompt}`;
-    const out = await brainText(sys, user, { timeout: 60000 });
+    const out = await brainText(sys, user, { timeout: 20000 });
     const clean = out.replace(/^["'`\s]+|["'`\s]+$/g, "");
     if (clean && clean.length > 20 && clean.length < 1200 && !/^[{\[]/.test(clean)) {
       log("clip-polish:", clean.slice(0, 100));

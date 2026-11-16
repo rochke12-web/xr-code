@@ -60,3 +60,6 @@ db/usage/
 /db/assets/
 /db/videoedits/
 /db/videojobs/
+
+# BYOK vault — encrypted user API keys never belong in git
+/db/keys/

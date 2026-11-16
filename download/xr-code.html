@@ -490,6 +490,9 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .gen-dl{display:flex;justify-content:center;margin:8px 0 2px}
 .gen-dl-btn{display:inline-flex;align-items:center;gap:6px;background:var(--bg2);border:1px solid var(--line);border-radius:999px;color:var(--text);font-size:12px;padding:5px 13px;cursor:pointer;transition:border-color .2s,color .2s,transform .25s var(--spring)}
 .gen-dl-btn:hover{border-color:var(--accent-2);transform:translateY(-2px)}
+.byok-row{display:flex;gap:8px;margin:8px 0}
+.byok-row select,.byok-row input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:10px;color:var(--text);font-size:13px;padding:9px 12px;outline:none}
+.byok-row select:focus,.byok-row input:focus{border-color:var(--accent-2)}
 .file-card{display:flex;align-items:center;gap:12px;width:min(100%,380px);margin:4px 0;padding:13px 15px;border:1px solid var(--line);border-radius:14px;background:var(--bg2);color:var(--text);text-decoration:none;transition:border-color .2s,transform .25s var(--spring)}
 .file-card:hover{border-color:var(--accent-2);transform:translateY(-2px)}
 .file-ext{display:inline-flex;align-items:center;justify-content:center;min-width:44px;height:36px;padding:0 7px;border-radius:9px;background:var(--accent-2);color:#fff;font-size:10px;font-weight:800;letter-spacing:.5px}
@@ -1051,6 +1054,29 @@ body.kbd-open .composer{padding-bottom:10px}
               <button class="mini-btn danger" id="clearBtn" type="button"><i class="ic small" data-ic="i-trash"></i> Clear all data</button>
             </div>
             <p class="note">Chats are stored in this browser. The AI brain is hosted on the XR-Code server — it just works for everyone.</p>
+          </div>
+
+          <div class="panel">
+            <h3><i class="ic big" data-ic="i-cpu"></i> Your own API key (BYOK)</h3>
+            <div class="byok-row">
+              <select id="byokProvider">
+                <option value="openai">OpenAI</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="groq">Groq</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="custom">Custom (OpenAI-compatible)</option>
+              </select>
+              <input id="byokModel" autocomplete="off" placeholder="model (optional)">
+            </div>
+            <div class="byok-row" id="byokBaseRow" hidden>
+              <input id="byokBase" autocomplete="off" placeholder="base URL — https://host/v1">
+            </div>
+            <div class="byok-row">
+              <input id="byokKey" type="password" autocomplete="off" placeholder="API key (sk-…)">
+              <button class="mini-btn" id="byokSave" type="button">Save key</button>
+              <button class="mini-btn danger" id="byokDel" type="button">Remove</button>
+            </div>
+            <p class="note" id="byokStatus">Bring your own key: it is encrypted on the XR-Code server, used only for your account, and never shown again. Your replies then ride YOUR key first — the hosted brain stays as backup, so the chat never goes dark.</p>
           </div>
         </div>
       </div>
@@ -2261,8 +2287,53 @@ $('#homeForm').addEventListener('submit', e => {
 $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('#chatInput').value); $('#chatInput').value = ''; });
 
 
-/* ---------- file attach (paperclip right of send) ---------- */
+/* ---------- BYOK — your own API key (Settings) ---------- */
 (function(){
+  const $ = s => document.querySelector(s);
+  const prov = $('#byokProvider'), model = $('#byokModel'), base = $('#byokBase'),
+        baseRow = $('#byokBaseRow'), key = $('#byokKey'), status = $('#byokStatus');
+  if(!prov) return;
+  const NOTE = 'Bring your own key: it is encrypted on the XR-Code server, used only for your account, and never shown again. Your replies then ride YOUR key first — the hosted brain stays as backup, so the chat never goes dark.';
+  prov.addEventListener('change', () => { baseRow.hidden = prov.value !== 'custom'; });
+  async function paint(){
+    try{
+      const r = await fetch(API_BASE + '/api/keys');
+      const d = await r.json().catch(() => null);
+      if(r.status === 401){ status.textContent = 'Sign in with Discord to use your own API key.'; return; }
+      if(d && d.ok && d.keys.length){
+        const k = d.keys.map(x => x.provider + ' (' + x.hint + (x.model ? ' · ' + x.model : '') + ')').join(', ');
+        status.textContent = 'Active: ' + k + '. Replies ride your key first — hosted brain is the backup.';
+      }else status.textContent = NOTE;
+    }catch(e){ status.textContent = NOTE; }
+  }
+  $('#byokSave').onclick = async () => {
+    if(!(key.value || '').trim()){ status.textContent = 'Paste your API key first.'; return; }
+    status.textContent = 'Encrypting & saving…';
+    try{
+      const r = await fetch(API_BASE + '/api/keys', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: prov.value, key: key.value, model: model.value, baseUrl: base.value })
+      });
+      const d = await r.json().catch(() => null);
+      if(d && d.ok){ key.value = ''; toast('Key saved — your replies now ride your own key'); paint(); }
+      else status.textContent = (d && d.error) || 'Could not save the key.';
+    }catch(e){ status.textContent = 'Could not reach the server.'; }
+  };
+  $('#byokDel').onclick = async () => {
+    try{
+      const r = await fetch(API_BASE + '/api/keys', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: prov.value })
+      });
+      const d = await r.json().catch(() => null);
+      if(d && d.ok){ toast('Key removed'); paint(); }
+    }catch(e){}
+  };
+  window.paintByok = paint;
+  paint();
+})();
+
+/* ---------- file attach (paperclip right of send) ---------- */(function(){
   const MAX_FILES = 4, MAX_BYTES = 8 * 1024 * 1024;
   window.fmtSz = b => b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
   const TXT_RE = /\.(txt|md|markdown|json|js|mjs|ts|tsx|jsx|py|rb|go|rs|java|kt|c|h|cpp|cs|php|sh|bash|yml|yaml|toml|ini|cfg|csv|tsv|html|htm|css|scss|xml|sql|log|env)$/i;

@@ -10,6 +10,7 @@ import { assetDir } from "../../../lib/asset-dir";
 import { verifyDiscord } from "../../../lib/xrauth";
 import { XR_SECRETS } from "../../../lib/xrsecrets";
 import { addUsage, overLimit, DAILY_TOKEN_LIMIT, estTokens } from "../../../lib/xrstore";
+import { loadByok, byokChat } from "../../../lib/xrkeys";
 
 // XR-Code hosted brain — no API keys in the client, no modes, nothing to configure.
 // One highly capable agent: reads each message and automatically responds the
@@ -1023,7 +1024,21 @@ export async function POST(req: Request) {
   let actText: string | null = null;
   let engineUsed = "";
   let act: Action | null = null;
-  for (const engine of chain) {
+  // BYOK lane 0 — the user's own OpenAI-compatible key (encrypted server-side,
+  // their quota). Tries FIRST; on any failure the hosted chain runs untouched —
+  // the chat never goes dark either way.
+  const byok = loadByok(uid);
+  if (byok) {
+    const r = await byokChat(byok, sys, chatText);
+    if (r) {
+      actText = r;
+      engineUsed = "byok-" + byok.provider;
+      act = parseAction(r);
+      if (!act)
+        return done({ ok: true, text: withSources(r, mode, lastSearch), engine: engineUsed, mode, vision: visionBlock || undefined });
+    }
+  }
+  for (const engine of act ? [] : chain) {
     const r = await spendLane(engine, sys, chatText, TALLY);
     if (r.quota) {
       if (engine !== chosen) continue; // fallback lane dry — next lane
