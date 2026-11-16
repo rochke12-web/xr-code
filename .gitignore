@@ -55,3 +55,7 @@ server.log
 # per-account runtime data — user chats + token buckets never belong in git
 db/chats/
 db/usage/
+
+# generated media + video-edit job artifacts
+/db/assets/
+/db/videoedits/
