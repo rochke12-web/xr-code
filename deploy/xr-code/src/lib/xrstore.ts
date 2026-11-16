@@ -22,7 +22,7 @@ function baseDir(): string {
   return path.resolve(cwd, "../../db");
 }
 
-function subdir(name: string): string {
+export function subdir(name: string): string {
   const dir = path.join(baseDir(), name);
   fs.mkdirSync(dir, { recursive: true });
   return dir;
