@@ -7,7 +7,7 @@
 const fs = require("fs");
 
 const FILE = "/home/z/my-project/deploy/xr-code/src/app/payload.ts";
-const K = "XrC0de~Guard!v1";
+const K = "__RETIRED_PAYLOAD_KEY__"; // key rotated 2026-11-16 — one-off patch script, key material removed
 const NEEDLE = "/engine/i";
 const REPLACE = "/__nope__/i"; // same spirit, never matches anything real
 

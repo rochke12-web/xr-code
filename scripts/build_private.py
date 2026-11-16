@@ -9,7 +9,14 @@ import base64, os, re, subprocess
 ROOT = '/home/z/my-project'
 SRC  = f'{ROOT}/download/xr-code.html'
 TMP  = '/tmp/xrbuild'
-KEY  = b'XrC0de~Guard!v1'
+
+# cipher key: ONE source of truth — src/lib/xrsecrets.ts (XR_PAYLOAD_KEY).
+# Parsed here at build time, read by /api/shell at runtime. The key never
+# enters any browser bundle: page.tsx loads the app via /api/shell, which
+# decrypts server-side. Rotate the key by editing xrsecrets.ts + rebuilding.
+_m = re.search(r'XR_PAYLOAD_KEY:\s*"([0-9a-fA-F]{16,64})"', open(f'{ROOT}/src/lib/xrsecrets.ts').read())
+assert _m, 'XR_PAYLOAD_KEY missing in src/lib/xrsecrets.ts — cannot build safely'
+KEY = _m.group(1).encode()
 os.makedirs(TMP, exist_ok=True)
 
 html = open(SRC).read()

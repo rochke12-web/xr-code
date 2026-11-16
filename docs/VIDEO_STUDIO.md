@@ -41,8 +41,11 @@ the finished film. On a host without the studio route (404, e.g. the Vercel
 deploy) it says so honestly instead of pretending to render.
 
 Build chain: `download/xr-code.html` (source) → `scripts/build_private.py`
-(obfuscate + XOR + base64) → `src/app/payload.ts` (dev server) and synced to
-`deploy/xr-code/` (payload.ts, xr-code.html, public/xr-code.html).
+(obfuscate + XOR with `xrsecrets.XR_PAYLOAD_KEY` + base64) → `src/app/payload.ts`.
+`page.tsx` loads the app via `/api/shell`, which decrypts SERVER-SIDE — the
+cipher key and the payload never enter the browser bundle. Deploy sync copies
+`payload.ts`, `page.tsx`, `src/app/api/shell/`, `src/lib/xrsecrets.ts` (never
+the readable source HTML; `xr-code*.html` are vercelignored in the deploy).
 
 ## QA
 

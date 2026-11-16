@@ -1,25 +1,35 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { APP_B64 } from './payload'
 
-// runtime decrypt key for the embedded private build
-const K = 'XrC0de~Guard!v1'
-
+// The private build never ships to the browser as ciphertext anymore: the
+// cipher key lives server-side (xrsecrets.XR_PAYLOAD_KEY, shared with
+// build_private.py) and /api/shell decrypts and serves the app HTML. The
+// client bundle holds no key and no payload — source protection moved to the
+// server where it can actually hold.
 export default function Home() {
   const frame = useRef<HTMLIFrameElement>(null)
 
   useEffect(() => {
     const f = frame.current
     if (!f) return
-    try {
-      const bin = atob(APP_B64)
-      const bytes = new Uint8Array(bin.length)
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i) ^ K.charCodeAt(i % K.length)
-      f.srcdoc = new TextDecoder('utf-8').decode(bytes)
-    } catch {
-      /* payload decode failed */
+    let dead = false
+    const load = async () => {
+      for (let attempt = 0; attempt < 2 && !dead; attempt++) {
+        try {
+          const res = await fetch('/api/shell', { cache: 'no-store' })
+          if (!res.ok) throw new Error('shell HTTP ' + res.status)
+          const html = await res.text()
+          if (!html.includes('XR-Code')) throw new Error('shell sanity failed')
+          f.srcdoc = html
+          return
+        } catch {
+          if (attempt < 1) await new Promise(r => setTimeout(r, 1500))
+        }
+      }
     }
+    load()
+    return () => { dead = true }
   }, [])
 
   return (

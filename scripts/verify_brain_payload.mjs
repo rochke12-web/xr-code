@@ -5,7 +5,9 @@
 // 3. byte-compare + fingerprint markers (__nope__ retry patch, mode buttons)
 import fs from "fs";
 
-const K = "XrC0de~Guard!v1";
+// key: parsed from xrsecrets.ts (XR_PAYLOAD_KEY) — key material never hardcoded
+const K = fs.readFileSync("/home/z/my-project/src/lib/xrsecrets.ts", "utf8")
+  .match(/XR_PAYLOAD_KEY:\s*"([0-9a-fA-F]{16,64})"/)[1];
 
 function decodeChunk(src) {
   // the chunk embeds APP_B64 = "<base64>" exactly like payload.ts (bundled)

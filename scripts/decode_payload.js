@@ -8,7 +8,9 @@ const fs = require("fs");
 const FILE = process.argv[2];
 const OUT = process.argv[3];
 const RE = process.argv.includes("--reencode");
-const K = "XrC0de~Guard!v1";
+// key: parsed from xrsecrets.ts (XR_PAYLOAD_KEY) — key material never hardcoded
+const K = fs.readFileSync("/home/z/my-project/src/lib/xrsecrets.ts", "utf8")
+  .match(/XR_PAYLOAD_KEY:\s*"([0-9a-fA-F]{16,64})"/)[1];
 
 if (!FILE || !OUT) { console.error("usage: decode_payload.js <payload.ts> <out.html> [--reencode]"); process.exit(1); }
 

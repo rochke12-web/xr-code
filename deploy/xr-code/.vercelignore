@@ -1,3 +1,5 @@
 node_modules
 .next
 .vercel
+xr-code.html
+xr-code-private.html

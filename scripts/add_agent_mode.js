@@ -6,7 +6,7 @@
 // payload (Koder/QnA + Agent, sight stripped earlier).
 const fs = require("fs");
 
-const K = "XrC0de~Guard!v1";
+const K = "__RETIRED_PAYLOAD_KEY__"; // key rotated 2026-11-16 — one-off patch script, key material removed
 const QNA_BTN = '<button type="button" data-mode="qna"><b>QnA Mode</b><small>sources never shown</small></button>';
 const AGENT_BTN = '<button type="button" data-mode="agent"><b>Agent Mode</b><small>autonomous multi-step</small></button>';
 const MODES_ANCHOR = "a0_0x76f146['qna']=a0_0x282172,";
