@@ -3,7 +3,9 @@ import ZAI from "z-ai-web-dev-sdk";
 import type { VisionMessage } from "z-ai-web-dev-sdk";
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { randomUUID } from "crypto";
+import { execFile } from "child_process";
 import { assetDir } from "../../../lib/asset-dir";
 import { verifyDiscord } from "../../../lib/xrauth";
 import { XR_SECRETS } from "../../../lib/xrsecrets";
@@ -165,19 +167,29 @@ const TOOL_RULES =
   '("size" must be exactly one of: 1024x1024 square, 768x1344 portrait, 1344x768 landscape. Pick what fits the request.)\n' +
   "If the user asks you to CREATE, GENERATE or MAKE a video, clip or animation, reply with ONLY:\n" +
   '{"action":"video","prompt":"<one detailed English prompt describing the scene and motion>","with_audio":false}\n' +
-  "In both cases: no prose, no code fence, no markdown around it — ONLY the JSON object.\n" +
+  "If the user asks you to CREATE, WRITE, SAVE or EXPORT a file (code, source, document, data, config — e.g. main.cpp, notes.md, data.xml, script.py, index.html), reply with ONLY:\n" +
+  '{"action":"file","name":"<filename.ext>","files":[{"name":"<filename.ext>","content":"<the FULL file content>"}]}\n' +
+  "If the user asks for a ZIP archive or several files at once (a small project, a bundle), reply with ONLY:\n" +
+  '{"action":"zip","name":"<archive-name>","files":[{"name":"<file1.ext>","content":"<full content>"},{"name":"<file2.ext>","content":"<full content>"}]}\n' +
+  "File rules: up to 12 files, each under 30000 characters; keep the user's requested extension exactly (.xml, .md, .cpp, .py, .json, .html, .csv …). Produce COMPLETE, working content — never placeholders.\n" +
+  "For .exe / .dll requests you CANNOT compile Windows binaries on the server — instead put the complete source code, a build script (build.bat with cl.exe/g++/cmake commands, or CMakeLists.txt) and a README into ONE zip, and say plainly that the user compiles it locally with one command.\n" +
+  "In all cases: no prose, no code fence, no markdown around it — ONLY the JSON object.\n" +
   "For every other request reply normally and never emit action JSON.";
 
 type Action =
   | { action: "image" | "video"; prompt: string; size?: string; with_audio?: boolean }
+  | { action: "file" | "zip"; name: string; files: { name: string; content: string }[] }
   | { action: "search"; query: string };
 
 // a real directive is a SHORT reply that IS a JSON object — long answers with a
-// JSON snippet inside are just code, never a tool call
+// JSON snippet inside are just code, never a tool call. EXCEPTION: file/zip
+// directives legitimately carry the full file content, so they may be long —
+// but only when they start with the exact directive prefix.
 function parseAction(reply: string | null): Action | null {
   if (!reply) return null;
   const s = reply.trim().replace(/^```[a-z]*\s*/i, "").replace(/\s*```$/, "").trim();
-  if (s.length > 600 || !s.startsWith("{")) return null;
+  const isFileDir = s.startsWith('{"action":"file"') || s.startsWith('{"action":"zip"');
+  if (s.length > (isFileDir ? 600000 : 600) || !s.startsWith("{")) return null;
   try {
     const o = JSON.parse(s) as Record<string, unknown>;
     if (o.action === "search" && typeof o.query === "string" && o.query.trim().length > 1) {
@@ -193,6 +205,19 @@ function parseAction(reply: string | null): Action | null {
         size: typeof o.size === "string" ? o.size : undefined,
         with_audio: o.with_audio === true,
       };
+    }
+    if (o.action === "file" || o.action === "zip") {
+      const safeName = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,90}$/;
+      const files = (Array.isArray(o.files) ? o.files : [])
+        .map((f) => ({
+          name: String((f as { name?: unknown })?.name || "").trim().replace(/\s+/g, "_"),
+          content: String((f as { content?: unknown })?.content ?? ""),
+        }))
+        .filter((f) => safeName.test(f.name) && f.content.length > 0 && f.content.length <= 30000)
+        .slice(0, 12);
+      if (!files.length) return null;
+      const nm = typeof o.name === "string" && safeName.test(o.name.trim()) ? o.name.trim().replace(/\s+/g, "_") : files[0].name;
+      return { action: o.action, name: nm, files };
     }
   } catch {
     /* normal text */
@@ -221,6 +246,45 @@ async function runImageGen(prompt: string, size?: string): Promise<{ url: string
     console.error("[image-gen] failed:", String((e as Error)?.message || e).slice(0, 200));
     return null;
   }
+}
+
+// file factory — the brain's file/zip directives become real downloadable
+// files in the asset dir, original filename preserved (id__name).
+const SAFE_STORE = /^[A-Za-z0-9._-]{1,100}$/;
+async function produceFiles(act: { action: string; name?: string; files: { name: string; content: string }[] }): Promise<{ url: string; name: string; size: number } | null> {
+  try {
+    const id = randomUUID().replace(/-/g, "").slice(0, 20);
+    fs.mkdirSync(ASSET_DIR, { recursive: true });
+    if (act.files.some(f => !SAFE_STORE.test(f.name))) return null;
+    if (act.action === "file" && act.files.length === 1) {
+      const f = act.files[0];
+      const store = id + "__" + f.name;
+      fs.writeFileSync(path.join(ASSET_DIR, store), f.content, "utf8");
+      return { url: "/api/asset/" + store, name: f.name, size: Buffer.byteLength(f.content, "utf8") };
+    }
+    // zip bundle (the zip binary ships on the host)
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "xrfactory-"));
+    for (const f of act.files) fs.writeFileSync(path.join(dir, f.name), f.content, "utf8");
+    const zname = (SAFE_STORE.test(act.name || "") ? (act.name as string).replace(/\.zip$/i, "") : "xr-code-files") + ".zip";
+    const store = id + "__" + zname;
+    const zpath = path.join(ASSET_DIR, store);
+    await new Promise<void>((res, rej) =>
+      execFile("zip", ["-j", "-q", zpath, ...act.files.map(f => path.join(dir, f.name))], (err) => (err ? rej(err) : res()))
+    );
+    fs.rmSync(dir, { recursive: true, force: true });
+    return { url: "/api/asset/" + store, name: zname, size: fs.statSync(zpath).size };
+  } catch (e) {
+    console.error("[file-factory] failed:", String((e as Error)?.message || e).slice(0, 160));
+    return null;
+  }
+}
+
+// one creation dispatcher for every tool site (image / video / file / zip)
+async function runCreation(act: Action): Promise<{ url: string; name?: string; size?: number; cover?: string } | null> {
+  if (act.action === "image") return runImageGen(act.prompt, act.size);
+  if (act.action === "video") return runVideoGen(act.prompt, act.with_audio === true);
+  if (act.action === "file" || act.action === "zip") return produceFiles(act);
+  return null;
 }
 
 async function runVideoGen(prompt: string, withAudio: boolean): Promise<{ url: string; cover?: string } | null> {
@@ -881,10 +945,7 @@ export async function POST(req: Request) {
       }
       // image / video generation
       trace.push(`${a.action} ✓`);
-      const asset =
-        a.action === "image"
-          ? await runImageGen((a as { prompt: string }).prompt, (a as { size?: string }).size)
-          : await runVideoGen((a as { prompt: string }).prompt, (a as { with_audio?: boolean }).with_audio === true);
+      const asset = await runCreation(a);
       if (asset) {
         const composerMsgs = [
           ...chatText,
@@ -901,7 +962,7 @@ export async function POST(req: Request) {
         const prefix = trace.length ? `Agent · ${trace.join(" → ")}\n\n` : "";
       return done({
         ok: true,
-        text: prefix + (composed.text || (a.action === "image" ? "Here it is — freshly generated for you." : "Here's your clip — freshly generated for you.")),
+        text: prefix + (composed.text || (a.action === "image" ? "Here it is — freshly generated for you." : a.action === "video" ? "Here's your clip — freshly generated for you." : "Here's your file — ready to download.")),
         engine: "xr-code",
         mode,
         asset: { type: a.action, ...asset, prompt: (a as { prompt: string }).prompt },
@@ -994,10 +1055,7 @@ export async function POST(req: Request) {
   }
 
   // creation request — build the real asset, then present it in one natural line
-  const asset =
-    act.action === "image"
-      ? await runImageGen((act as { prompt: string }).prompt, (act as { size?: string }).size)
-      : await runVideoGen((act as { prompt: string }).prompt, (act as { with_audio?: boolean }).with_audio === true);
+  const asset = await runCreation(act);
   const composerMsgs = [
     ...chatText,
     { role: "assistant" as const, content: JSON.stringify(act) },

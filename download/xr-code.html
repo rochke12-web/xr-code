@@ -490,6 +490,11 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .gen-dl{display:flex;justify-content:center;margin:8px 0 2px}
 .gen-dl-btn{display:inline-flex;align-items:center;gap:6px;background:var(--bg2);border:1px solid var(--line);border-radius:999px;color:var(--text);font-size:12px;padding:5px 13px;cursor:pointer;transition:border-color .2s,color .2s,transform .25s var(--spring)}
 .gen-dl-btn:hover{border-color:var(--accent-2);transform:translateY(-2px)}
+.file-card{display:flex;align-items:center;gap:12px;width:min(100%,380px);margin:4px 0;padding:13px 15px;border:1px solid var(--line);border-radius:14px;background:var(--bg2);color:var(--text);text-decoration:none;transition:border-color .2s,transform .25s var(--spring)}
+.file-card:hover{border-color:var(--accent-2);transform:translateY(-2px)}
+.file-ext{display:inline-flex;align-items:center;justify-content:center;min-width:44px;height:36px;padding:0 7px;border-radius:9px;background:var(--accent-2);color:#fff;font-size:10px;font-weight:800;letter-spacing:.5px}
+.file-name{flex:1;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-meta{font-size:11px;color:var(--muted);white-space:nowrap}
 .paint-label{font-size:13px;opacity:.75;animation:pulse 1.3s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:.4}50%{opacity:.95}}
 .act-row{display:flex;gap:8px;margin:6px 0 2px}
@@ -1732,6 +1737,17 @@ function assetEl(as){
     const v = document.createElement('video'); v.src = as.url; v.controls = true; v.playsInline = true; v.preload = 'metadata';
     if(as.cover) v.poster = as.cover;
     w.append(v);
+  }else if(as && (as.type === 'file' || as.type === 'zip') && as.url){
+    // produced file — direct download card (any extension: .cpp .md .xml .zip …)
+    const card = document.createElement('a');
+    card.href = as.url; card.download = as.name || '';
+    card.className = 'file-card'; card.rel = 'noopener';
+    const ext = ((as.name || '').split('.').pop() || 'file').toUpperCase().slice(0, 5);
+    card.innerHTML = '<span class="file-ext">' + ext + '</span>' +
+      '<span class="file-name"></span>' +
+      '<span class="file-meta">' + (as.size ? window.fmtSz(as.size) : 'download') + ' · tap to save</span>';
+    card.querySelector('.file-name').textContent = as.name || 'file';
+    w.append(card);
   }
   return w;
 }
@@ -2010,7 +2026,7 @@ async function askBrain(c, text, atts){
   let last = text;                               // feed file contents to the hosted brain
   (atts || []).forEach(a => {
     if(a.au && a.txt) last += '\n\n[attached audio: ' + a.n + ' — transcribed]\n' + String(a.txt).slice(0, 6000);
-    else if(a.txt) last += '\n\n[attached file: ' + a.n + ']\n' + String(a.txt).slice(0, 6000);
+    else if(a.txt) last += '\n\n[attached file: ' + a.n + ']\n' + String(a.txt).slice(0, 24000);
     else if((a.ty || '').indexOf('image/') === 0) last += '\n\n[attached image: ' + a.n + ' — ' + window.fmtSz(a.sz) + ' — attached as real image blocks]';
     else if(a.vid) last += '\n\n[attached video: ' + a.n + ' — ' + window.fmtSz(a.sz) + ' — ' + ((a.send && a.send.length) || 0) + ' keyframes attached as image blocks]';
     else last += '\n\n[attached file: ' + a.n + ' — ' + window.fmtSz(a.sz) + ']';
