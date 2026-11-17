@@ -434,6 +434,10 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .mmenu button.current::before{opacity:1;transform:scaleY(1)}
 .mmenu button small{font-size:10px;color:var(--muted);font-weight:400;font-family:var(--font-mono);letter-spacing:.02em}
 .mmenu .msec{padding:9px 12px 4px;font:600 9.5px var(--font-body);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);border-top:1px solid var(--line-soft);margin-top:4px}
+.mmenu button.soon{opacity:.62;cursor:default}
+.mmenu button.soon:hover{background:transparent;transform:none}
+.mmenu button.soon:hover::before{opacity:0;transform:scaleY(.4)}
+.mmenu .tag{display:inline-block;vertical-align:2px;margin-left:8px;font:700 8.5px var(--font-body);letter-spacing:.12em;text-transform:uppercase;color:var(--accent);border:1px solid var(--accent);border-radius:99px;padding:1px 8px}
 @media(max-width:640px){.model-pill .mp-n{display:none}.model-pill{padding:0 13px}}
 
 /* ============================================================
@@ -990,6 +994,10 @@ body.kbd-open .composer{padding-bottom:10px}
               <button type="button" data-model="prime-v1"><b>Prime</b><small>flagship brain · deep reasoning &amp; big builds</small></button>
               <button type="button" data-model="prime-v1-flash"><b>Prime Flash</b><small>fast lane · quick answers &amp; code</small></button>
               <button type="button" data-model="prime-vision"><b>Prime Vision</b><small>vision-tuned brain · photos &amp; deep reads</small></button>
+              <div class="msec">Vision · Upcoming</div>
+              <button type="button" class="soon" data-soon="XR Eye"><b>XR Eye<span class="tag">Soon</span></b><small>deep multimodal read — charts, docs, handwriting, screens</small></button>
+              <button type="button" class="soon" data-soon="XR Cinema"><b>XR Cinema<span class="tag">Soon</span></b><small>minutes-long films with voice, sound &amp; cuts</small></button>
+              <button type="button" class="soon" data-soon="Prime Vision 2"><b>Prime Vision 2<span class="tag">Soon</span></b><small>next-gen vision brain — live camera &amp; screen understanding</small></button>
             </div>
           </div>
           <input id="homeInput" autocomplete="off" placeholder="What would you like to do with XR-Code?">
@@ -1023,6 +1031,10 @@ body.kbd-open .composer{padding-bottom:10px}
             <button type="button" data-model="prime-v1"><b>Prime</b><small>flagship brain · deep reasoning &amp; big builds</small></button>
             <button type="button" data-model="prime-v1-flash"><b>Prime Flash</b><small>fast lane · quick answers &amp; code</small></button>
             <button type="button" data-model="prime-vision"><b>Prime Vision</b><small>vision-tuned brain · photos &amp; deep reads</small></button>
+            <div class="msec">Vision · Upcoming</div>
+            <button type="button" class="soon" data-soon="XR Eye"><b>XR Eye<span class="tag">Soon</span></b><small>deep multimodal read — charts, docs, handwriting, screens</small></button>
+            <button type="button" class="soon" data-soon="XR Cinema"><b>XR Cinema<span class="tag">Soon</span></b><small>minutes-long films with voice, sound &amp; cuts</small></button>
+            <button type="button" class="soon" data-soon="Prime Vision 2"><b>Prime Vision 2<span class="tag">Soon</span></b><small>next-gen vision brain — live camera &amp; screen understanding</small></button>
           </div>
         </div>
         <div class="gen-chips" id="genChips" hidden>
@@ -1682,6 +1694,13 @@ $$('#homeModeMenu button[data-model],#chatModeMenu button[data-model]').forEach(
     S.model = b.dataset.model;
     save(); renderModel(); closeMenus();
     toast('Engine: ' + ({ 'auto': 'Auto — XR flagship', 'prime-v1': 'Prime', 'prime-v1-flash': 'Prime Flash', 'prime-vision': 'Prime Vision' }[S.model] || S.model));
+  });
+});
+$$('.mmenu button.soon').forEach(b => {                    // upcoming vision lineup — teasers, not engines yet
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toast(b.dataset.soon + ' is upcoming — shipping soon. Prime Vision already reads photos today.');
+    closeMenus();
   });
 });
 document.addEventListener('click', closeMenus);
