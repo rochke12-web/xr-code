@@ -914,6 +914,22 @@ body::after{
   @keyframes msg-u{from{opacity:0;transform:translateX(18px) translateY(8px)}to{opacity:1;transform:none}}
   @keyframes msg-a{from{opacity:0;transform:translateX(-18px) translateY(8px)}to{opacity:1;transform:none}}
   .gen-media{animation:riseIn .5s var(--spring) both}
+  /* the white trail in chat — mirrors the home hero sheen */
+  .chat-head .cht{
+    color:transparent;
+    background:linear-gradient(110deg,var(--text) 12%,var(--accent-2) 34%,var(--text) 50%,var(--accent-2) 66%,var(--text) 88%);
+    background-size:230% 100%;
+    -webkit-background-clip:text;background-clip:text;
+    animation:xr-sheen 7s linear infinite;
+  }
+  /* status labels (thinking… / composing the prompt…) get a fast-moving trail */
+  .paint-label{
+    color:transparent;
+    background:linear-gradient(110deg,var(--muted) 12%,#fff 34%,var(--muted) 50%,#fff 66%,var(--muted) 88%);
+    background-size:230% 100%;
+    -webkit-background-clip:text;background-clip:text;
+    animation:xr-sheen 2.2s linear infinite;
+  }
   /* settings panels stagger */
   .settings-col .panel:nth-child(1){animation-delay:.05s}
   /* light theme hero title gradient stays ink-on-white */
@@ -1027,8 +1043,8 @@ body.kbd-open .composer{padding-bottom:10px}
               <i class="ic small" data-ic="i-cpu"></i><span class="mp-n">Koder</span><i class="ic small" data-ic="i-chevd"></i>
             </button>
             <div class="mmenu" id="homeModeMenu">
-              <button type="button" data-mode="image"><b>Image Mode</b><small>text → art — describe it, styles, refine it — painted in seconds</small></button>
               <button type="button" data-mode="koder"><b>Koder Mode</b><small>code, debug &amp; build — the full developer brain</small></button>
+              <button type="button" data-mode="image"><b>Image Mode</b><small>text → art — describe it, styles, refine it — painted in seconds</small></button>
               <button type="button" data-mode="qna"><b>QnA Mode</b><small>sources never shown</small></button>
             </div>
           </div>
@@ -1053,8 +1069,8 @@ body.kbd-open .composer{padding-bottom:10px}
             <i class="ic small" data-ic="i-cpu"></i><span class="mp-n">Koder</span><i class="ic small" data-ic="i-chevd"></i>
           </button>
           <div class="mmenu" id="chatModeMenu">
-            <button type="button" data-mode="image"><b>Image Mode</b><small>text → art — describe it, styles, refine it — painted in seconds</small></button>
             <button type="button" data-mode="koder"><b>Koder Mode</b><small>code, debug &amp; build — the full developer brain</small></button>
+            <button type="button" data-mode="image"><b>Image Mode</b><small>text → art — describe it, styles, refine it — painted in seconds</small></button>
             <button type="button" data-mode="qna"><b>QnA Mode</b><small>sources never shown</small></button>
           </div>
         </div>
@@ -2016,7 +2032,8 @@ async function askBrain(c, text, atts){
   const body0 = document.createElement('div'); body0.className = 'bubble';
   const dots = document.createElement('span'); dots.className = 'dots';
   dots.innerHTML = '<i></i><i></i><i></i>';
-  body0.append(dots);
+  const think = document.createElement('span'); think.className = 'paint-label'; think.textContent = 'thinking…';
+  body0.append(think, dots);
   pen.append(who0, body0);
   if(currentChat().id === c.id) box0.append(pen);
   box0.scrollTop = box0.scrollHeight;
