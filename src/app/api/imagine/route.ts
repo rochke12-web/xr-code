@@ -99,29 +99,40 @@ async function enhance(prompt: string, style: string, base: string): Promise<{ t
 
 // the painter: Pollinations fast lane first (zero-auth FLUX-class, measured
 // 6.1s/1024px from this host, 2026-11-19), then nano banana pro, nano banana,
-// and the gateway default lane as quality fallbacks
+// and the gateway default lane as quality fallbacks.
+// The fast lane retries 3x with backoff — the free tier rate-limits bursts,
+// and a short pause clears a 429 where falling straight to the 30s+ slow
+// lanes would hang the request and read as "not working" on the user's screen.
 async function paintFast(prompt: string, size: string): Promise<{ url: string; model: string } | null> {
-  try {
-    const [w, h] = size.split("x").map(Number);
-    const url = "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt.slice(0, 1800)) +
-      `?width=${w}&height=${h}&nologo=true&nofeed=true&seed=${Math.floor(Math.random() * 1e9)}`;
-    const res = (await Promise.race([
-      fetch(url, { signal: AbortSignal.timeout(28000) }),
-      withJail(30000),
-    ])) as Response | null;
-    if (!res || !res.ok) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length < 2000) return null; // error page / blank — reject
-    const head = buf.subarray(0, 4).toString("hex");
-    if (!head.startsWith("ffd8") && !head.startsWith("8950")) return null; // not JPEG/PNG
-    fs.mkdirSync(ASSET_DIR, { recursive: true });
-    const id = randomUUID().replace(/-/g, "").slice(0, 20);
-    fs.writeFileSync(path.join(ASSET_DIR, id + ".jpg"), buf);
-    return { url: `/api/asset/${id}`, model: "fast-painter" };
-  } catch (e) {
-    console.error("[imagine] fast painter failed:", String(e).slice(0, 160));
-    return null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await withJail(1500 + attempt * 2500);
+    try {
+      const [w, h] = size.split("x").map(Number);
+      const url = "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt.slice(0, 1800)) +
+        `?width=${w}&height=${h}&nologo=true&nofeed=true&seed=${Math.floor(Math.random() * 1e9)}`;
+      const res = (await Promise.race([
+        fetch(url, { signal: AbortSignal.timeout(28000) }),
+        withJail(30000),
+      ])) as Response | null;
+      if (!res) continue;
+      if (res.status === 429 || res.status === 502 || res.status === 503) {
+        console.error("[imagine] fast lane busy:", res.status, "attempt", attempt + 1);
+        continue;
+      }
+      if (!res.ok) continue;
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length < 2000) continue; // error page / blank — reject
+      const head = buf.subarray(0, 4).toString("hex");
+      if (!head.startsWith("ffd8") && !head.startsWith("8950")) continue; // not JPEG/PNG
+      fs.mkdirSync(ASSET_DIR, { recursive: true });
+      const id = randomUUID().replace(/-/g, "").slice(0, 20);
+      fs.writeFileSync(path.join(ASSET_DIR, id + ".jpg"), buf);
+      return { url: `/api/asset/${id}`, model: "fast-painter" };
+    } catch (e) {
+      console.error("[imagine] fast painter failed:", String(e).slice(0, 140));
+    }
   }
+  return null;
 }
 
 async function paint(
@@ -137,7 +148,7 @@ async function paint(
       if (model) body.model = model;
       const res = (await Promise.race([
         zai.images.generations.create(body as Parameters<typeof zai.images.generations.create>[0]),
-        withJail(150000),
+        withJail(45000), // dead quota lanes must not hang the request for minutes
       ])) as { data?: { base64?: string }[] } | null;
       const b64 = res?.data?.[0]?.base64;
       if (!b64) {
