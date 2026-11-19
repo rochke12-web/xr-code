@@ -1,4 +1,4 @@
-git status'use client'
+'use client'
 
 import { useEffect, useState, type ReactNode } from 'react'
 import { getApps, initializeApp } from 'firebase/app'
