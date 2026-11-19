@@ -159,6 +159,26 @@ html.theme-fade,html.theme-fade body,html.theme-fade *,html.theme-fade *::before
 .theme-quick .ic{transition:transform .5s var(--spring)}
 .theme-quick:active .ic{transform:rotate(-120deg) scale(.82)}
 
+/* ---------- theme switch cinema: the ink curtain (works in every browser) ---------- */
+/* full-screen monochrome curtain wipes across from the toggle's side, the theme
+   snaps under cover, then the curtain slides out — a bright leading edge rides
+   the frontier. VT-capable browsers get the radial circle instead. */
+#themeCurtain{position:fixed;top:0;bottom:0;left:0;right:0;z-index:2147483000;pointer-events:none;opacity:0;background:#050505;clip-path:inset(0 100% 0 0)}
+#curEdge{position:fixed;top:0;bottom:0;left:0;width:2px;z-index:2147483001;pointer-events:none;opacity:0;box-shadow:0 0 24px 4px rgba(140,140,140,.4)}
+@keyframes theme-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.theme-quick.spin .ic{animation:theme-spin .72s var(--spring)}
+
+/* press feedback: everything you tap answers with a tiny spring */
+.model-pill:active,.send-btn:active,.file-btn:active,.mmenu button:active{transform:scale(.94);transition:transform .16s var(--spring)}
+
+/* send button: a white shine sweeps across on hover */
+@media(hover:hover){
+  .send-btn{position:relative;overflow:hidden}
+  .send-btn::after{content:'';position:absolute;inset:0;background:linear-gradient(110deg,transparent 35%,rgba(255,255,255,.3) 50%,transparent 65%);transform:translateX(-130%);transition:transform .55s var(--ease)}
+  .send-btn:hover::after{transform:translateX(130%)}
+}
+:root[data-theme="light"] .send-btn::after{background:linear-gradient(110deg,transparent 35%,rgba(0,0,0,.14) 50%,transparent 65%)}
+
 /* ---------- scrollbars ---------- */
 ::-webkit-scrollbar{width:8px;height:8px}
 ::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
@@ -914,6 +934,10 @@ body::after{
   @keyframes msg-u{from{opacity:0;transform:translateX(18px) translateY(8px)}to{opacity:1;transform:none}}
   @keyframes msg-a{from{opacity:0;transform:translateX(-18px) translateY(8px)}to{opacity:1;transform:none}}
   .gen-media{animation:riseIn .5s var(--spring) both}
+  /* mode menu: options cascade in one after another */
+  .mmenu.open button{animation:mm-in .32s var(--spring) backwards}
+  .mmenu.open button:nth-child(2){animation-delay:.06s}
+  .mmenu.open button:nth-child(3){animation-delay:.12s}
   /* the white trail in chat — mirrors the home hero sheen */
   .chat-head .cht{
     color:transparent;
@@ -1178,6 +1202,9 @@ body.kbd-open .composer{padding-bottom:10px}
 </div>
 
 <div class="toasts" id="toasts"></div>
+
+<div id="themeCurtain" aria-hidden="true"></div>
+<div id="curEdge" aria-hidden="true"></div>
 
 <script>/* ===== discord gate (members only) ===== */
 (function(){
@@ -1572,6 +1599,8 @@ function setTheme(th){
   const rootEl = document.documentElement;
   S.theme = th; save();
   const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const qbtn = document.getElementById('themeQuick');
+  if(qbtn && !reduce){ qbtn.classList.remove('spin'); void qbtn.offsetWidth; qbtn.classList.add('spin'); setTimeout(() => qbtn.classList.remove('spin'), 740); }
   if(document.startViewTransition && !reduce){  // directional radial wipe
     let x, y;                                    // -> light: top right (button) | -> dark: bottom left
     if(th === 'light'){
@@ -1589,12 +1618,48 @@ function setTheme(th){
         { duration: 650, easing: 'cubic-bezier(.45,0,.2,1)', pseudoElement: '::view-transition-new(root)' }
       );
     }).catch(() => {});
-  }else{                                         // fallback: smooth whole-page color cross-fade
+  }else if(!reduce){                             // the ink curtain — a real moment in every browser
+    curtainSweep(th);
+  }else{                                         // reduced motion: calm color cross-fade
     rootEl.classList.add('theme-fade');
     applyTheme();
     setTimeout(() => rootEl.classList.remove('theme-fade'), 680);
   }
   toast(th === 'dark' ? 'Dark mode on' : 'Light mode on');
+}
+function curtainSweep(th){                       // monochrome curtain + bright edge, sync'd transforms
+  const cur = document.getElementById('themeCurtain'), edge = document.getElementById('curEdge');
+  if(!cur || !edge){ rootEl.classList.add('theme-fade'); applyTheme(); setTimeout(() => rootEl.classList.remove('theme-fade'), 680); return; }
+  const btn = document.getElementById('themeQuick');
+  let x = innerWidth / 2;
+  if(btn){ const r = btn.getBoundingClientRect(); x = r.left + r.width / 2; }
+  const fromL = x <= innerWidth / 2;             // wipe travels with the button's side
+  const E = 'cubic-bezier(.65,0,.35,1)';
+  cur.style.transition = edge.style.transition = 'none';
+  cur.style.transform = edge.style.transform = 'none';
+  cur.style.background = th === 'dark' ? '#050505' : '#fafafa';
+  edge.style.background = th === 'dark' ? '#ffffff' : '#0a0a0a';
+  if(fromL){ cur.style.clipPath = 'inset(0 100% 0 0)'; edge.style.left = '-2px'; }
+  else{ cur.style.clipPath = 'inset(0 0 0 100%)'; edge.style.left = (innerWidth - 2) + 'px'; }
+  void cur.offsetWidth;                          // flush styles before animating
+  cur.style.opacity = '1'; edge.style.opacity = '1';
+  cur.style.transition = 'clip-path .42s ' + E;
+  edge.style.transition = 'left .42s ' + E;
+  cur.style.clipPath = 'inset(0 0 0 0)';
+  edge.style.left = fromL ? (innerWidth - 2) + 'px' : '-2px';
+  setTimeout(() => {
+    applyTheme();                                // theme snaps under cover
+    cur.style.transition = 'transform .5s ' + E;
+    edge.style.transition = 'transform .5s ' + E;
+    cur.style.transform = 'translateX(' + (fromL ? '100%' : '-100%') + ')';
+    edge.style.transform = 'translateX(' + (fromL ? '101vw' : '-101vw') + ')';
+    setTimeout(() => {
+      cur.style.opacity = '0'; edge.style.opacity = '0';
+      cur.style.transition = edge.style.transition = 'none';
+      cur.style.transform = edge.style.transform = 'none';
+      cur.style.clipPath = 'inset(0 100% 0 0)';
+    }, 520);
+  }, 440);
 }
 
 /* ---------- hosted AI (one brain on the XR-Code server — no keys, no model picking) ---------- */
