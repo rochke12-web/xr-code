@@ -38,9 +38,9 @@ const SIZES = new Set(["1024x1024", "768x1344", "864x1152", "1344x768", "1152x86
 const ASSET_DIR = assetDir();
 
 // enhancer lanes: flash models FIRST (2-5s), kimi as quality backup. The
-// painter engine itself needs ~34s through the gateway (measured 2026-11-16),
-// so the enhancer must never add real latency — an 8s cap keeps the total
-// paint job as close to the engine floor as physics allows.
+// primary painter is the zero-auth fast lane (~6s measured 2026-11-19), so
+// the enhancer must never add real latency — an 8s cap keeps the total paint
+// job inside the fast lane's own floor.
 const ENHANCERS = ["glm-4.5-flash", "dpsk-4.1-flash", "kimi-k2", "glm-4.6"];
 const PAINTERS: (string | undefined)[] = [
   "gemini-3-pro-image-preview", // nano banana pro — primary painter
@@ -97,11 +97,39 @@ async function enhance(prompt: string, style: string, base: string): Promise<{ t
   return null;
 }
 
-// the painter: nano banana pro first, then nano banana, then the default lane
+// the painter: Pollinations fast lane first (zero-auth FLUX-class, measured
+// 6.1s/1024px from this host, 2026-11-19), then nano banana pro, nano banana,
+// and the gateway default lane as quality fallbacks
+async function paintFast(prompt: string, size: string): Promise<{ url: string; model: string } | null> {
+  try {
+    const [w, h] = size.split("x").map(Number);
+    const url = "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt.slice(0, 1800)) +
+      `?width=${w}&height=${h}&nologo=true&nofeed=true&seed=${Math.floor(Math.random() * 1e9)}`;
+    const res = (await Promise.race([
+      fetch(url, { signal: AbortSignal.timeout(28000) }),
+      withJail(30000),
+    ])) as Response | null;
+    if (!res || !res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 2000) return null; // error page / blank — reject
+    const head = buf.subarray(0, 4).toString("hex");
+    if (!head.startsWith("ffd8") && !head.startsWith("8950")) return null; // not JPEG/PNG
+    fs.mkdirSync(ASSET_DIR, { recursive: true });
+    const id = randomUUID().replace(/-/g, "").slice(0, 20);
+    fs.writeFileSync(path.join(ASSET_DIR, id + ".jpg"), buf);
+    return { url: `/api/asset/${id}`, model: "fast-painter" };
+  } catch (e) {
+    console.error("[imagine] fast painter failed:", String(e).slice(0, 160));
+    return null;
+  }
+}
+
 async function paint(
   prompt: string,
   size: string
 ): Promise<{ url: string; model: string } | null> {
+  const fast = await paintFast(prompt, size);
+  if (fast) return fast;
   for (const model of PAINTERS) {
     try {
       const zai = await ZAI.create();
