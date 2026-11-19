@@ -3,7 +3,7 @@ import { firebaseAuth, verifiedGoogleSession } from '@/lib/firebase-server';
 
 const origin = 'https://xr-code.vercel.app';
 const maxAge = 5 * 24 * 60 * 60;
-function sameOrigin(req: Request) { return req.headers.get('origin') === origin; }
+function sameOrigin(req: Request) { return [origin, 'https://xr-code-git-google-login-fix-ict-oxford.vercel.app'].includes(req.headers.get('origin') || ''); }
 function cookie(value: string, age: number) {
   return `__Host-xr_google=${encodeURIComponent(value)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${age}`;
 }

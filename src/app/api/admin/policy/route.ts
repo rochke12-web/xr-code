@@ -15,7 +15,7 @@ export async function GET(req: Request) {
   } catch { return NextResponse.json({error:'invalid_email_or_unavailable'}, {status:400}); }
 }
 export async function PUT(req: Request) {
-  if (req.headers.get('origin') !== 'https://xr-code.vercel.app') return NextResponse.json({error:'origin'}, {status:403});
+  if (![ 'https://xr-code.vercel.app', 'https://xr-code-git-google-login-fix-ict-oxford.vercel.app' ].includes(req.headers.get('origin') || '')) return NextResponse.json({error:'origin'}, {status:403});
   if (!await isAdmin(req)) return NextResponse.json({error:'forbidden'}, {status:403});
   try {
     const body = await req.json();
