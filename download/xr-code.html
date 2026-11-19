@@ -367,7 +367,50 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
   padding:8px 12px;font-size:12.5px;outline:none;color:var(--text);
   transition:border-color .25s,box-shadow .25s;
 }
-.chat-search input:focus{border-color:var(--accent-2);box-shadow:0 0 0 3px var(--line-soft)}
+.chat-search input:focus{border-color:var(--accent-2);box-shadow:0 0 0 3px var(--line-soft),0 0 16px 1px var(--glow)}
+
+/* ===== Engine list in Settings (static mirror of the mode-menu buttons) ===== */
+.engine-list{display:flex;flex-direction:column;gap:4px;margin-top:12px}
+.engine-list button{
+  display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;text-align:left;
+  padding:11px 13px;border-radius:10px;font-size:12.5px;font-weight:600;color:var(--text);
+  border:1px solid transparent;background:transparent;cursor:pointer;position:relative;
+  transition:background .16s,border-color .16s,transform .18s var(--ease);
+}
+.engine-list button small{font-weight:500;color:var(--muted);font-size:11px}
+.engine-list button:hover{background:var(--panel);transform:translateY(-1px)}
+.engine-list button:active{transform:scale(.985)}
+.engine-list button.current{border-color:var(--line);background:var(--panel-2);color:var(--accent)}
+.engine-list button.current small{color:var(--text-dim)}
+
+/* ===== white glowing Search (sidebar) — theme-aware via --glow ===== */
+@keyframes glowWhite{
+  0%,100%{box-shadow:0 0 0 0 var(--glow),0 0 9px 0 var(--glow)}
+  50%{box-shadow:0 0 0 2px var(--glow),0 0 22px 3px var(--glow)}
+}
+#btnSearch{border-radius:10px}
+#btnSearch.glow{animation:glowWhite 2.8s var(--ease) infinite}
+
+/* ===== cross-platform hardening — Windows / macOS / iPhone / Android ===== */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+html,body{overflow-x:hidden;max-width:100vw}
+*{-webkit-tap-highlight-color:transparent}
+button{touch-action:manipulation}
+.sidebar,.chat-list,.msgs,.search-list{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+
+/* ===== polish animations (skipped when the user prefers reduced motion) ===== */
+@media (prefers-reduced-motion:no-preference){
+  .msg .bubble{animation:riseIn .3s var(--ease) backwards}
+  .logo-img{animation:logoBreathe 6s var(--ease) infinite}
+  .gen-chip:hover{transform:translateY(-2px)}
+  .gen-chip.on{box-shadow:0 0 14px -2px var(--glow)}
+  .panel{transition:box-shadow .3s}
+  .panel:hover{box-shadow:0 10px 34px -20px var(--glow)}
+  #btnSearch .ic{transition:transform .3s var(--spring)}
+  #btnSearch:hover .ic{transform:scale(1.18)}
+  .mini-btn:active,.gen-chip:active{transform:scale(.94)}
+}
+@keyframes logoBreathe{0%,100%{filter:drop-shadow(0 0 0 rgba(255,255,255,0))}50%{filter:drop-shadow(0 0 13px var(--glow))}}
 .search-list{flex:1;overflow-y:auto;min-height:60px;padding:8px 12px;display:flex;flex-direction:column;gap:2px}
 .sr-item{display:block;width:100%;text-align:left;padding:9px 11px;border-radius:10px;transition:background .18s,transform .2s}
 .sr-item:hover{background:var(--panel-2);transform:translateX(3px)}
@@ -987,14 +1030,6 @@ body.kbd-open .composer{padding-bottom:10px}
               <button type="button" data-mode="image"><b>Image Mode</b><small>text → art — describe it, styles, refine it — painted in seconds</small></button>
               <button type="button" data-mode="koder"><b>Koder Mode</b><small>code, debug &amp; build — the full developer brain</small></button>
               <button type="button" data-mode="qna"><b>QnA Mode</b><small>sources never shown</small></button>
-              <button type="button" data-mode="video"><b>Director Mode</b><small>text → film — the brain storyboards scenes, narrates, renders the video</small></button>
-              <div class="msec">Engine</div>
-              <button type="button" data-model="auto"><b>Auto — XR flagship</b><small>the hosted brain · always the best default</small></button>
-              <button type="button" data-model="prime-v1"><b>Prime</b><small>flagship brain · deep reasoning &amp; big builds</small></button>
-              <button type="button" data-model="prime-v1-flash"><b>Prime Flash</b><small>fast lane · quick answers &amp; code</small></button>
-              <div class="msec">Vision · Upcoming</div>
-              <button type="button" class="soon" data-soon="XR Eye"><b>XR Eye<span class="tag">Soon</span></b><small>deep multimodal read — charts, docs, handwriting, screens</small></button>
-              <button type="button" class="soon" data-soon="XR Cinema"><b>XR Cinema<span class="tag">Soon</span></b><small>minutes-long films with voice, sound &amp; cuts</small></button>
             </div>
           </div>
           <input id="homeInput" autocomplete="off" placeholder="What would you like to do with XR-Code?">
@@ -1021,14 +1056,6 @@ body.kbd-open .composer{padding-bottom:10px}
             <button type="button" data-mode="image"><b>Image Mode</b><small>text → art — describe it, styles, refine it — painted in seconds</small></button>
             <button type="button" data-mode="koder"><b>Koder Mode</b><small>code, debug &amp; build — the full developer brain</small></button>
             <button type="button" data-mode="qna"><b>QnA Mode</b><small>sources never shown</small></button>
-            <button type="button" data-mode="video"><b>Director Mode</b><small>text → film — the brain storyboards scenes, narrates, renders the video</small></button>
-            <div class="msec">Engine</div>
-            <button type="button" data-model="auto"><b>Auto — XR flagship</b><small>the hosted brain · always the best default</small></button>
-            <button type="button" data-model="prime-v1"><b>Prime</b><small>flagship brain · deep reasoning &amp; big builds</small></button>
-            <button type="button" data-model="prime-v1-flash"><b>Prime Flash</b><small>fast lane · quick answers &amp; code</small></button>
-            <div class="msec">Vision · Upcoming</div>
-            <button type="button" class="soon" data-soon="XR Eye"><b>XR Eye<span class="tag">Soon</span></b><small>deep multimodal read — charts, docs, handwriting, screens</small></button>
-            <button type="button" class="soon" data-soon="XR Cinema"><b>XR Cinema<span class="tag">Soon</span></b><small>minutes-long films with voice, sound &amp; cuts</small></button>
           </div>
         </div>
         <div class="gen-chips" id="genChips" hidden>
@@ -1044,6 +1071,15 @@ body.kbd-open .composer{padding-bottom:10px}
     <section id="view-settings" class="view">
       <div class="settings-wrap">
         <div class="settings-col">
+          <div class="panel">
+            <h3><i class="ic big" data-ic="i-cpu"></i> Engine</h3>
+            <div class="engine-list" id="engineList">
+              <button type="button" data-model="auto"><b>Auto — XR flagship</b><small>the hosted brain · always the best default</small></button>
+              <button type="button" data-model="prime-v1"><b>Prime</b><small>flagship brain · deep reasoning &amp; big builds</small></button>
+              <button type="button" data-model="prime-v1-flash"><b>Prime Flash</b><small>fast lane · quick answers &amp; code</small></button>
+            </div>
+            <p class="note">The engine rides every mode. Auto is recommended — it always picks the best brain for the job.</p>
+          </div>
           <div class="panel">
             <h3><i class="ic big" data-ic="i-sun"></i> Theme</h3>
             <div class="seg" id="themeSeg">
@@ -1365,7 +1401,7 @@ function defaults(){
     chats: [],
     active: null,
     model: 'auto',             // engine: 'auto' (flagship brain) | 'prime-v1' | 'prime-v1-flash'
-    mode: 'koder',             // 'koder' | 'qna' | 'image' | 'video'
+    mode: 'koder',             // 'koder' | 'qna' | 'image'
     imgStyle: 'auto',          // Image mode style preset
     imgSize: '1024x1024',      // Image mode canvas ratio
     lastSync: null
@@ -1379,7 +1415,8 @@ let S = load() || defaults();
   if(!S.model || !/^(auto$|prime-)/.test(S.model)) S.model = 'auto';  // legacy glm-* values map to Auto
   if(S.model === 'prime-v1-vision' || S.model === 'prime-vision') S.model = 'auto';  // vision engine option retired
   if(S.mode === 'sight' || S.mode === 'imagine') S.mode = 'image';   // visual modes merged into Image Mode
-  if(S.mode !== 'koder' && S.mode !== 'qna' && S.mode !== 'image' && S.mode !== 'video') S.mode = 'koder';   // four modes: koder | qna | image | video
+  if(S.mode === 'video') S.mode = 'koder';                           // films ride the brain now
+  if(S.mode !== 'koder' && S.mode !== 'qna' && S.mode !== 'image') S.mode = 'koder';   // three modes: koder | qna | image
   if(!['auto','photoreal','anime','cinematic','digital','render3d','watercolor','pixel'].includes(S.imgStyle)) S.imgStyle = 'auto';
   if(!['1024x1024','768x1344','864x1152','1344x768','1152x864'].includes(S.imgSize)) S.imgSize = '1024x1024';
   if(S.user && S.user.provider === 'api') S.user = null;
@@ -1627,7 +1664,7 @@ function renderChatList(){
 }
 
 /* ---------- mode picker — Koder / QnA (the GLM family stays behind it) ---------- */
-const MODES = { image: { n: 'Image', ic: 'i-img' }, koder: { n: 'Koder', ic: 'i-cpu' }, qna: { n: 'QnA', ic: 'i-qna' }, video: { n: 'Director', ic: 'i-play' } };
+const MODES = { image: { n: 'Image', ic: 'i-img' }, koder: { n: 'Koder', ic: 'i-cpu' }, qna: { n: 'QnA', ic: 'i-qna' } };
 function renderModel(){
   const md = MODES[S.mode] || MODES.koder;
   $$('.model-pill').forEach(pill => {
@@ -1635,11 +1672,11 @@ function renderModel(){
     const use = pill.querySelector('svg.ic use'); if(use) use.setAttribute('href', '#' + md.ic);
   });
   $$('#homeModeMenu button[data-mode],#chatModeMenu button[data-mode]').forEach(b => b.classList.toggle('current', b.dataset.mode === S.mode));
-  $$('#homeModeMenu button[data-model],#chatModeMenu button[data-model]').forEach(b => b.classList.toggle('current', b.dataset.model === S.model));
+  $$('#homeModeMenu button[data-model],#chatModeMenu button[data-model],#engineList button[data-model]').forEach(b => b.classList.toggle('current', b.dataset.model === S.model));
   const chip = $('#chatModelChip');
   if(chip) chip.textContent = S.model === 'prime-v1' ? 'Prime' : S.model === 'prime-v1-flash' ? 'Prime Flash' : 'Hosted by Z.ai';
   const gc = $('#genChips'); if(gc) gc.hidden = S.mode !== 'image';
-  const ci = $('#chatInput'); if(ci) ci.placeholder = S.mode === 'image' ? 'Describe the image to paint… (a follow-up like “make it night” refines the last one)' : S.mode === 'video' ? 'Describe the film to direct…' : 'Message XR Code...';
+  const ci = $('#chatInput'); if(ci) ci.placeholder = S.mode === 'image' ? 'Describe the image to paint… (a follow-up like “make it night” refines the last one)' : 'Message XR Code...';
 }
 /* ---------- Image mode: style + ratio chips ---------- */
 const IMG_STYLES = [ ['auto','Auto'], ['photoreal','Photoreal'], ['anime','Anime'], ['cinematic','Cinematic'], ['digital','Art'], ['render3d','3D'], ['watercolor','Watercolor'], ['pixel','Pixel'] ];
@@ -1683,7 +1720,7 @@ $$('#homeModeMenu button[data-mode],#chatModeMenu button[data-mode]').forEach(b 
     toast('Mode: ' + (MODES[S.mode] || MODES.koder).n);
   });
 });
-$$('#homeModeMenu button[data-model],#chatModeMenu button[data-model]').forEach(b => {
+$$('#homeModeMenu button[data-model],#chatModeMenu button[data-model],#engineList button[data-model]').forEach(b => {
   b.addEventListener('click', (e) => {
     e.stopPropagation();
     S.model = b.dataset.model;
@@ -2012,54 +2049,6 @@ async function askBrain(c, text, atts){
       chip.textContent = 'offline';
       pen.remove();
       typeReply(c, splitFence('The art models are warming up right now — give it a moment and try again.'), null);
-    }
-    return;
-  }
-  if(S.mode === 'video' && (text || '').trim()){         // Director mode — the brain makes any video: storyboard, scenes, narration, render
-    chip.textContent = 'directing…';
-    body0.innerHTML = '<span class="paint-label">setting the scene…</span>';
-    let d = null, vstatus = 0;
-    try{
-      const res = await fetch(API_BASE + '/api/video', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'story', prompt: text, scenes: 2, narrate: true, size: '1920x1080' })
-      });
-      vstatus = res.status;
-      d = await res.json().catch(() => null);
-      if(res.status === 401 && d && d.error === 'auth'){      // members gate bounced this film
-        chip.textContent = 'Hosted by Z.ai'; pen.remove();
-        window.dsShowLock(d.auth); return;
-      }
-      if(!(d && d.ok)) d = null;
-    }catch(e){ d = null; }
-    if(!(d && d.id)){
-      chip.textContent = 'offline'; pen.remove();
-      typeReply(c, splitFence(vstatus === 404 || vstatus === 405
-        ? 'The film studio isn\'t available on this host — Director Mode runs on the full app.'
-        : 'The film studio is warming up right now — give it a moment and try again.'), null);
-      return;
-    }
-    let lastLine = '';
-    const t0 = Date.now();
-    let j = null;
-    while(Date.now() - t0 < 60 * 60000){                     // films take a while under the video API's rate limit — progress is live
-      await new Promise(r => setTimeout(r, 8000));
-      let jd = null;
-      try{ jd = (await (await fetch(API_BASE + '/api/video?id=' + d.id)).json())?.job; }catch(e){ continue; }
-      if(!jd) continue;
-      j = jd;
-      const line = (jd.step === 'scene' || jd.note) ? String(jd.note || jd.step) : jd.step;
-      if(line && line !== lastLine){ lastLine = line; body0.innerHTML = '<span class="paint-label">🎬 ' + line.replace(/</g, '&lt;') + '</span>'; }
-      if(jd.status === 'done' || jd.status === 'error') break;
-    }
-    if(j && j.status === 'done' && j.result && j.result.url){
-      chip.textContent = 'Hosted by Z.ai';
-      const mins = Math.round((Date.now() - t0) / 60000);
-      typeReply(c, Object.assign(splitFence('🎬 Here\'s your film' + (mins >= 1 ? ' — shot in about ' + mins + ' min' : '') + '.'), { asset: { type: 'video', url: j.result.url, prompt: text } }), pen);
-    }else{
-      chip.textContent = 'offline'; pen.remove();
-      typeReply(c, splitFence('The render didn\'t make it this time — the studio is busy. Try again in a few minutes.'), null);
     }
     return;
   }
@@ -2501,6 +2490,7 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
 
 $('#btnHome').onclick = () => showView('home');
 $('#btnProject').onclick = () => { S.active = null; save(); showView('chat'); save(); $('#chatInput').focus(); toast('New project started'); };
+$('#btnSearch').classList.add('glow');                       // white glow pulse — the search beacon
 $('#btnSearch').onclick = () => {
   const w = $('#chatSearchWrap');
   w.classList.toggle('open');
