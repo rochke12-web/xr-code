@@ -7,6 +7,7 @@ import os from "os";
 import { randomUUID } from "crypto";
 import { execFile } from "child_process";
 import { assetDir } from "../../../lib/asset-dir";
+import { produceBinary } from "../../../lib/xrbuild";
 import { verifyDiscord } from "../../../lib/xrauth";
 import { XR_SECRETS } from "../../../lib/xrsecrets";
 import { addUsage, overLimit, DAILY_TOKEN_LIMIT, estTokens } from "../../../lib/xrstore";
@@ -173,13 +174,17 @@ const TOOL_RULES =
   "If the user asks for a ZIP archive or several files at once (a small project, a bundle), reply with ONLY:\n" +
   '{"action":"zip","name":"<archive-name>","files":[{"name":"<file1.ext>","content":"<full content>"},{"name":"<file2.ext>","content":"<full content>"}]}\n' +
   "File rules: up to 12 files, each under 30000 characters; keep the user's requested extension exactly (.xml, .md, .cpp, .py, .json, .html, .csv …). Produce COMPLETE, working content — never placeholders.\n" +
-  "For .exe / .dll requests you CANNOT compile Windows binaries on the server — instead put the complete source code, a build script (build.bat with cl.exe/g++/cmake commands, or CMakeLists.txt) and a README into ONE zip, and say plainly that the user compiles it locally with one command.\n" +
+  "If the user asks you to BUILD a real Windows .exe program, .dll library, executable, compiled app or game (they will say exe / dll / executable / compile), reply with ONLY:\n" +
+  '{"action":"exe","name":"<short-program-name>","lang":"c","files":[{"name":"main.c","content":"<complete compilable C source>"}]}\n' +
+  '(use "lang":"cpp" and name the source main.cpp for C++; use "action":"dll" and mark exports with __declspec(dllexport) for a library). The server cross-compiles REAL Windows x64 binaries (zig cc). Write complete standard-library C/C++: a console main() that does exactly what the user asked, output via printf/cout, no external libraries, no OS-specific headers beyond windows.h basics. Up to 12 files (main source + headers).\n' +
+  "For a compiled binary in any OTHER language (Python, C#, Go, Java, Rust …) native exe is not possible — use the zip directive with the full source, a build script and a README, and say plainly that it compiles locally.\n" +
   "In all cases: no prose, no code fence, no markdown around it — ONLY the JSON object.\n" +
   "For every other request reply normally and never emit action JSON.";
 
 type Action =
   | { action: "image" | "video"; prompt: string; size?: string; with_audio?: boolean }
   | { action: "file" | "zip"; name: string; files: { name: string; content: string }[] }
+  | { action: "exe" | "dll"; name: string; lang?: string; files: { name: string; content: string }[] }
   | { action: "search"; query: string };
 
 // a real directive is a SHORT reply that IS a JSON object — long answers with a
@@ -189,7 +194,7 @@ type Action =
 function parseAction(reply: string | null): Action | null {
   if (!reply) return null;
   const s = reply.trim().replace(/^```[a-z]*\s*/i, "").replace(/\s*```$/, "").trim();
-  const isFileDir = s.startsWith('{"action":"file"') || s.startsWith('{"action":"zip"');
+  const isFileDir = s.startsWith('{"action":"file"') || s.startsWith('{"action":"zip"') || s.startsWith('{"action":"exe"') || s.startsWith('{"action":"dll"');
   if (s.length > (isFileDir ? 600000 : 600) || !s.startsWith("{")) return null;
   try {
     const o = JSON.parse(s) as Record<string, unknown>;
@@ -207,7 +212,7 @@ function parseAction(reply: string | null): Action | null {
         with_audio: o.with_audio === true,
       };
     }
-    if (o.action === "file" || o.action === "zip") {
+    if (o.action === "file" || o.action === "zip" || o.action === "exe" || o.action === "dll") {
       const safeName = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,90}$/;
       const files = (Array.isArray(o.files) ? o.files : [])
         .map((f) => ({
@@ -218,6 +223,10 @@ function parseAction(reply: string | null): Action | null {
         .slice(0, 12);
       if (!files.length) return null;
       const nm = typeof o.name === "string" && safeName.test(o.name.trim()) ? o.name.trim().replace(/\s+/g, "_") : files[0].name;
+      if (o.action === "exe" || o.action === "dll") {
+        const lang = o.lang === "cpp" || o.lang === "c" ? o.lang : undefined;
+        return { action: o.action, name: nm, lang, files };
+      }
       return { action: o.action, name: nm, files };
     }
   } catch {
@@ -280,11 +289,22 @@ async function produceFiles(act: { action: string; name?: string; files: { name:
   }
 }
 
-// one creation dispatcher for every tool site (image / video / file / zip)
-async function runCreation(act: Action): Promise<{ url: string; name?: string; size?: number; cover?: string } | null> {
+// one creation dispatcher for every tool site (image / video / file / zip / exe / dll)
+async function runCreation(act: Action): Promise<{ url: string; name?: string; size?: number; cover?: string; kind?: string } | null> {
   if (act.action === "image") return runImageGen(act.prompt, act.size);
   if (act.action === "video") return runVideoGen(act.prompt, act.with_audio === true);
   if (act.action === "file" || act.action === "zip") return produceFiles(act);
+  // exe / dll — real Windows binary; if the compile fails the sources the
+  // brain already wrote are still delivered as a zip (never an empty answer)
+  if (act.action === "exe" || act.action === "dll") {
+    const bin = await produceBinary(act);
+    if (bin) return bin;
+    return produceFiles({
+      action: "zip",
+      name: (act.name || "xr-code-app") + "-source",
+      files: act.files,
+    });
+  }
   return null;
 }
 
@@ -966,7 +986,7 @@ export async function POST(req: Request) {
         text: prefix + (composed.text || (a.action === "image" ? "Here it is — freshly generated for you." : a.action === "video" ? "Here's your clip — freshly generated for you." : "Here's your file — ready to download.")),
         engine: "xr-code",
         mode,
-        asset: { type: a.action, ...asset, prompt: (a as { prompt: string }).prompt },
+        asset: { type: asset.kind || a.action, ...asset, prompt: (a as { prompt: string }).prompt },
         trace,
         vision: visionBlock || undefined,
       });
@@ -1091,7 +1111,7 @@ export async function POST(req: Request) {
     text,
     engine: "xr-code",
     mode,
-    asset: asset ? { type: act.action, ...asset, prompt: (act as { prompt: string }).prompt } : undefined,
+    asset: asset ? { type: asset.kind || act.action, ...asset, prompt: (act as { prompt: string }).prompt } : undefined,
     vision: visionBlock || undefined,
   });
 }

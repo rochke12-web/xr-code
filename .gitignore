@@ -63,3 +63,7 @@ db/usage/
 
 # BYOK vault — encrypted user API keys never belong in git
 /db/keys/
+
+# zig toolchain: only the tarball is committed; the extracted tree is
+# recreated lazily at runtime by the binary factory (src/lib/xrbuild.ts)
+/toolchain/zig/

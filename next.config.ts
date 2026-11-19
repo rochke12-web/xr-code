@@ -25,6 +25,9 @@ const nextConfig: NextConfig = {
       "./examples/**/*",
       "./tests/**/*",
       "./mini-services/**/*",
+      // the zig toolchain stays in the repo itself (extracted on first use from
+      // the committed tarball) — never sweep 250MB of compiler into the package
+      "./toolchain/**/*",
       // runtime user data is created on the runner, never baked into the package
       "./db/assets/**/*",
       "./db/chats/**/*",
