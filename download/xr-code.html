@@ -1004,10 +1004,7 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
 .resizer{width:6px;flex:none;order:-1;cursor:col-resize;background:transparent;transition:background .2s}
 .resizer:hover,.resizer.drag{background:var(--accent-2)}
 </style>
-<script>/* pre-paint effects gate: apply the saved Effects choice before the first
-   frame paints, so a debloated PC (OS reduced-motion) never sees animation flash */
-try{var _s=JSON.parse(localStorage.getItem('xrcode.v1')||'{}'),_a=_s.anim||'auto';
-if(_a==='off'||(_a==='auto'&&matchMedia('(prefers-reduced-motion: reduce)').matches))document.documentElement.classList.add('anim-off')}catch(e){}</script>
+
 </head>
 <body>
 
@@ -1114,15 +1111,6 @@ if(_a==='off'||(_a==='auto'&&matchMedia('(prefers-reduced-motion: reduce)').matc
               <button type="button" data-th="dark" id="thDark"><i class="ic small" data-ic="i-moon"></i> Dark</button>
             </div>
           </div>
-          <div class="panel">
-            <h3><i class="ic big" data-ic="i-play"></i> Effects</h3>
-            <div class="seg" id="animSeg">
-              <button type="button" data-anim="auto">Auto</button>
-              <button type="button" data-anim="on">Always</button>
-              <button type="button" data-anim="off">Off</button>
-            </div>
-            <p class="note">Auto follows your system's motion setting. Set Always if your OS (a debloated PC) reports reduced motion but you still want every animation.</p>
-          </div>
 
           <div class="panel">
             <h3><i class="ic big" data-ic="i-cloud"></i> Chats &amp; Account</h3>
@@ -1155,6 +1143,10 @@ if(_a==='off'||(_a==='auto'&&matchMedia('(prefers-reduced-motion: reduce)').matc
               <button class="mini-btn danger" id="byokDel" type="button">Remove</button>
             </div>
             <p class="note" id="byokStatus">Bring your own key: it is encrypted on the XR-Code server, used only for your account, and never shown again. Your replies then ride YOUR key first — the hosted brain stays as backup, so the chat never goes dark.</p>
+          </div>
+          <div class="panel">
+            <h3>Account</h3>
+            <button class="mini-btn" id="googleSignOut" type="button">Sign out</button>
           </div>
         </div>
       </div>
@@ -1363,8 +1355,10 @@ function showView(name){
     sec.classList.add(order[name] >= order[prevName] ? 'slide-fwd' : 'slide-bck');
   }
   curView = name;
+  $('#chatSearchWrap').classList.remove('open');
   syncTabs();
   if(name === 'chat') renderChat();
+  else renderChatList();
 }
 function syncTabs(){                              // one source of truth for the selected tab
   const wrap = $('#chatSearchWrap');
@@ -1372,7 +1366,7 @@ function syncTabs(){                              // one source of truth for the
   let target;
   if(searchOn) target = $('#btnSearch');
   else if(curView === 'settings') target = $('#btnSettings');
-  else if(curView === 'chat') target = $('#btnProject');
+  else if(curView === 'chat') target = S.active ? null : $('#btnProject');
   else target = $('#btnHome');
   $$('#btnHome,#btnSearch,#btnProject,#btnSettings').forEach(b => b.classList.toggle('current', b === target));
   if(window.__glide) window.__glide(target);
@@ -1387,7 +1381,7 @@ function syncTabs(){                              // one source of truth for the
   nav.appendChild(g);
   let shown = false;
   window.__glide = function(btn){
-    if(!btn) return;
+    if(!btn){ g.classList.add('off'); return; }
     const r = btn.getBoundingClientRect(), n = nav.getBoundingClientRect();
     g.style.height = r.height + 'px';
     g.style.transform = 'translateY(' + Math.round(r.top - n.top) + 'px)';
@@ -1413,15 +1407,9 @@ function applyTheme(){
   document.documentElement.dataset.theme = S.theme;
   $$('#themeSeg button').forEach(b => b.classList.toggle('on', b.dataset.th === S.theme));
 }
-function animMode(){ return S.anim || 'auto'; }
-function animsOff(){                             // effects off when set, or auto + OS asked for calm
-  const m = animMode();
-  return m === 'off' || (m === 'auto' && !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches));
-}
-function applyAnim(){
-  document.documentElement.classList.toggle('anim-off', animsOff());
-  $$('#animSeg button').forEach(b => b.classList.toggle('on', b.dataset.anim === animMode()));
-}
+function animMode(){ return 'on'; }
+function animsOff(){ return false; }
+function applyAnim(){ document.documentElement.classList.remove('anim-off'); }
 function setTheme(th){
   if(th === S.theme) return;                     // same theme -> nothing to animate
   const rootEl = document.documentElement;
@@ -1551,7 +1539,7 @@ function renderChatList(){
   }
   chats.forEach(c => {
     const b = document.createElement('button'); b.type = 'button';
-    b.className = 'cl-item' + (c.id === S.active ? ' current' : '');
+    b.className = 'cl-item' + (curView === 'chat' && !$('#chatSearchWrap').classList.contains('open') && c.id === S.active ? ' current' : '');
     b.innerHTML = '<svg class="ic"><use href="#i-qna"/></svg>';
     const tx = document.createElement('span'); tx.className = 'cl-t'; tx.textContent = c.title || 'New chat';
     const ag = document.createElement('span'); ag.className = 'cl-a'; ag.textContent = ago(c.ts);
@@ -2400,12 +2388,12 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
 
 $('#btnHome').onclick = () => showView('home');
 $('#btnProject').onclick = () => { S.active = null; save(); showView('chat'); save(); $('#chatInput').focus(); toast('New project started'); };
-$('#btnSearch').classList.add('glow');                       // white glow pulse — the search beacon
 $('#btnSearch').onclick = () => {
   const w = $('#chatSearchWrap');
   w.classList.toggle('open');
   if(w.classList.contains('open')){ $('#chatSearch').focus(); runSearch($('#chatSearch').value); }
   syncTabs();
+  renderChatList();
 };
 $('#chatSearch').addEventListener('input', e => runSearch(e.target.value));
 
@@ -2432,11 +2420,7 @@ $('#brandTitle').onclick = () => showView('home');
 $('#themeQuick').onclick = () => setTheme(S.theme === 'dark' ? 'light' : 'dark');
 
 $$('#themeSeg button').forEach(b => b.onclick = () => setTheme(b.dataset.th));
-$$('#animSeg button').forEach(b => b.onclick = () => {
-  S.anim = b.dataset.anim;
-  saveSoon(); applyAnim();
-  toast(b.dataset.anim === 'on' ? 'Effects: always on' : b.dataset.anim === 'off' ? 'Effects: off' : 'Effects: auto — follows your system');
-});
+$('#googleSignOut').onclick = () => window.parent.postMessage({ type: 'xr-google-signout' }, window.location.origin);
 $('#exportBtn').onclick = exportChats;
 $('#clearBtn').onclick = clearAll;
 /* ---------- init ---------- */

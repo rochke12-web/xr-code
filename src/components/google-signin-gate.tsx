@@ -1,4 +1,4 @@
-'use client'
+git status'use client'
 
 import { useEffect, useState, type ReactNode } from 'react'
 import { getApps, initializeApp } from 'firebase/app'
@@ -57,6 +57,15 @@ export default function GoogleSigninGate({ children }: { children: ReactNode }) 
     } catch { setError('Could not sign out. Please try again.') }
     finally { setBusy(false) }
   }
+  useEffect(() => {
+    function handleSignOut(event: MessageEvent) {
+      const frame = document.querySelector<HTMLIFrameElement>('iframe[title="XR-Code"]')
+      if (event.origin !== window.location.origin || !frame || event.source !== frame.contentWindow || event.data?.type !== 'xr-google-signout' || busy) return
+      void logout()
+    }
+    window.addEventListener('message', handleSignOut)
+    return () => window.removeEventListener('message', handleSignOut)
+  }, [busy])
   async function policy(save: boolean) {
     setAdminMessage('');
     try {
@@ -71,7 +80,7 @@ export default function GoogleSigninGate({ children }: { children: ReactNode }) 
   }
   if (status === 'ready') return <><div style={{ position: 'fixed', top: 8, right: 8, zIndex: 100, background:'#18181b', color:'white', padding:8 }}>
     {email.toLowerCase() === 'rochke12@gmail.com' && <button onClick={() => setAdminOpen(!adminOpen)}>Admin</button>}{' '}
-    <button onClick={logout} disabled={busy} aria-label={`Sign out ${email}`}>Sign out</button>
+    {error && <span role="alert">{error}</span>}
     {adminOpen && <section style={{padding:16, width:280, display:'grid', gap:10}}><strong>Account access</strong>
       <label>Email <input type="email" value={targetEmail} onChange={e=>setTargetEmail(e.target.value)} /></label>
       <button onClick={() => policy(false)}>Load policy</button>
