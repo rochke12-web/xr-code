@@ -97,6 +97,32 @@ async function enhance(prompt: string, style: string, base: string): Promise<{ t
   return null;
 }
 
+// the free fast lane stamps a small "pollinations.ai" watermark in the
+// bottom-right corner. Erase it: mirror the clean strip of image right
+// above the watermark band over it, blurred to blend the seam. Never
+// fails the paint — on any error the original buffer ships as-is.
+async function deWatermark(buf: Buffer): Promise<Buffer> {
+  try {
+    const { default: sharp } = await import("sharp");
+    const meta = await sharp(buf).metadata();
+    const w = meta.width, h = meta.height;
+    if (!w || !h || h < 200) return buf;
+    const ph = Math.max(24, Math.round(h * 0.075));   // watermark band ~7.5% of height
+    const pw = Math.min(w - 8, Math.round(h * 0.34)); // band width ~34% of height
+    const px = w - pw, py = h - ph;
+    const sy = Math.max(0, py - ph);                  // clean strip just above the band
+    const strip = await sharp(buf)
+      .extract({ left: px, top: sy, width: pw, height: ph })
+      .flip()
+      .blur(6)
+      .toBuffer();
+    return Buffer.from(await sharp(buf).composite([{ input: strip, left: px, top: py }]).jpeg({ quality: 92 }).toBuffer());
+  } catch (e) {
+    console.error("[imagine] dewatermark skipped:", String(e).slice(0, 100));
+    return buf;
+  }
+}
+
 // the painter: Pollinations fast lane first (zero-auth FLUX-class, measured
 // 6.1s/1024px from this host, 2026-11-19), then nano banana pro, nano banana,
 // and the gateway default lane as quality fallbacks.
@@ -124,9 +150,10 @@ async function paintFast(prompt: string, size: string): Promise<{ url: string; m
       if (buf.length < 2000) continue; // error page / blank — reject
       const head = buf.subarray(0, 4).toString("hex");
       if (!head.startsWith("ffd8") && !head.startsWith("8950")) continue; // not JPEG/PNG
+      const clean = await deWatermark(buf);                              // kill the corner watermark
       fs.mkdirSync(ASSET_DIR, { recursive: true });
       const id = randomUUID().replace(/-/g, "").slice(0, 20);
-      fs.writeFileSync(path.join(ASSET_DIR, id + ".jpg"), buf);
+      fs.writeFileSync(path.join(ASSET_DIR, id + ".jpg"), clean);
       return { url: `/api/asset/${id}`, model: "fast-painter" };
     } catch (e) {
       console.error("[imagine] fast painter failed:", String(e).slice(0, 140));
