@@ -239,7 +239,37 @@ const IMG_SIZES = new Set(["1024x1024", "768x1344", "864x1152", "1344x768", "115
 // stable asset dir OUTSIDE .next — survives rebuilds (standalone cwd is .next/standalone)
 const ASSET_DIR = assetDir();
 
+// Pollinations — zero-auth FLUX-class painter, measured 6.1s/1024px from this
+// host (2026-11-19): 5x faster than the ZAI painter and immune to its quota
+// drama. Primary image engine; ZAI stays as the fallback lane.
+async function pollinationsImage(prompt: string, size?: string): Promise<{ url: string } | null> {
+  try {
+    const [w, h] = (size && IMG_SIZES.has(size) ? size : "1024x1024").split("x").map(Number);
+    const url = "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt.slice(0, 1800)) +
+      `?width=${w}&height=${h}&nologo=true&nofeed=true&seed=${Math.floor(Math.random() * 1e9)}`;
+    const res = (await Promise.race([
+      fetch(url, { signal: AbortSignal.timeout(28000) }),
+      new Promise<null>(r => setTimeout(() => r(null), 30000)),
+    ])) as Response | null;
+    if (!res || !res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 2000) return null; // error page / blank — reject
+    const head = buf.subarray(0, 4).toString("hex");
+    if (!head.startsWith("ffd8") && !head.startsWith("8950")) return null; // not JPEG/PNG
+    fs.mkdirSync(ASSET_DIR, { recursive: true });
+    const id = randomUUID().replace(/-/g, "").slice(0, 20);
+    fs.writeFileSync(path.join(ASSET_DIR, id + ".jpg"), buf);
+    console.error("[image-gen] pollinations ok:", Math.round(buf.length / 1024) + "KB");
+    return { url: `/api/asset/${id}` };
+  } catch (e) {
+    console.error("[image-gen] pollinations failed:", String(e).slice(0, 160));
+    return null;
+  }
+}
+
 async function runImageGen(prompt: string, size?: string): Promise<{ url: string } | null> {
+  const fast = await pollinationsImage(prompt, size);
+  if (fast) return fast;
   try {
     const zai = await ZAI.create();
     const res = (await Promise.race([
@@ -338,15 +368,18 @@ async function runVideoGen(prompt: string, withAudio: boolean): Promise<{ url: s
     }
     if (!task?.id) return null;
     const zai = await ZAI.create();
-    for (let i = 0; i < 36; i++) {
-      await new Promise(r => setTimeout(r, 10000));
+    // speed-critical polling: query immediately (tasks CAN finish fast), then
+    // every 3s — the old 10s-then-check loop added up to ~20s of dead air to
+    // every job even when the engine had already finished rendering
+    for (let i = 0; i < 120; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, 3000));
       // query — retry once on a null race so a single blip doesn't waste a poll cycle
       let r: { task_status?: string; video_result?: { url?: string; cover_image_url?: string }[] } | null = null;
       for (let q = 0; q < 2 && !r; q++) {
         try {
           r = (await Promise.race([
             zai.async.result.query(task.id),
-            new Promise<null>(x => setTimeout(() => x(null), 15000)),
+            new Promise<null>(x => setTimeout(() => x(null), 8000)),
           ])) as { task_status?: string; video_result?: { url?: string; cover_image_url?: string }[] } | null;
         } catch (e) {
           console.error("[videogen] query threw:", String(e).slice(0, 200));
