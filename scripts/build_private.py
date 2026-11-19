@@ -66,8 +66,11 @@ out = out.replace('   Made by YUX FF  |  v1.0.0\n', '')   # header comment remna
 # sanity: app must still contain the key markers
 for marker in ('XR-Code', 'big-search', 'data:image'):
     assert marker in out, 'missing marker ' + marker
-# exactly two script blocks: obfuscated app + triplatform runtime — never a double app
-assert out.count('<script>') == 2, f"script block count = {out.count('<script>')} (double-app guard)"
+# script blocks must match the source exactly (plain pre-paint gate + obfuscated app
+# + auxiliary runtimes) — a double app would raise the count beyond the source's
+assert out.count('<script>') == html.count('<script>'), \
+    f"script block count {out.count('<script>')} != source {html.count('<script>')} (double-app guard)"
+assert out.count(obf[:60]) == 1, 'obfuscated app block appears more than once'
 
 b64 = base64.b64encode(
     bytes(c ^ KEY[i % len(KEY)] for i, c in enumerate(out.encode('utf-8')))

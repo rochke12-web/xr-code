@@ -419,17 +419,15 @@ button{touch-action:manipulation}
 .sidebar,.chat-list,.msgs,.search-list{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 
 /* ===== polish animations (skipped when the user prefers reduced motion) ===== */
-@media (prefers-reduced-motion:no-preference){
-  .msg .bubble{animation:riseIn .3s var(--ease) backwards}
-  .logo-img{animation:logoBreathe 6s var(--ease) infinite}
-  .gen-chip:hover{transform:translateY(-2px)}
-  .gen-chip.on{box-shadow:0 0 14px -2px var(--glow)}
-  .panel{transition:box-shadow .3s}
-  .panel:hover{box-shadow:0 10px 34px -20px var(--glow)}
-  #btnSearch .ic{transition:transform .3s var(--spring)}
-  #btnSearch:hover .ic{transform:scale(1.18)}
-  .mini-btn:active,.gen-chip:active{transform:scale(.94)}
-}
+html:not(.anim-off) .msg .bubble{animation:riseIn .3s var(--ease) backwards}
+html:not(.anim-off) .logo-img{animation:logoBreathe 6s var(--ease) infinite}
+html:not(.anim-off) .gen-chip:hover{transform:translateY(-2px)}
+html:not(.anim-off) .gen-chip.on{box-shadow:0 0 14px -2px var(--glow)}
+html:not(.anim-off) .panel{transition:box-shadow .3s}
+html:not(.anim-off) .panel:hover{box-shadow:0 10px 34px -20px var(--glow)}
+html:not(.anim-off) #btnSearch .ic{transition:transform .3s var(--spring)}
+html:not(.anim-off) #btnSearch:hover .ic{transform:scale(1.18)}
+html:not(.anim-off) .mini-btn:active,.gen-chip:active{transform:scale(.94)}
 @keyframes logoBreathe{0%,100%{filter:drop-shadow(0 0 0 rgba(255,255,255,0))}50%{filter:drop-shadow(0 0 13px var(--glow))}}
 .search-list{flex:1;overflow-y:auto;min-height:60px;padding:8px 12px;display:flex;flex-direction:column;gap:2px}
 .sr-item{display:block;width:100%;text-align:left;padding:9px 11px;border-radius:10px;transition:background .18s,transform .2s}
@@ -596,10 +594,8 @@ button{touch-action:manipulation}
 .code-wrap.folded .code-body{grid-template-rows:0fr}
 .code-wrap.folded .code-body>pre{padding-top:0;padding-bottom:0;border-top-width:0;border-bottom-width:0}
 .code-wrap.folded .code-bar{border-bottom:1px solid var(--line-soft);border-radius:13px}
-@media (prefers-reduced-motion:no-preference){
-  .code-body{transition:grid-template-rows .34s var(--ease)}
-  .code-fold svg{transition:transform .3s var(--spring)}
-}
+html:not(.anim-off) .code-body{transition:grid-template-rows .34s var(--ease)}
+html:not(.anim-off) .code-fold svg{transition:transform .3s var(--spring)}
 .empty-state{
   margin:auto;text-align:center;color:var(--muted);font-size:13.5px;max-width:380px;line-height:1.7;
   animation:xr-rise .5s var(--ease) backwards;
@@ -905,67 +901,65 @@ body::after{
 /* ============================================================
    ENTRANCE CHOREOGRAPHY + VIEW TRANSITIONS
    ============================================================ */
-@media (prefers-reduced-motion:no-preference){
-  @keyframes xr-rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
-  @keyframes xr-view{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
-  @keyframes xr-scene{from{opacity:0;transform:scale(1.04)}to{opacity:1;transform:none}}
-  @keyframes xr-sheen{0%{background-position:200% 0}100%{background-position:-200% 0}}
-  @keyframes xr-view-fwd{from{opacity:0;transform:translateX(34px);filter:blur(4px)}to{opacity:1;transform:none;filter:blur(0)}}
-  @keyframes xr-view-bck{from{opacity:0;transform:translateX(-34px);filter:blur(4px)}to{opacity:1;transform:none;filter:blur(0)}}
-  .view.active{animation:xr-view .4s var(--ease) backwards}
-  .view.slide-fwd{animation:xr-view-fwd .42s var(--ease) backwards}
-  .view.slide-bck{animation:xr-view-bck .42s var(--ease) backwards}
-  .nav-glider{transition:transform .5s var(--spring),opacity .22s ease,width .5s var(--spring),height .5s var(--spring)}
-  .nav button.current .ic{animation:xr-tabpop .5s var(--spring)}
-  @keyframes xr-tabpop{0%{transform:scale(.5) rotate(-14deg)}60%{transform:scale(1.22) rotate(5deg)}100%{transform:scale(1) rotate(0)}}
-  .att-chip{animation:chip-in .3s var(--spring) backwards}
-  @keyframes chip-in{from{opacity:0;transform:translateY(6px) scale(.9)}to{opacity:1;transform:none}}
-  .scene{animation:xr-scene 1s var(--ease) both}
-  /* hero: staged reveal — pill, title, subtitle, search */
-  .hero-pill{animation:xr-rise .6s var(--ease) .05s backwards}
-  .hero h2{animation:hTitle .9s var(--ease) backwards,hShimmer 8s ease-in-out infinite .9s}
-  @keyframes hTitle{from{opacity:0;transform:translateY(22px) scale(.97);filter:blur(8px);letter-spacing:.12em}to{opacity:1;transform:none;filter:blur(0)}}
-  .hero .sub{animation:xr-rise .6s var(--ease) .22s backwards}
-  .big-search{animation:xr-rise .7s var(--ease) .3s backwards}
-  .hero .ver{animation:xr-rise .6s var(--ease) .4s backwards}
-  /* messages: user from right, AI from left, soft spring */
-  .msg.u{animation:msg-u .45s var(--ease) backwards}
-  .msg.a{animation:msg-a .45s var(--ease) backwards}
-  @keyframes msg-u{from{opacity:0;transform:translateX(18px) translateY(8px)}to{opacity:1;transform:none}}
-  @keyframes msg-a{from{opacity:0;transform:translateX(-18px) translateY(8px)}to{opacity:1;transform:none}}
-  .gen-media{animation:riseIn .5s var(--spring) both}
-  /* the chosen engine breathes — a slow halo pulse on the glow ring */
-  .engine-list button.current{animation:glowBreathe 3.4s ease-in-out infinite}
-  @keyframes glowBreathe{0%,100%{box-shadow:0 0 0 1px var(--accent-2),0 0 14px var(--glow)}50%{box-shadow:0 0 0 1px var(--accent-2),0 0 30px var(--glow)}}
-  /* mode menu: options cascade in one after another */
-  .mmenu.open button{animation:mm-in .32s var(--spring) backwards}
-  .mmenu.open button:nth-child(2){animation-delay:.06s}
-  .mmenu.open button:nth-child(3){animation-delay:.12s}
-  /* the white trail in chat — mirrors the home hero sheen */
-  .chat-head .cht{
-    color:transparent;
-    background:linear-gradient(110deg,var(--text) 10%,#ffffff 30%,var(--text) 50%,#ffffff 70%,var(--text) 90%);
-    background-size:300% 100%;
-    -webkit-background-clip:text;background-clip:text;
-    animation:xr-sheen 6s linear infinite;
-  }
-  :root[data-theme="light"] .chat-head .cht{background:linear-gradient(110deg,#0a0a0a 10%,#9a9a9a 30%,#101010 50%,#9a9a9a 70%,#0a0a0a 90%);background-size:300% 100%}
-  /* status labels (thinking… / composing the prompt…) get a fast-moving trail */
-  .paint-label{
-    color:transparent;
-    background:linear-gradient(110deg,var(--muted) 10%,#ffffff 30%,var(--muted) 50%,#ffffff 70%,var(--muted) 90%);
-    background-size:300% 100%;
-    -webkit-background-clip:text;background-clip:text;
-    animation:xr-sheen 2.2s linear infinite;
-  }
-  :root[data-theme="light"] .paint-label{background:linear-gradient(110deg,var(--muted) 10%,#5f5f5f 30%,var(--muted) 50%,#5f5f5f 70%,var(--muted) 90%);background-size:300% 100%}
-  /* settings panels stagger */
-  .settings-col .panel:nth-child(1){animation-delay:.05s}
-  /* light theme hero title gradient stays ink-on-white */
-  :root[data-theme="light"] .hero h2{background:linear-gradient(110deg,#0a0a0a 12%,#5a5a5a 34%,#101010 50%,#5a5a5a 66%,#0a0a0a 88%);background-size:230% 100%;-webkit-background-clip:text;background-clip:text}
-  :root[data-theme="light"] .hero h2 .thin{background:linear-gradient(160deg,#161616 8%,#4a4a4a 46%,#9a9a9a 82%);background-size:220% auto;-webkit-background-clip:text;background-clip:text}
-  .hero h2 .thin{animation:xr-sheen 7s linear infinite}
+@keyframes xr-rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes xr-view{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes xr-scene{from{opacity:0;transform:scale(1.04)}to{opacity:1;transform:none}}
+@keyframes xr-sheen{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@keyframes xr-view-fwd{from{opacity:0;transform:translateX(34px);filter:blur(4px)}to{opacity:1;transform:none;filter:blur(0)}}
+@keyframes xr-view-bck{from{opacity:0;transform:translateX(-34px);filter:blur(4px)}to{opacity:1;transform:none;filter:blur(0)}}
+html:not(.anim-off) .view.active{animation:xr-view .4s var(--ease) backwards}
+html:not(.anim-off) .view.slide-fwd{animation:xr-view-fwd .42s var(--ease) backwards}
+html:not(.anim-off) .view.slide-bck{animation:xr-view-bck .42s var(--ease) backwards}
+html:not(.anim-off) .nav-glider{transition:transform .5s var(--spring),opacity .22s ease,width .5s var(--spring),height .5s var(--spring)}
+html:not(.anim-off) .nav button.current .ic{animation:xr-tabpop .5s var(--spring)}
+@keyframes xr-tabpop{0%{transform:scale(.5) rotate(-14deg)}60%{transform:scale(1.22) rotate(5deg)}100%{transform:scale(1) rotate(0)}}
+html:not(.anim-off) .att-chip{animation:chip-in .3s var(--spring) backwards}
+@keyframes chip-in{from{opacity:0;transform:translateY(6px) scale(.9)}to{opacity:1;transform:none}}
+html:not(.anim-off) .scene{animation:xr-scene 1s var(--ease) both}
+/* hero: staged reveal — pill, title, subtitle, search */
+html:not(.anim-off) .hero-pill{animation:xr-rise .6s var(--ease) .05s backwards}
+html:not(.anim-off) .hero h2{animation:hTitle .9s var(--ease) backwards,hShimmer 8s ease-in-out infinite .9s}
+@keyframes hTitle{from{opacity:0;transform:translateY(22px) scale(.97);filter:blur(8px);letter-spacing:.12em}to{opacity:1;transform:none;filter:blur(0)}}
+html:not(.anim-off) .hero .sub{animation:xr-rise .6s var(--ease) .22s backwards}
+html:not(.anim-off) .big-search{animation:xr-rise .7s var(--ease) .3s backwards}
+html:not(.anim-off) .hero .ver{animation:xr-rise .6s var(--ease) .4s backwards}
+/* messages: user from right, AI from left, soft spring */
+html:not(.anim-off) .msg.u{animation:msg-u .45s var(--ease) backwards}
+html:not(.anim-off) .msg.a{animation:msg-a .45s var(--ease) backwards}
+@keyframes msg-u{from{opacity:0;transform:translateX(18px) translateY(8px)}to{opacity:1;transform:none}}
+@keyframes msg-a{from{opacity:0;transform:translateX(-18px) translateY(8px)}to{opacity:1;transform:none}}
+html:not(.anim-off) .gen-media{animation:riseIn .5s var(--spring) both}
+/* the chosen engine breathes — a slow halo pulse on the glow ring */
+html:not(.anim-off) .engine-list button.current{animation:glowBreathe 3.4s ease-in-out infinite}
+@keyframes glowBreathe{0%,100%{box-shadow:0 0 0 1px var(--accent-2),0 0 14px var(--glow)}50%{box-shadow:0 0 0 1px var(--accent-2),0 0 30px var(--glow)}}
+/* mode menu: options cascade in one after another */
+html:not(.anim-off) .mmenu.open button{animation:mm-in .32s var(--spring) backwards}
+html:not(.anim-off) .mmenu.open button:nth-child(2){animation-delay:.06s}
+html:not(.anim-off) .mmenu.open button:nth-child(3){animation-delay:.12s}
+/* the white trail in chat — mirrors the home hero sheen */
+html:not(.anim-off) .chat-head .cht{
+  color:transparent;
+  background:linear-gradient(110deg,var(--text) 10%,#ffffff 30%,var(--text) 50%,#ffffff 70%,var(--text) 90%);
+  background-size:300% 100%;
+  -webkit-background-clip:text;background-clip:text;
+  animation:xr-sheen 6s linear infinite;
 }
+html:not(.anim-off) :root[data-theme="light"] .chat-head .cht{background:linear-gradient(110deg,#0a0a0a 10%,#9a9a9a 30%,#101010 50%,#9a9a9a 70%,#0a0a0a 90%);background-size:300% 100%}
+/* status labels (thinking… / composing the prompt…) get a fast-moving trail */
+html:not(.anim-off) .paint-label{
+  color:transparent;
+  background:linear-gradient(110deg,var(--muted) 10%,#ffffff 30%,var(--muted) 50%,#ffffff 70%,var(--muted) 90%);
+  background-size:300% 100%;
+  -webkit-background-clip:text;background-clip:text;
+  animation:xr-sheen 2.2s linear infinite;
+}
+html:not(.anim-off) :root[data-theme="light"] .paint-label{background:linear-gradient(110deg,var(--muted) 10%,#5f5f5f 30%,var(--muted) 50%,#5f5f5f 70%,var(--muted) 90%);background-size:300% 100%}
+/* settings panels stagger */
+html:not(.anim-off) .settings-col .panel:nth-child(1){animation-delay:.05s}
+/* light theme hero title gradient stays ink-on-white */
+html:not(.anim-off) :root[data-theme="light"] .hero h2{background:linear-gradient(110deg,#0a0a0a 12%,#5a5a5a 34%,#101010 50%,#5a5a5a 66%,#0a0a0a 88%);background-size:230% 100%;-webkit-background-clip:text;background-clip:text}
+html:not(.anim-off) :root[data-theme="light"] .hero h2 .thin{background:linear-gradient(160deg,#161616 8%,#4a4a4a 46%,#9a9a9a 82%);background-size:220% auto;-webkit-background-clip:text;background-clip:text}
+html:not(.anim-off) .hero h2 .thin{animation:xr-sheen 7s linear infinite}
 
 /* ---------- light theme strict B&W overrides ---------- */
 :root[data-theme="light"] .msg.u .bubble{background:#0a0a0a;color:#ffffff}
@@ -1006,12 +1000,14 @@ body.kbd-open .composer{padding-bottom:10px}
   a,button,input,textarea,[contenteditable]{outline:none}
   a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent-2);outline-offset:2px;border-radius:10px}
 }
-@media (prefers-reduced-motion:reduce){
-  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
-}
+html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
 .resizer{width:6px;flex:none;order:-1;cursor:col-resize;background:transparent;transition:background .2s}
 .resizer:hover,.resizer.drag{background:var(--accent-2)}
 </style>
+<script>/* pre-paint effects gate: apply the saved Effects choice before the first
+   frame paints, so a debloated PC (OS reduced-motion) never sees animation flash */
+try{var _s=JSON.parse(localStorage.getItem('xrcode.v1')||'{}'),_a=_s.anim||'auto';
+if(_a==='off'||(_a==='auto'&&matchMedia('(prefers-reduced-motion: reduce)').matches))document.documentElement.classList.add('anim-off')}catch(e){}</script>
 </head>
 <body>
 
@@ -1131,6 +1127,15 @@ body.kbd-open .composer{padding-bottom:10px}
               <button type="button" data-th="light" id="thLight"><i class="ic small" data-ic="i-sun"></i> Light</button>
               <button type="button" data-th="dark" id="thDark"><i class="ic small" data-ic="i-moon"></i> Dark</button>
             </div>
+          </div>
+          <div class="panel">
+            <h3><i class="ic big" data-ic="i-play"></i> Effects</h3>
+            <div class="seg" id="animSeg">
+              <button type="button" data-anim="auto">Auto</button>
+              <button type="button" data-anim="on">Always</button>
+              <button type="button" data-anim="off">Off</button>
+            </div>
+            <p class="note">Auto follows your system's motion setting. Set Always if your OS (a debloated PC) reports reduced motion but you still want every animation.</p>
           </div>
 
           <div class="panel">
@@ -1452,6 +1457,7 @@ function defaults(){
     mode: 'koder',             // 'koder' | 'qna' | 'image'
     imgStyle: 'auto',          // Image mode style preset
     imgSize: '1024x1024',      // Image mode canvas ratio
+    anim: 'auto',              // UI effects: 'auto' follows the OS motion setting | 'on' | 'off'
     lastSync: null
   };
 }
@@ -1604,11 +1610,20 @@ function applyTheme(){
   document.documentElement.dataset.theme = S.theme;
   $$('#themeSeg button').forEach(b => b.classList.toggle('on', b.dataset.th === S.theme));
 }
+function animMode(){ return S.anim || 'auto'; }
+function animsOff(){                             // effects off when set, or auto + OS asked for calm
+  const m = animMode();
+  return m === 'off' || (m === 'auto' && !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches));
+}
+function applyAnim(){
+  document.documentElement.classList.toggle('anim-off', animsOff());
+  $$('#animSeg button').forEach(b => b.classList.toggle('on', b.dataset.anim === animMode()));
+}
 function setTheme(th){
   if(th === S.theme) return;                     // same theme -> nothing to animate
   const rootEl = document.documentElement;
   S.theme = th; save();
-  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const reduce = animsOff();                     // Effects: off, or auto + OS reduced-motion (debloated PCs)
   const qbtn = document.getElementById('themeQuick');
   if(qbtn && !reduce){ qbtn.classList.remove('spin'); void qbtn.offsetWidth; qbtn.classList.add('spin'); setTimeout(() => qbtn.classList.remove('spin'), 740); }
   if(document.startViewTransition && !reduce){  // directional radial wipe
@@ -2297,7 +2312,7 @@ function exportChats(){
 }
 function clearAll(){
   localStorage.removeItem(LSKEY);
-  S = defaults(); applyTheme(); renderChat(); renderAccounts(); renderChatList(); renderModel();
+  S = defaults(); applyTheme(); applyAnim(); renderChat(); renderAccounts(); renderChatList(); renderModel();
   if(window.__xrCloudOn && window.__xrCloudNow) window.__xrCloudNow();   // "all data cleared" clears the cloud copy too
   toast('All data cleared');
 }
@@ -2614,10 +2629,16 @@ $('#brandTitle').onclick = () => showView('home');
 $('#themeQuick').onclick = () => setTheme(S.theme === 'dark' ? 'light' : 'dark');
 
 $$('#themeSeg button').forEach(b => b.onclick = () => setTheme(b.dataset.th));
+$$('#animSeg button').forEach(b => b.onclick = () => {
+  S.anim = b.dataset.anim;
+  saveSoon(); applyAnim();
+  toast(b.dataset.anim === 'on' ? 'Effects: always on' : b.dataset.anim === 'off' ? 'Effects: off' : 'Effects: auto — follows your system');
+});
 $('#exportBtn').onclick = exportChats;
 $('#clearBtn').onclick = clearAll;
 /* ---------- init ---------- */
 applyTheme();
+applyAnim();
 renderAccounts();
 renderModel();
 renderChatList();
