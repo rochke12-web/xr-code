@@ -28,7 +28,10 @@ export async function POST(req: Request) {
     if (prompt.length < 3) return NextResponse.json({ ok: false, error: "no prompt" }, { status: 400 });
     const mode = body?.mode === "story" ? "story" : "clip";
     const size = SIZES.has(String(body?.size || "")) ? String(body?.size) : "1920x1080";
-    const withAudio = body?.withAudio !== false; // default on
+    // story mode keeps the audio bed (narration mixing needs [0:a]); clip mode
+    // defaults silent — audio synthesis adds real render time for no benefit
+    // unless asked for explicitly
+    const withAudio = mode === "story" ? body?.withAudio !== false : body?.withAudio === true;
     const scenes = Math.max(2, Math.min(6, Number(body?.scenes) || 3));
     const narrate = body?.narrate === true; // story mode: TTS narration over the scenes
     const quality = body?.quality === "quality" ? "quality" : "speed";

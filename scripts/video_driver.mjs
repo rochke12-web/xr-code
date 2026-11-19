@@ -85,10 +85,12 @@ async function genScene(prompt, spec, label) {
     }
   }
   if (!taskId) return null;
-  for (let i = 0; i < 36; i++) {
-    await new Promise(r => setTimeout(r, 10000));
+  // speed-critical polling: query immediately (tasks CAN finish fast), then
+  // every 3s — the old 10s-then-check loop added up to ~20s of dead air
+  for (let i = 0; i < 120; i++) {
+    if (i > 0) await new Promise(r => setTimeout(r, 3000));
     let r = null;
-    try { r = await Promise.race([zai.async.result.query(taskId), new Promise(x => setTimeout(() => x(null), 15000))]); }
+    try { r = await Promise.race([zai.async.result.query(taskId), new Promise(x => setTimeout(() => x(null), 8000))]); }
     catch { continue; }
     if (r?.task_status === "SUCCESS") {
       const url = r?.video_result?.[0]?.url;
@@ -142,7 +144,7 @@ async function polishClip(prompt) {
   try {
     const sys = "You are a video director writing one shot prompt for a text-to-video generator.";
     const user = `Expand this video idea into ONE vivid 5-second cinematic shot prompt: keep every fact of the idea, add the subject's action, one camera move, the setting, lighting and style. Max 60 words. No on-screen text, no watermarks. Reply with ONLY the prompt.\n\nIdea: ${prompt}`;
-    const out = await brainText(sys, user, { timeout: 20000 });
+    const out = await brainText(sys, user, { timeout: 12000 });
     const clean = out.replace(/^["'`\s]+|["'`\s]+$/g, "");
     if (clean && clean.length > 20 && clean.length < 1200 && !/^[{\[]/.test(clean)) {
       log("clip-polish:", clean.slice(0, 100));

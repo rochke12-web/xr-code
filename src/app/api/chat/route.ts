@@ -338,15 +338,18 @@ async function runVideoGen(prompt: string, withAudio: boolean): Promise<{ url: s
     }
     if (!task?.id) return null;
     const zai = await ZAI.create();
-    for (let i = 0; i < 36; i++) {
-      await new Promise(r => setTimeout(r, 10000));
+    // speed-critical polling: query immediately (tasks CAN finish fast), then
+    // every 3s — the old 10s-then-check loop added up to ~20s of dead air to
+    // every job even when the engine had already finished rendering
+    for (let i = 0; i < 120; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, 3000));
       // query — retry once on a null race so a single blip doesn't waste a poll cycle
       let r: { task_status?: string; video_result?: { url?: string; cover_image_url?: string }[] } | null = null;
       for (let q = 0; q < 2 && !r; q++) {
         try {
           r = (await Promise.race([
             zai.async.result.query(task.id),
-            new Promise<null>(x => setTimeout(() => x(null), 15000)),
+            new Promise<null>(x => setTimeout(() => x(null), 8000)),
           ])) as { task_status?: string; video_result?: { url?: string; cover_image_url?: string }[] } | null;
         } catch (e) {
           console.error("[videogen] query threw:", String(e).slice(0, 200));

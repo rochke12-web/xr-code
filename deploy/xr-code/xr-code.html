@@ -2028,7 +2028,7 @@ async function askBrain(c, text, atts){
       const res = await fetch(API_BASE + '/api/video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'story', prompt: text, scenes: 3, narrate: true, size: '1920x1080' })
+        body: JSON.stringify({ mode: 'story', prompt: text, scenes: 2, narrate: true, size: '1920x1080' })
       });
       vstatus = res.status;
       d = await res.json().catch(() => null);
