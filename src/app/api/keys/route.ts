@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { verifyDiscord } from "../../../lib/xrauth";
+import { verifyRequest } from "../../../lib/request-auth";
 import { putKey, delKey, listKeys, PROVIDERS } from "../../../lib/xrkeys";
 
 // BYOK — the user's own API keys, encrypted server-side per Discord account.
@@ -7,13 +7,13 @@ import { putKey, delKey, listKeys, PROVIDERS } from "../../../lib/xrkeys";
 // POST   { provider, key, model?, baseUrl? } → save/replace
 // DELETE { provider } → remove
 export async function GET(req: Request) {
-  const gv = verifyDiscord(req);
+  const gv = await verifyRequest(req);
   if (!gv.ok) return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
   return NextResponse.json({ ok: true, keys: listKeys(gv.uid || ""), providers: Object.keys(PROVIDERS) });
 }
 
 export async function POST(req: Request) {
-  const gv = verifyDiscord(req);
+  const gv = await verifyRequest(req);
   if (!gv.ok) return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
   const body = (await req.json().catch(() => ({}))) as { provider?: unknown; key?: unknown; model?: unknown; baseUrl?: unknown };
   const provider = typeof body.provider === "string" ? body.provider : "";
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const gv = verifyDiscord(req);
+  const gv = await verifyRequest(req);
   if (!gv.ok) return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
   const body = (await req.json().catch(() => ({}))) as { provider?: unknown };
   const ok = delKey(gv.uid || "", typeof body.provider === "string" ? body.provider : "");

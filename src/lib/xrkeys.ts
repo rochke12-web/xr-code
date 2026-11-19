@@ -43,7 +43,7 @@ export const PROVIDERS: Record<string, { base: string; model: string; label: str
 };
 
 function vaultPath(uid: string): string | null {
-  if (!/^\d{5,25}$/.test(uid)) return null; // Discord snowflake only — no traversal
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(uid)) return null; // Discord snowflake only — no traversal
   return path.join(subdir("keys"), uid + ".json");
 }
 

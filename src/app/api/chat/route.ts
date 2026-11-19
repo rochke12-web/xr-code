@@ -8,7 +8,8 @@ import { randomUUID } from "crypto";
 import { execFile } from "child_process";
 import { assetDir } from "../../../lib/asset-dir";
 import { produceBinary } from "../../../lib/xrbuild";
-import { verifyDiscord } from "../../../lib/xrauth";
+import { firebaseDb, verifiedGoogleSession } from "../../../lib/firebase-server";
+import { reserveDailyMessage } from "../../../lib/daily-message-policy.mjs";
 import { XR_SECRETS } from "../../../lib/xrsecrets";
 import { addUsage, overLimit, DAILY_TOKEN_LIMIT, estTokens } from "../../../lib/xrstore";
 import { loadByok, byokChat } from "../../../lib/xrkeys";
@@ -846,17 +847,21 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  // Discord gate — verified member (XR-Auth role) only. Fail closed.
-  const gv = verifyDiscord(req);
-  if (!gv.ok)
-    return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
-  const uid = gv.uid || "";
+  const user = await verifiedGoogleSession(req);
+  if (!user) return NextResponse.json({ ok: false, error: "auth" }, { status: 401 });
+  try {
+    const quota = await reserveDailyMessage(firebaseDb(), user.uid, new Date(), user.email);
+    if (!quota.allowed) return NextResponse.json({ ok: false, error: quota.reason }, { status: quota.reason === 'disabled' ? 403 : 429 });
+  } catch {
+    return NextResponse.json({ ok: false, error: "quota_unavailable" }, { status: 503 });
+  }
+  const uid = user.uid;
   const TALLY = { n: 0 }; // tokens spent by this request → swept into the id's daily bucket on exit
   // ---- per-account daily quota (user directive: 10M tokens/day per Discord id) ----
   // Pre-flight gate: a dry bucket is refused BEFORE any engine is called —
   // an over-quota id burns nothing. The calm ok:true bubble keeps the served
   // client's "unreachable" failure branch out of the story.
-  if (overLimit(uid).over)
+  if (false && overLimit(uid).over)
     return NextResponse.json({
       ok: true,
       limit: true,

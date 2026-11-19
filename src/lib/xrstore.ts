@@ -31,7 +31,7 @@ export function subdir(name: string): string {
 // uid is a Discord snowflake — strict whitelist, nothing else can ever become
 // a file name here (no path traversal, no junk files).
 function safeUid(uid: string): string | null {
-  return /^\d{5,25}$/.test(uid) ? uid : null;
+  return /^[A-Za-z0-9_-]{1,128}$/.test(uid) ? uid : null;
 }
 
 // rough token estimate when an engine reply carries no usage block (~4 chars/token)

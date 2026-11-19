@@ -1011,20 +1011,6 @@ if(_a==='off'||(_a==='auto'&&matchMedia('(prefers-reduced-motion: reduce)').matc
 </head>
 <body>
 
-<!-- ============ DISCORD GATE (members only) ============ -->
-<div class="ds-lock" id="dsLock" hidden>
-  <div class="ds-card">
-    <div class="ds-logo"><img class="logo-img dark-only" data-asset="logo-dark" alt="XR-Code"><img class="logo-img light-only" data-asset="logo-light" alt="XR-Code"></div>
-    <h2>Members only</h2>
-    <p class="ds-sub">XR-Code AI is available to verified members of the XR server.<br>Join the server, take the <b>XR-Auth</b> role, then verify below.</p>
-    <div class="ds-err" id="dsErr" hidden></div>
-    <div class="ds-steps"><span class="ds-step"><b>1</b> Join server</span><span class="ds-arrow">&rarr;</span><span class="ds-step"><b>2</b> XR-Auth</span><span class="ds-arrow">&rarr;</span><span class="ds-step"><b>3</b> Verify</span></div>
-    <button class="ds-btn" id="dsBtn" type="button"><svg class="ic"><use href="#i-discord"/></svg>Verify with Discord</button>
-    <a class="ds-invite" id="dsInvite" href="https://discord.gg/YPqmsrMRr5" target="_blank" rel="noopener"><svg class="ic"><use href="#i-discord"/></svg>Join the XR server</a>
-    <p class="ds-fine">Verification happens on Discord &mdash; this app never sees your password. Server owner: after verifying, link the <b>XR-Auth</b> role once in Settings &rarr; Accounts (paste its Role ID) so members pass the gate.</p>
-  </div>
-</div>
-
 <!-- ============ SVG ICON LIBRARY ============ -->
 <!-- icon sprite + images hydrate from JS -->
 
@@ -1216,193 +1202,10 @@ if(_a==='off'||(_a==='auto'&&matchMedia('(prefers-reduced-motion: reduce)').matc
 <div id="themeCurtain" aria-hidden="true"></div>
 <div id="curEdge" aria-hidden="true"></div>
 
-<script>/* ===== discord gate (members only) ===== */
-(function(){
-  const ERRS = {
-    setup:   'The gate is not configured yet \u2014 the owner still needs to finish the Discord setup on the server.',
-    state:   'Verification session expired or invalid \u2014 tap Verify with Discord and try again.',
-    join:    'You are not in the XR server yet. Join it, take the XR-Auth role, then verify again.',
-    pending: 'Your membership is still pending \u2014 finish server verification, then tap Verify again.',
-    role:    'You need the XR-Auth role in the XR server to use the AI. Ask an admin, then verify again.',
-    roleconf:'The XR-Auth role is not linked yet. Server owner: verify with Discord, then open Settings → Accounts and paste the XR-Auth Role ID (Discord → Server Settings → Roles → right-click the role → Copy Role ID). Members: ask the owner to do this once first.',
-    wait:    'Finish the Discord window \u2014 this page unlocks on its own once you are in.',
-    popup:   'The pop-up window was blocked \u2014 allow pop-ups for this site, or open XR-Code in its own browser tab, then tap Verify again.',
-    denied:  'Authorization cancelled \u2014 tap Verify with Discord and allow the access prompt.',
-    verify:  'Verification could not be completed \u2014 please try again.',
-    expired: 'Verification expired (30 days) \u2014 verify again to continue.',
-    bad:     'Invalid verification cookie \u2014 verify again.',
-    none:    ''
-  };
-  const lock = document.getElementById('dsLock');
-  const errBox = document.getElementById('dsErr');
-  const btn = document.getElementById('dsBtn');
-  const inv = document.getElementById('dsInvite');
-  let verified = false, uid = '', busy = false, pollTimer = null;
-  let dsOwner = false, dsRolePinned = false; /* from /api/discord/check: guild-owner proof + linked role */
-
-  function show(code){
-    lock.hidden = false;
-    const c = code || 'none';
-    errBox.textContent = ERRS[c] || ERRS.verify;
-    errBox.hidden = (c === 'none');
-  }
-  function hide(){ lock.hidden = true; }
-  window.dsShowLock = show;
-  window.dsHideLock = hide;
-
-  /* the UI always runs inside the shell's srcdoc iframe (and the Z.ai preview
-   * panel adds a second frame) — navigating THIS frame to Discord is blocked
-   * by X-Frame-Options ("discord.com refused to connect"), so verification
-   * always goes through a pop-up window; the app polls and unlocks itself. */
-  const IN_FRAME = (function(){ try { return window.self !== window.top; } catch(e){ return true; } })();
-
-  function startVerify(){
-    if(busy) return; busy = true;
-    const base = (typeof API_BASE === 'string') ? API_BASE : '';
-    let ret = '';
-    try { if(/^https:/i.test(location.protocol)) ret = location.origin; } catch(e){}
-    let w = null;
-    try {
-      w = window.open(base + '/auth/discord/start?popup=1' + (ret ? '&ret=' + encodeURIComponent(ret) : ''), 'xrverify', 'width=540,height=760');
-    } catch(e){}
-    if(w){
-      show('wait');
-      if(pollTimer) clearInterval(pollTimer);
-      const t0 = Date.now();
-      pollTimer = setInterval(() => {
-        let closed = false;
-        try { closed = w.closed; } catch(e){}
-        if(closed || Date.now() - t0 > 300000){
-          clearInterval(pollTimer); pollTimer = null; busy = false; check(); return;
-        }
-        fetch(base + '/api/discord/check', { method: 'POST', cache: 'no-store' })
-          .then(r => r.json()).then(d => {
-            if(d && d.ok){
-              clearInterval(pollTimer); pollTimer = null; busy = false;
-              verified = true; uid = d.uid || '';
-              dsOwner = !!d.owner; dsRolePinned = !!d.roleId;
-              try { w.close(); } catch(e){}
-              hide(); toast('Verified \u2014 welcome in');
-              if(typeof renderAccounts === 'function') renderAccounts();
-            }
-          }).catch(() => {});
-      }, 1500);
-    } else if(!IN_FRAME){
-      busy = false;
-      window.location.href = base + '/auth/discord/start';
-    } else {
-      busy = false;
-      show('popup');
-    }
-  }
-
-  btn.addEventListener('click', startVerify);
-
-  function accRow(){
-    const r = document.createElement('div'); r.className = 'acc-row';
-    const i = document.createElement('div'); i.className = 'ai2';
-    const n = document.createElement('div'); n.className = 'an'; n.textContent = verified ? 'Discord verified' : 'Not verified';
-    const st = document.createElement('div'); st.className = 'as';
-    st.textContent = verified ? ('Member gate active \u00b7 ' + String(uid).slice(0, 6) + '\u2026') : 'XR-Auth role members only';
-    const b = document.createElement('button'); b.className = 'st-skip'; b.type = 'button';
-    b.textContent = verified ? 'Un-verify' : 'Verify with Discord';
-    b.onclick = async () => {
-      if(verified){
-        try{ await fetch(API_BASE + '/api/discord/logout', { method: 'POST' }); }catch(e){}
-        verified = false; uid = ''; dsOwner = false;
-        toast('Un-verified \u2014 the members gate is back on');
-        setTimeout(check, 400);
-      } else {
-        startVerify();
-      }
-    };
-    i.append(n, st); r.append(i, b);
-    const frag = document.createDocumentFragment();
-    frag.append(r);
-    /* owner self-service: link the XR-Auth role id while ownership proof is
-     * fresh (30 min from the last Verify). Members never see this box. */
-    if(verified && dsOwner && !dsRolePinned){
-      const pin = document.createElement('div'); pin.className = 'ds-pin';
-      const lab = document.createElement('div'); lab.className = 'ds-pin-l';
-      lab.textContent = 'Owner step \u00b7 link the XR-Auth role so members pass the gate';
-      const row = document.createElement('div'); row.className = 'ds-pin-r';
-      const inp = document.createElement('input');
-      inp.type = 'text'; inp.inputMode = 'numeric'; inp.autocomplete = 'off';
-      inp.placeholder = 'Paste Role ID';
-      inp.setAttribute('aria-label', 'XR-Auth role id');
-      const go = document.createElement('button'); go.type = 'button'; go.className = 'ds-pin-b';
-      go.textContent = 'Link role';
-      const msg = document.createElement('div'); msg.className = 'ds-pin-m';
-      go.onclick = async () => {
-        if(go.disabled) return;
-        go.disabled = true; inp.disabled = true; msg.textContent = ''; msg.className = 'ds-pin-m';
-        try{
-          const res = await fetch(API_BASE + '/api/discord/pinrole', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ roleId: inp.value.trim() })
-          });
-          const d = await res.json().catch(() => null);
-          if(res.ok && d && d.ok){
-            dsRolePinned = true;
-            inp.value = ''; /* clear so renderAccounts' typing-guard lets the rebuild through */
-            toast('XR-Auth role linked \u2014 members can verify now');
-            if(typeof renderAccounts === 'function') renderAccounts();
-          } else if(d && d.error === 'owner'){
-            msg.textContent = 'Ownership proof expired \u2014 tap Verify with Discord once more, then link.';
-            msg.className = 'ds-pin-m bad';
-          } else {
-            msg.textContent = 'That does not look like a Role ID \u2014 Discord \u2192 Server Settings \u2192 Roles \u2192 right-click XR-Auth \u2192 Copy Role ID.';
-            msg.className = 'ds-pin-m bad';
-          }
-        }catch(e){
-          msg.textContent = 'Could not reach the server \u2014 try again.';
-          msg.className = 'ds-pin-m bad';
-        }
-        go.disabled = false; inp.disabled = false;
-      };
-      inp.addEventListener('keydown', ev => { if(ev.key === 'Enter'){ ev.preventDefault(); go.click(); } });
-      row.append(inp, go);
-      pin.append(lab, row, msg);
-      frag.append(pin);
-    }
-    return frag;
-  }
-  window.dsAccRow = accRow;
-
-  async function check(){
-    if(busy) return; busy = true;
-    try{
-      const res = await fetch(API_BASE + '/api/discord/check', { method: 'POST', cache: 'no-store' });
-      const d = await res.json().catch(() => null);
-      if(d && d.invite){ inv.href = d.invite; }
-      inv.hidden = false; /* hardcoded default href — never a dead '#' link */
-      if(d && d.ok){ verified = true; uid = d.uid || ''; dsOwner = !!d.owner; dsRolePinned = !!d.roleId; hide(); if(window.__xrCloudPull) window.__xrCloudPull(); if(typeof renderAccounts === 'function') renderAccounts(); }
-      else { verified = false; dsOwner = false; dsRolePinned = !!d && !!d.roleId; show(d && d.error || 'none'); if(typeof renderAccounts === 'function') renderAccounts(); }
-    }catch(e){ /* server unreachable \u2014 never lock on a network error; the send path re-checks via 401 */ }
-    busy = false;
-  }
-
-  setTimeout(() => {
-    /* dserr / dsok can land on any frame of the shell (the srcdoc frame itself
-     * has no query string) — scan self, parent and top, then clean up */
-    let hit = null;
-    const locs = [location];
-    try { if(window.parent && window.parent !== window) locs.push(window.parent.location); } catch(e){}
-    try { if(window.top && window.top !== window) locs.push(window.top.location); } catch(e){}
-    for(const loc of locs){
-      try {
-        const s = new URLSearchParams(loc.search);
-        if(s.get('dserr') || s.get('dsok')){ hit = { s: s, loc: loc }; break; }
-      } catch(e){}
-    }
-    if(hit){
-      if(hit.s.get('dserr')) show(hit.s.get('dserr'));
-      else { verified = true; uid = ''; hide(); if(window.__xrCloudPull) window.__xrCloudPull(); toast('Verified \u2014 welcome back'); }
-      try { hit.loc.history.replaceState(null, '', hit.loc.pathname); } catch(e){}
-    }
-    check();
-  }, 350);
-})();
+<script>
+window.dsShowLock = function(){ window.parent.location.reload(); };
+window.dsAccRow = function(){ const row = document.createElement('div'); row.textContent = 'Signed in with Google'; return row; };
+setTimeout(function(){ if(window.__xrCloudPull) window.__xrCloudPull(); }, 600);
 /* ===== SOURCE GUARD — blocks devtools shortcuts + view-source ===== */
 (function(){
   if (window.__xrGuard) return; window.__xrGuard = 1;
@@ -1485,7 +1288,7 @@ function saveSoon(){                            // UI-preference flips (mode / e
 }
 function load(){ try{ const v = JSON.parse(localStorage.getItem(LSKEY)); return v && v.chats ? v : null; }catch(e){ return null; } }
 
-/* ---------- cloud sync — chats follow the Discord account ---------- */
+/* ---------- cloud sync — chats follow the Google account ---------- */
 /* The server keeps each verified member's chats keyed by their Discord id
  * (db/chats/<uid>.json). Pull merges on boot, every save pushes (debounced),
  * so the same account sees the same chats from any browser or device. */
@@ -2277,7 +2080,7 @@ function renderAccounts(){
   const i = document.createElement('div'); i.className = 'ai2';
   const n = document.createElement('div'); n.className = 'an'; n.textContent = 'This browser';
   const s = document.createElement('div'); s.className = 'as';
-  s.textContent = (window.__xrCloudOn ? 'Chats sync automatically to your Discord account · ' : 'Chats save automatically on this device · ') + (NET.live ? 'Hosted by Z.ai' : 'offline');
+  s.textContent = (window.__xrCloudOn ? 'Chats sync automatically to your Google account · ' : 'Chats save automatically on this device · ') + (NET.live ? 'Hosted by Z.ai' : 'offline');
   i.append(n, s);
   r.append(i); box.append(r);
   if(window.dsAccRow) box.append(window.dsAccRow());
@@ -2292,7 +2095,7 @@ function updateSyncUI(tok, lim){
   use.setAttribute('href', '#i-cloud'); ic.append(use);
   const span = document.createElement('span');
   span.textContent = window.__xrCloudOn
-    ? 'Chats sync to your Discord account' + (typeof tok === 'number' ? ' · ' + window.__xrCloudFmt(tok) + ' / ' + window.__xrCloudFmt(lim || 10000000) + ' tokens today' : '')
+    ? 'Chats sync to your Google account' + (typeof tok === 'number' ? ' · ' + window.__xrCloudFmt(tok) + ' / ' + window.__xrCloudFmt(lim || 10000000) + ' tokens today' : '')
     : 'Chats save in this browser.';
   el.append(ic, span);
 }
@@ -2409,7 +2212,7 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
     try{
       const r = await fetch(API_BASE + '/api/keys');
       const d = await r.json().catch(() => null);
-      if(r.status === 401){ status.textContent = 'Sign in with Discord to use your own API key.'; return; }
+      if(r.status === 401){ status.textContent = 'Sign in with Google to use your own API key.'; return; }
       if(d && d.ok && d.keys.length){
         const k = d.keys.map(x => x.provider + ' (' + x.hint + (x.model ? ' · ' + x.model : '') + ')').join(', ');
         status.textContent = 'Active: ' + k + '. Replies ride your key first — hosted brain is the backup.';

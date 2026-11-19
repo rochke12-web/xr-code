@@ -5,11 +5,11 @@
 // The Discord user id is the storage key — two accounts can never see each
 // other's chats, and usage/quota rides the same id.
 import { NextResponse } from "next/server";
-import { verifyDiscord } from "@/lib/xrauth";
+import { verifyRequest } from "@/lib/request-auth";
 import { readChats, writeChats, getUsage, DAILY_TOKEN_LIMIT } from "@/lib/xrstore";
 
 export async function GET(req: Request) {
-  const v = verifyDiscord(req);
+  const v = await verifyRequest(req);
   if (!v.ok || !v.uid)
     return NextResponse.json({ ok: false, error: "auth" }, { status: 401 });
   const u = getUsage(v.uid);
@@ -23,7 +23,7 @@ export async function GET(req: Request) {
 }
 
 export async function PUT(req: Request) {
-  const v = verifyDiscord(req);
+  const v = await verifyRequest(req);
   if (!v.ok || !v.uid)
     return NextResponse.json({ ok: false, error: "auth" }, { status: 401 });
   let body: { chats?: unknown } | null = null;

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { verifyDiscord } from "../../../lib/xrauth";
+import { verifyRequest } from "../../../lib/request-auth";
 
 // POST /api/video — advanced video generation, any type of video.
 //   mode "clip"  { prompt, size?, withAudio?, quality? }   → one 5s shot
@@ -19,7 +19,7 @@ const JOBS = path.join(ROOT, "db", "videojobs");
 const SIZES = new Set(["1920x1080", "1080x1920", "1024x1024"]);
 
 export async function POST(req: Request) {
-  const gv = verifyDiscord(req);
+  const gv = await verifyRequest(req);
   if (!gv.ok)
     return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
   try {
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
-  const gv = verifyDiscord(req);
+  const gv = await verifyRequest(req);
   if (!gv.ok)
     return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
   const id = new URL(req.url).searchParams.get("id") || "";

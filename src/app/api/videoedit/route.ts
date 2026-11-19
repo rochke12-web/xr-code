@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { spawn } from "child_process";
-import { verifyDiscord } from "../../../lib/xrauth";
+import { verifyRequest } from "../../../lib/request-auth";
 
 // POST /api/videoedit — start a brain-driven edit of an uploaded talking-head video.
 //   multipart/form-data: file=<video>, style?, captions?, lang?, noSilence?, pause?
@@ -22,7 +22,7 @@ function jobDir(id: string) {
 
 export async function POST(req: Request) {
   // Discord gate — verified member only. Fail closed.
-  const gv = verifyDiscord(req);
+  const gv = await verifyRequest(req);
   if (!gv.ok)
     return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
   try {
@@ -96,7 +96,7 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
-  const gv = verifyDiscord(req);
+  const gv = await verifyRequest(req);
   if (!gv.ok)
     return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
   const id = new URL(req.url).searchParams.get("id") || "";

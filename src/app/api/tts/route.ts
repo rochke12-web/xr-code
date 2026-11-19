@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
-import { verifyDiscord } from "../../../lib/xrauth";
+import { verifyRequest } from "../../../lib/request-auth";
 
 // POST /api/tts { text } → audio/wav binary
 // the "talking" half of XR Code — reads any AI reply aloud with GLM voice
 export async function POST(req: Request) {
   // Discord gate — verified member (XR-Auth role) only. Fail closed.
-  const gv = verifyDiscord(req);
+  const gv = await verifyRequest(req);
   if (!gv.ok)
     return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
   try {

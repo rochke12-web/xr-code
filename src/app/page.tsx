@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import GoogleSigninGate from '@/components/google-signin-gate'
 
 // The private build never ships to the browser as ciphertext anymore: the
 // cipher key lives server-side (xrsecrets.XR_PAYLOAD_KEY, shared with
 // build_private.py) and /api/shell decrypts and serves the app HTML. The
 // client bundle holds no key and no payload — source protection moved to the
 // server where it can actually hold.
-export default function Home() {
+function AppShell() {
   const frame = useRef<HTMLIFrameElement>(null)
 
   useEffect(() => {
@@ -42,4 +43,8 @@ export default function Home() {
       />
     </main>
   )
+}
+
+export default function Home() {
+  return <GoogleSigninGate><AppShell /></GoogleSigninGate>
 }
