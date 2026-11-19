@@ -400,7 +400,7 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .engine-list button small{font-weight:500;color:var(--muted);font-size:11px}
 .engine-list button:hover{background:var(--panel);transform:translateY(-1px)}
 .engine-list button:active{transform:scale(.985)}
-.engine-list button.current{border-color:var(--line);background:var(--panel-2);color:var(--accent)}
+.engine-list button.current{border-color:var(--accent-2);background:var(--panel-2);color:var(--text);box-shadow:0 0 0 1px var(--accent-2),0 0 18px var(--glow)}
 .engine-list button.current small{color:var(--text-dim)}
 
 /* ===== white glowing Search (sidebar) — theme-aware via --glow ===== */
@@ -493,7 +493,7 @@ button{touch-action:manipulation}
 }
 .mmenu button:hover{background:var(--panel-2);transform:translateX(2px)}
 .mmenu button:hover::before{opacity:1;transform:scaleY(1)}
-.mmenu button.current{color:var(--accent)}
+.mmenu button.current{color:var(--accent);text-shadow:0 0 16px var(--glow)}
 .mmenu button.current::before{opacity:1;transform:scaleY(1)}
 .mmenu button small{font-size:10px;color:var(--muted);font-weight:400;font-family:var(--font-mono);letter-spacing:.02em}
 .mmenu .msec{padding:9px 12px 4px;font:600 9.5px var(--font-body);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);border-top:1px solid var(--line-soft);margin-top:4px}
@@ -934,6 +934,9 @@ body::after{
   @keyframes msg-u{from{opacity:0;transform:translateX(18px) translateY(8px)}to{opacity:1;transform:none}}
   @keyframes msg-a{from{opacity:0;transform:translateX(-18px) translateY(8px)}to{opacity:1;transform:none}}
   .gen-media{animation:riseIn .5s var(--spring) both}
+  /* the chosen engine breathes — a slow halo pulse on the glow ring */
+  .engine-list button.current{animation:glowBreathe 3.4s ease-in-out infinite}
+  @keyframes glowBreathe{0%,100%{box-shadow:0 0 0 1px var(--accent-2),0 0 14px var(--glow)}50%{box-shadow:0 0 0 1px var(--accent-2),0 0 30px var(--glow)}}
   /* mode menu: options cascade in one after another */
   .mmenu.open button{animation:mm-in .32s var(--spring) backwards}
   .mmenu.open button:nth-child(2){animation-delay:.06s}
@@ -941,19 +944,21 @@ body::after{
   /* the white trail in chat — mirrors the home hero sheen */
   .chat-head .cht{
     color:transparent;
-    background:linear-gradient(110deg,var(--text) 12%,var(--accent-2) 34%,var(--text) 50%,var(--accent-2) 66%,var(--text) 88%);
-    background-size:230% 100%;
+    background:linear-gradient(110deg,var(--text) 10%,#ffffff 30%,var(--text) 50%,#ffffff 70%,var(--text) 90%);
+    background-size:300% 100%;
     -webkit-background-clip:text;background-clip:text;
-    animation:xr-sheen 7s linear infinite;
+    animation:xr-sheen 6s linear infinite;
   }
+  :root[data-theme="light"] .chat-head .cht{background:linear-gradient(110deg,#0a0a0a 10%,#9a9a9a 30%,#101010 50%,#9a9a9a 70%,#0a0a0a 90%);background-size:300% 100%}
   /* status labels (thinking… / composing the prompt…) get a fast-moving trail */
   .paint-label{
     color:transparent;
-    background:linear-gradient(110deg,var(--muted) 12%,#fff 34%,var(--muted) 50%,#fff 66%,var(--muted) 88%);
-    background-size:230% 100%;
+    background:linear-gradient(110deg,var(--muted) 10%,#ffffff 30%,var(--muted) 50%,#ffffff 70%,var(--muted) 90%);
+    background-size:300% 100%;
     -webkit-background-clip:text;background-clip:text;
     animation:xr-sheen 2.2s linear infinite;
   }
+  :root[data-theme="light"] .paint-label{background:linear-gradient(110deg,var(--muted) 10%,#5f5f5f 30%,var(--muted) 50%,#5f5f5f 70%,var(--muted) 90%);background-size:300% 100%}
   /* settings panels stagger */
   .settings-col .panel:nth-child(1){animation-delay:.05s}
   /* light theme hero title gradient stays ink-on-white */
@@ -1467,6 +1472,11 @@ let S = load() || defaults();
   try{ localStorage.setItem(LSKEY, JSON.stringify(S)); }catch(e){}  // persist repairs immediately
 })();
 function save(){ try{ localStorage.setItem(LSKEY, JSON.stringify(S)); }catch(e){} updateSyncUI(); renderStatus(); renderChatList(); renderModel(); if(window.__xrCloudSchedule) window.__xrCloudSchedule(); }
+let saveT = null;
+function saveSoon(){                            // UI-preference flips (mode / engine): persist in a beat —
+  if(saveT) clearTimeout(saveT);                // save() stringifies every chat + attachment in one
+  saveT = setTimeout(save, 350);                // synchronous block, which freezes all animations mid-frame
+}
 function load(){ try{ const v = JSON.parse(localStorage.getItem(LSKEY)); return v && v.chats ? v : null; }catch(e){ return null; } }
 
 /* ---------- cloud sync — chats follow the Discord account ---------- */
@@ -1797,7 +1807,7 @@ $$('#homeModeMenu button[data-mode],#chatModeMenu button[data-mode]').forEach(b 
   b.addEventListener('click', (e) => {
     e.stopPropagation();
     S.mode = b.dataset.mode;
-    save(); renderModel(); closeMenus();
+    saveSoon(); renderModel(); closeMenus();
     toast('Mode: ' + (MODES[S.mode] || MODES.koder).n);
   });
 });
@@ -1805,7 +1815,7 @@ $$('#homeModeMenu button[data-model],#chatModeMenu button[data-model],#engineLis
   b.addEventListener('click', (e) => {
     e.stopPropagation();
     S.model = b.dataset.model;
-    save(); renderModel(); closeMenus();
+    saveSoon(); renderModel(); closeMenus();
     toast('Engine: ' + ({ 'auto': 'Auto — XR flagship', 'prime-v1': 'Prime', 'prime-v1-flash': 'Prime Flash' }[S.model] || S.model));
   });
 });
