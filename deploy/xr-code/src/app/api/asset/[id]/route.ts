@@ -49,7 +49,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!/^[a-f0-9]{16,24}$/.test(id))
     return NextResponse.json({ ok: false, error: "bad id" }, { status: 400 });
   // stable asset dir OUTSIDE .next — matches the chat route (survives rebuilds)
-  for (const ext of ["png", "mp4"]) {
+  // jpg/jpeg added: the Pollinations fast painter saves .jpg (nano banana saves .png)
+  for (const ext of ["png", "jpg", "jpeg", "mp4"]) {
     const file = path.resolve(assetDir(), id + "." + ext);
     try {
       const buf = fs.readFileSync(file);
