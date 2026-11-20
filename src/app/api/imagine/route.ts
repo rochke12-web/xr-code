@@ -5,6 +5,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { assetDir } from "../../../lib/asset-dir";
 import { verifyRequest } from "../../../lib/request-auth";
+import { mediaOverLimit, addMedia } from "../../../lib/xrstore";
 
 // XR-Code Imagine — the built-in image generator (NoteGPT-style).
 // Pipeline: user idea → Kimi AI (kimi-k2) rewrites it into one vivid English
@@ -202,6 +203,19 @@ export async function POST(req: Request) {
   const gv = await verifyRequest(req);
   if (!gv.ok)
     return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
+  const uid = gv.uid || "";
+
+  // ---- free-tier quota gate (10 images / day / Google account) ----
+  const q = mediaOverLimit(uid, "image");
+  if (q.over) {
+    return NextResponse.json({
+      ok: false,
+      error: "You've used today's 10-image allowance for this account — it resets at 00:00 UTC.",
+      limit: true,
+      usage: { used: q.used, limit: q.limit, day: q.day },
+    }, { status: 429 });
+  }
+
   const t0 = Date.now();
   let body: { prompt?: unknown; style?: unknown; size?: unknown; base?: unknown } = {};
   try {
@@ -233,11 +247,14 @@ export async function POST(req: Request) {
   }
   const ms = Date.now() - t0;
   console.log("[imagine] done:", painted.model, ms, "ms →", painted.url);
+  // count this image against the account's daily cap AFTER a successful paint
+  const usage = addMedia(uid, "images", 1);
   return NextResponse.json({
     ok: true,
     url: painted.url,
     enhanced: enhanced ? enhanced.text : "",
     prompt: paintPrompt,
     ms,
+    usage: { used: usage.images, limit: q.limit, day: usage.day },
   });
 }

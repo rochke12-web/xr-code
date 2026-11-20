@@ -88,6 +88,69 @@ export function overLimit(uid: string): { over: boolean; used: number; day: stri
   return { over: u.tokens >= DAILY_TOKEN_LIMIT, used: u.tokens, day: u.day };
 }
 
+/* ---------- per-account media counters (videos / images) ----------
+ * Separate from the token bucket: a free-tier hard cap on generated media per
+ * Google account per UTC day. File: db/media/<uid>.json → { day, videos, images }.
+ */
+export const DAILY_VIDEO_LIMIT = 3;   // user directive: 3 videos/day per account
+export const DAILY_IMAGE_LIMIT = 10;  // user directive: 10 images/day per account
+
+export type MediaUsage = { day: string; videos: number; images: number; updated: number };
+
+function mediaPath(uid: string): string | null {
+  const id = safeUid(uid);
+  return id ? path.join(subdir("media"), id + ".json") : null;
+}
+
+export function getMediaUsage(uid: string): MediaUsage {
+  const p = mediaPath(uid);
+  const t = today();
+  if (!p) return { day: t, videos: 0, images: 0, updated: 0 };
+  try {
+    const m = JSON.parse(fs.readFileSync(p, "utf8")) as MediaUsage;
+    if (m && m.day === t) {
+      return {
+        day: t,
+        videos: Math.max(0, Math.floor(m.videos) || 0),
+        images: Math.max(0, Math.floor(m.images) || 0),
+        updated: m.updated || 0,
+      };
+    }
+  } catch {
+    /* first use / corrupt — fresh */
+  }
+  return { day: t, videos: 0, images: 0, updated: 0 };
+}
+
+// increment a media counter; returns the updated record. kind = 'videos' | 'images'.
+export function addMedia(uid: string, kind: "videos" | "images", n = 1): MediaUsage {
+  const cur = getMediaUsage(uid);
+  const next: MediaUsage = {
+    day: cur.day,
+    videos: kind === "videos" ? cur.videos + n : cur.videos,
+    images: kind === "images" ? cur.images + n : cur.images,
+    updated: Date.now(),
+  };
+  const p = mediaPath(uid);
+  if (p) {
+    try {
+      const tmp = p + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify(next));
+      fs.renameSync(tmp, p);
+    } catch {
+      /* skip — next request recounts from the last good file */
+    }
+  }
+  return next;
+}
+
+// pre-flight quota probe; kind = 'video' | 'image'. NEVER throws.
+export function mediaOverLimit(uid: string, kind: "video" | "image"): { over: boolean; used: number; limit: number; day: string } {
+  const m = getMediaUsage(uid);
+  if (kind === "video") return { over: m.videos >= DAILY_VIDEO_LIMIT, used: m.videos, limit: DAILY_VIDEO_LIMIT, day: m.day };
+  return { over: m.images >= DAILY_IMAGE_LIMIT, used: m.images, limit: DAILY_IMAGE_LIMIT, day: m.day };
+}
+
 /* ---------- cloud chat store ---------- */
 
 const CHAT_CAPS = {

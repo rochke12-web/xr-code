@@ -68,11 +68,20 @@ async function genScene(prompt, spec, label) {
   // on the current tier) — patience is the whole game: 12 tries, 75s apart (~15 min)
   for (let a = 0; a < 12 && !taskId; a++) {
     try {
+      const body = {
+        prompt,
+        quality: spec.quality || "speed",
+        with_audio: spec.withAudio !== false,
+        size: spec.size || "1920x1080",
+        fps: 30,
+        duration: Number(spec.duration) > 0 ? Number(spec.duration) : 5,
+        watermark_enabled: false,   // user directive: never watermark
+      };
+      // image-to-video: the SDK accepts image_url (base64 data URL or http(s)).
+      // The route resolves /api/asset/* refs to base64 already; pass it through.
+      if (spec.imageUrl) body.image_url = spec.imageUrl;
       const t = await Promise.race([
-        zai.video.generations.create({
-          prompt, quality: spec.quality || "speed", with_audio: spec.withAudio !== false,
-          size: spec.size || "1920x1080", fps: 30, duration: 5,
-        }),
+        zai.video.generations.create(body),
         new Promise((r) => setTimeout(() => r(null), 30000)),
       ]);
       taskId = t?.id || null;
@@ -111,10 +120,11 @@ async function genScene(prompt, spec, label) {
 // ---- brain storyboarding ----
 async function planScenes(spec) {
   step("brain-plan", "the brain storyboards the video", 5);
+  const dur = Number(spec.duration) > 0 ? Number(spec.duration) : 5;
   const sys = "You are a video director. You break one video idea into consecutive scenes for a text-to-video generator.";
   const user = `Video idea: ${spec.prompt}
 Plan exactly ${spec.scenes} scenes. Rules:
-- Each scene is ONE 5-second shot. The scenes play back to back and must feel like ONE coherent video: same subject, same visual style, continuous story, no scene numbers or captions inside the picture.
+- Each scene is ONE ${dur}-second shot. The scenes play back to back and must feel like ONE coherent video: same subject, same visual style, continuous story, no scene numbers or captions inside the picture.
 - scene prompt: vivid cinematic English for the generator — subject, action, camera move, lighting, style. Max 60 words, self-contained (the generator only sees this one scene).
 - narration: what the narrator says over this scene. Max 28 words, natural spoken sentence(s), continues the story. Empty string if the video needs no words.
 - No on-screen text, no watermarks, no subtitles — generators render text badly.
@@ -139,11 +149,11 @@ async function brainText(sys, user, { model = "glm-4.6", timeout = 240000 } = {}
 // ---- clip prompt polish: a short idea gets the director treatment, exactly
 // like the storyboard path — action verb, camera move, lighting, style. Long
 // detailed prompts are already directed and skip the LLM hop.
-async function polishClip(prompt) {
+async function polishClip(prompt, dur) {
   if (String(prompt).length >= 200) return prompt;
   try {
     const sys = "You are a video director writing one shot prompt for a text-to-video generator.";
-    const user = `Expand this video idea into ONE vivid 5-second cinematic shot prompt: keep every fact of the idea, add the subject's action, one camera move, the setting, lighting and style. Max 60 words. No on-screen text, no watermarks. Reply with ONLY the prompt.\n\nIdea: ${prompt}`;
+    const user = `Expand this video idea into ONE vivid ${dur}-second cinematic shot prompt: keep every fact of the idea, add the subject's action, one camera move, the setting, lighting and style. Max 60 words. No on-screen text, no watermarks. Reply with ONLY the prompt.\n\nIdea: ${prompt}`;
     const out = await brainText(sys, user, { timeout: 12000 });
     const clean = out.replace(/^["'`\s]+|["'`\s]+$/g, "");
     if (clean && clean.length > 20 && clean.length < 1200 && !/^[{\[]/.test(clean)) {
@@ -158,13 +168,14 @@ async function polishClip(prompt) {
 // ---- ffmpeg assembly ----
 async function assemble(files, spec, narrations) {
   step("assemble", "stitching scenes + mixdown", 82);
+  const dur = Number(spec.duration) > 0 ? Number(spec.duration) : 5;
   const norm = [];
   for (let i = 0; i < files.length; i++) {
     const out = path.join(dir, `norm_${i}.mp4`);
     const r = await run("ffmpeg", ["-y", "-loglevel", "error", "-i", files[i],
-      "-vf", "fade=t=in:st=0:d=0.25,fade=t=out:st=4.75:d=0.25,scale=" + (spec.size || "1920x1080").replace("x", ":") + ":force_original_aspect_ratio=increase,crop=" + (spec.size || "1920x1080").replace("x", ":"),
+      "-vf", `fade=t=in:st=0:d=0.25,fade=t=out:st=${Math.max(0, dur - 0.25)}:d=0.25,scale=` + (spec.size || "1920x1080").replace("x", ":") + ":force_original_aspect_ratio=increase,crop=" + (spec.size || "1920x1080").replace("x", ":"),
       "-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
-      "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-t", "5", out], { timeout: 300000 });
+      "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-t", String(dur), out], { timeout: 300000 });
     if (r.code !== 0) throw new Error("normalize failed: " + r.err.slice(-300));
     norm.push(out);
   }
@@ -185,13 +196,13 @@ async function assemble(files, spec, narrations) {
       const std = path.join(dir, `narr_std_${i}.wav`);
       await run("ffmpeg", ["-y", "-loglevel", "error", "-i", t, "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", std]);
       const pad = path.join(dir, `narr_pad_${i}.wav`);
-      await run("ffmpeg", ["-y", "-loglevel", "error", "-i", std, "-af", "apad", "-t", "5", pad]);
+      await run("ffmpeg", ["-y", "-loglevel", "error", "-i", std, "-af", "apad", "-t", String(dur), pad]);
       wavs.push(pad);
     }
     if (wavs.some(Boolean)) {
-      // a missing narration for a scene = 5s of silence, so the track stays aligned
+      // a missing narration for a scene = <dur>s of silence, so the track stays aligned
       const sil = path.join(dir, "silence.wav");
-      await run("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", "5", "-c:a", "pcm_s16le", sil]);
+      await run("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", `anullsrc=r=48000:cl=stereo`, "-t", String(dur), "-c:a", "pcm_s16le", sil]);
       const filled = wavs.map((f) => f || sil);
       const nlist = path.join(dir, "narr_list.txt");
       fs.writeFileSync(nlist, filled.map(f => "file '" + f + "'").join("\n"));
@@ -241,7 +252,7 @@ function publish(final) {
       publish(final);
     } else {
       step("clip", "generating the shot", 20);
-      const polished = await polishClip(spec.prompt);
+      const polished = await polishClip(spec.prompt, Number(spec.duration) > 0 ? Number(spec.duration) : 5);
       if (polished !== spec.prompt) save({ polishedPrompt: polished });
       const f = await genScene(polished, spec, "clip");
       if (!f) throw new Error("video generation failed (see driver.log)");
