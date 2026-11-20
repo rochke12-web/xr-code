@@ -55,35 +55,48 @@ function parseJsonBlock(text: string): any | null {
 }
 
 // one SDK video task → downloaded mp4 (429-aware, patient polling)
+// Races N parallel create calls so one lands in a free rate-limit slot — same
+// parallel-painter pattern Image Mode uses. First task id wins, losers ignored.
 async function genScene(spec: VideoSpec, prompt: string, dir: string, label: string, log: (s: string) => void): Promise<string | null> {
   const zai = await ZAI.create();
-  let taskId: string | null = null;
-  for (let a = 0; a < 8 && !taskId; a++) {  // 8 tries (vs 12 in detached) — keep inside request timeout
+  const body: any = {
+    prompt,
+    quality: spec.quality || "speed",
+    with_audio: spec.withAudio !== false,
+    size: spec.size || "1920x1080",
+    fps: 30,
+    duration: spec.duration > 0 ? spec.duration : 5,
+    watermark_enabled: false,
+  };
+  if (spec.imageUrl) body.image_url = spec.imageUrl;
+
+  // fire up to 3 parallel create calls per round; first non-empty task id wins
+  const tryCreate = async (): Promise<string | null> => {
     try {
-      const body: any = {
-        prompt,
-        quality: spec.quality || "speed",
-        with_audio: spec.withAudio !== false,
-        size: spec.size || "1920x1080",
-        fps: 30,
-        duration: spec.duration > 0 ? spec.duration : 5,
-        watermark_enabled: false,
-      };
-      if (spec.imageUrl) body.image_url = spec.imageUrl;
       const t = await Promise.race([
-        zai.video.generations.create(body),
+        zai.video.generations.create({ ...body, request_id: crypto.randomBytes(8).toString("hex") }),
         new Promise((r) => setTimeout(() => r(null), 30000)),
       ]);
-      taskId = (t as any)?.id || null;
-      if (!taskId) log(`${label} create attempt ${a} returned no id`);
+      return (t as any)?.id || null;
     } catch (e) {
       const m = String(e);
-      log(`${label} create attempt ${a} threw: ${m.slice(0, 120)}`);
-      if (/\b429\b|rate/i.test(m) && a < 7) { log(`${label} rate-limited — waiting 60s`); await new Promise(r => setTimeout(r, 60000)); }
-      else if (a < 7) await new Promise(r => setTimeout(r, 12000));
+      if (/\b429\b|rate/i.test(m)) return "rate";  // signal: rate-limited, retry round
+      log(`${label} create threw: ${m.slice(0, 100)}`);
+      return null;
     }
+  };
+
+  let taskId: string | null = null;
+  for (let round = 0; round < 6 && !taskId; round++) {  // 6 rounds × 3 parallel = 18 attempts max
+    const lanes = await Promise.all([tryCreate(), tryCreate(), tryCreate()]);
+    const id = lanes.find((x) => x && x !== "rate");
+    if (id) { taskId = id; break; }
+    // all rate-limited or empty — brief backoff before next round
+    log(`${label} create round ${round + 1}: no id (rates: ${lanes.filter(x => x === "rate").length}/3) — retrying in 15s`);
+    await new Promise(r => setTimeout(r, 15000));
   }
   if (!taskId) return null;
+  log(`${label} task created: ${taskId}`);
   for (let i = 0; i < 80; i++) {  // 80 × 3s = 240s max polling
     if (i > 0) await new Promise(r => setTimeout(r, 3000));
     let r: any = null;
