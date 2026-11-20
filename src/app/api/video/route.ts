@@ -36,7 +36,7 @@ export async function POST(req: Request) {
   const uid = gv.uid || "";
 
   // ---- free-tier quota gate (3 videos / day / Google account) ----
-  const q = mediaOverLimit(uid, "video");
+  const q = await mediaOverLimit(uid, "video");
   if (q.over) {
     return NextResponse.json({
       ok: true,
@@ -102,7 +102,7 @@ export async function POST(req: Request) {
 
     // count this video against the account's daily cap BEFORE the driver runs,
     // so a flood of parallel requests can't slip past the gate.
-    addMedia(uid, "videos", 1);
+    await addMedia(uid, "videos", 1);
 
     const child = spawn(process.execPath, ["scripts/video_driver.mjs", id], {
       cwd: ROOT, detached: true, stdio: "ignore", env: process.env,

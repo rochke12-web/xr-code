@@ -206,7 +206,7 @@ export async function POST(req: Request) {
   const uid = gv.uid || "";
 
   // ---- free-tier quota gate (10 images / day / Google account) ----
-  const q = mediaOverLimit(uid, "image");
+  const q = await mediaOverLimit(uid, "image");
   if (q.over) {
     return NextResponse.json({
       ok: false,
@@ -248,7 +248,7 @@ export async function POST(req: Request) {
   const ms = Date.now() - t0;
   console.log("[imagine] done:", painted.model, ms, "ms →", painted.url);
   // count this image against the account's daily cap AFTER a successful paint
-  const usage = addMedia(uid, "images", 1);
+  const usage = await addMedia(uid, "images", 1);
   return NextResponse.json({
     ok: true,
     url: painted.url,
