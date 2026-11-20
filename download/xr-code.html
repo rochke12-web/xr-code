@@ -1871,8 +1871,8 @@ async function askBrain(c, text, atts){
   if(S.mode === 'video' && (text || '').trim()){         // Video mode — text-to-video (10s, no watermark), optional narration
     const wantNarrate = /\bnarrat/i.test(text) || /\bvoice[- ]?over\b|\bvoiceover\b/i.test(text);
     chip.textContent = 'filming…';
-    body0.innerHTML = '<span class="paint-label">queued — filming takes ~2-5 min…</span>';
-    let q = null;
+    body0.innerHTML = '<span class="paint-label">filming — this takes ~2-4 min, keep the tab open…</span>';
+    let q = null, httpErr = null;
     try{
       const res = await fetch(API_BASE + '/api/video', {
         method: 'POST',
@@ -1881,40 +1881,20 @@ async function askBrain(c, text, atts){
       });
       q = await res.json().catch(() => null);
       if(res.status === 401 && q && q.error === 'auth'){ chip.textContent = 'Hosted by Z.ai'; pen.remove(); window.xrSessionExpired(); return; }
-      if(q && q.limit){                       // 3/day cap hit — calm bubble, no model names
+      if(q && q.limit){
         chip.textContent = 'Hosted by Z.ai'; pen.remove();
         typeReply(c, splitFence(q.text || "You've used today's video allowance — it resets at 00:00 UTC."), null);
         return;
       }
       if(!(q && q.ok)) q = null;
-    }catch(e){ q = null; }
-    if(!q){
-      chip.textContent = 'offline'; pen.remove();
-      typeReply(c, splitFence('The film studio is warming up right now — give it a moment and try again.'), null);
-      return;
-    }
-    // poll the detached driver until done / error
-    const jobId = q.id;
-    let job = null, pollErr = null;
-    for(let i = 0; i < 240; i++){            // up to ~20 min of polling (5s cadence)
-      await new Promise(r => setTimeout(r, 5000));
-      try{
-        const r = await fetch(API_BASE + '/api/video?id=' + jobId, { cache: 'no-store' });
-        const d = await r.json().catch(() => null);
-        if(d && d.ok && d.job){
-          job = d.job;
-          if(job.status === 'done' || job.status === 'error') break;
-          if(job.step) body0.querySelector('.paint-label').textContent = job.step + (job.note ? ' — ' + job.note : '');
-        }
-      }catch(e){ pollErr = e; }
-    }
+    }catch(e){ httpErr = e; q = null; }
     chip.textContent = 'Hosted by Z.ai';
-    if(job && job.status === 'done' && job.result && job.result.url){
+    if(q && q.url){
       const cap = '✦ Here is your 10-second clip' + (wantNarrate ? ' with narration.' : '.');
-      typeReply(c, Object.assign(splitFence(cap), { asset: { type: 'video', url: job.result.url, cover: job.cover || undefined } }), pen);
+      typeReply(c, Object.assign(splitFence(cap), { asset: { type: 'video', url: q.url } }), pen);
     }else{
       pen.remove();
-      const why = (job && job.error) ? '' : '';
+      const why = (q && q.error) ? ' (' + String(q.error).slice(0,120) + ')' : (httpErr ? ' (network)' : '');
       typeReply(c, splitFence('The film studio could not finish that clip — please try again in a moment.' + why), null);
     }
     return;
