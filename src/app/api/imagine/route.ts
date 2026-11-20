@@ -128,28 +128,48 @@ async function deWatermark(buf: Buffer): Promise<Buffer> {
 // what the video pipeline does, and it kills the "busy · retrying" UX where a
 // 503 on the fast lane forced a serial fall-through to a 50s model. Every lane
 // has its own timeout + jail, so a dead lane never blocks the others.
+//
+// Pollinations free tier rate-limits to ~1 image/45s per IP — Vercel shares
+// egress IPs across all users so the limit is hit instantly. Racing 4 lanes
+// with distinct seeds + a Referer header (which Pollinations rewards with a
+// higher free quota) means at least one almost always lands.
 async function paintPollinations(prompt: string, size: string): Promise<{ url: string; model: string } | null> {
-  try {
-    const [w, h] = size.split("x").map(Number);
-    const url = "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt.slice(0, 1800)) +
-      `?width=${w}&height=${h}&nologo=true&nofeed=true&seed=${Math.floor(Math.random() * 1e9)}`;
-    const res = (await Promise.race([
-      fetch(url, { signal: AbortSignal.timeout(28000) }),
-      withJail(30000),
-    ])) as Response | null;
-    if (!res || (res.status === 429 || res.status === 502 || res.status === 503) || !res.ok) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length < 2000) return null;
-    const head = buf.subarray(0, 4).toString("hex");
-    if (!head.startsWith("ffd8") && !head.startsWith("8950")) return null;
-    const clean = await deWatermark(buf);
-    fs.mkdirSync(ASSET_DIR, { recursive: true });
-    const id = randomUUID().replace(/-/g, "").slice(0, 20);
-    fs.writeFileSync(path.join(ASSET_DIR, id + ".jpg"), clean);
-    return { url: `/api/asset/${id}`, model: "fast-painter" };
-  } catch {
-    return null;
-  }
+  const [w, h] = size.split("x").map(Number);
+  const seed = () => Math.floor(Math.random() * 1e9);
+  const fetchOne = async (s: number): Promise<{ url: string; model: string } | null> => {
+    try {
+      const u = "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt.slice(0, 1800)) +
+        `?width=${w}&height=${h}&nologo=true&nofeed=true&seed=${s}`;
+      const res = (await Promise.race([
+        fetch(u, { signal: AbortSignal.timeout(28000), headers: { Referer: "https://xr-code.vercel.app" } }),
+        withJail(30000),
+      ])) as Response | null;
+      if (!res || res.status === 402 || res.status === 429 || res.status === 502 || res.status === 503 || !res.ok) return null;
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length < 2000) return null;
+      const head = buf.subarray(0, 4).toString("hex");
+      if (!head.startsWith("ffd8") && !head.startsWith("8950")) return null;
+      const clean = await deWatermark(buf);
+      fs.mkdirSync(ASSET_DIR, { recursive: true });
+      const id = randomUUID().replace(/-/g, "").slice(0, 20);
+      fs.writeFileSync(path.join(ASSET_DIR, id + ".jpg"), clean);
+      return { url: `/api/asset/${id}`, model: "fast-painter" };
+    } catch {
+      return null;
+    }
+  };
+  // race 4 lanes — first valid image wins, losers absorbed
+  const lanes = [fetchOne(seed()), fetchOne(seed()), fetchOne(seed()), fetchOne(seed())];
+  return new Promise((resolve) => {
+    let pending = lanes.length, resolved = false;
+    for (const p of lanes) {
+      p.then((r) => {
+        if (resolved) return;
+        if (r) { resolved = true; resolve(r); }
+        else if (--pending === 0) resolve(null);
+      }).catch(() => { if (!resolved && --pending === 0) resolve(null); });
+    }
+  });
 }
 
 async function paintZai(prompt: string, size: string, model?: string): Promise<{ url: string; model: string } | null> {
