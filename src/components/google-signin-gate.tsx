@@ -21,11 +21,6 @@ export default function GoogleSigninGate({ children }: { children: ReactNode }) 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [email, setEmail] = useState('')
-  const [adminOpen, setAdminOpen] = useState(false)
-  const [targetEmail, setTargetEmail] = useState('')
-  const [limit, setLimit] = useState('100')
-  const [disabled, setDisabled] = useState(false)
-  const [adminMessage, setAdminMessage] = useState('')
   useEffect(() => {
     let active = true
     fetch('/api/google-session', { cache: 'no-store' })
@@ -66,28 +61,7 @@ export default function GoogleSigninGate({ children }: { children: ReactNode }) 
     window.addEventListener('message', handleSignOut)
     return () => window.removeEventListener('message', handleSignOut)
   }, [busy])
-  async function policy(save: boolean) {
-    setAdminMessage('');
-    try {
-      const res = await fetch(save ? '/api/admin/policy' : '/api/admin/policy?email=' + encodeURIComponent(targetEmail), save ? {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({email: targetEmail, dailyLimit: Number(limit), disabled})
-      } : {cache:'no-store'});
-      const data = await res.json();
-      if (!res.ok) throw new Error('Could not ' + (save ? 'save' : 'load') + ' policy. Check the email and limit.');
-      if (!save) { setLimit(String(data.policy.dailyLimit)); setDisabled(data.policy.disabled); }
-      setAdminMessage(save ? 'Policy saved.' : 'Policy loaded.');
-    } catch (e) { setAdminMessage(e instanceof Error ? e.message : 'Request failed.'); }
-  }
-  if (status === 'ready') return <><div style={{ position: 'fixed', top: 8, right: 8, zIndex: 100, background:'#18181b', color:'white', padding:8 }}>
-    {email.toLowerCase() === 'rochke12@gmail.com' && <button onClick={() => setAdminOpen(!adminOpen)}>Admin</button>}{' '}
-    {error && <span role="alert">{error}</span>}
-    {adminOpen && <section style={{padding:16, width:280, display:'grid', gap:10}}><strong>Account access</strong>
-      <label>Email <input type="email" value={targetEmail} onChange={e=>setTargetEmail(e.target.value)} /></label>
-      <button onClick={() => policy(false)}>Load policy</button>
-      <label>Daily message limit <input type="number" min="0" max="100000" value={limit} onChange={e=>setLimit(e.target.value)} /></label>
-      <label><input type="checkbox" checked={disabled} onChange={e=>setDisabled(e.target.checked)} /> Block account</label>
-      <button onClick={() => policy(true)}>Save policy</button><span role="status">{adminMessage}</span>
-    </section>}</div>{children}</>
+  if (status === 'ready') return <>{children}</>
   return <>
     <div aria-hidden="true" style={{pointerEvents:'none'}}>{children}</div>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&amp;family=Inter:wght@400;500;600;700&amp;display=swap" />

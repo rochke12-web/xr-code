@@ -67,3 +67,11 @@ db/usage/
 # zig toolchain: only the tarball is committed; the extracted tree is
 # recreated lazily at runtime by the binary factory (src/lib/xrbuild.ts)
 /toolchain/zig/
+
+# secrets & tokens must never be tracked
+.secrets/
+*.token
+.env
+.env.local
+dev.log
+server.log

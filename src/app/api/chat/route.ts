@@ -14,6 +14,27 @@ import { XR_SECRETS } from "../../../lib/xrsecrets";
 import { addUsage, overLimit, DAILY_TOKEN_LIMIT, estTokens } from "../../../lib/xrstore";
 import { loadByok, byokChat } from "../../../lib/xrkeys";
 
+// Vercel serverless ceiling — the chat route does search + vision + engine
+// calls; the Hobby default (10s) killed mid-flight requests with a 500, which
+// the client renders as endless "busy · retrying…". 60s is the safe maximum.
+export const maxDuration = 60;
+
+// The ZAI SDK dies in ~2ms when its config is missing (Vercel has no
+// .z-ai-config unless the owner provisions one). Detect that ONCE and skip
+// every ZAI lane instantly — one message must not burn ~12s walking dead
+// engines before reaching the Prime gateway / BYOK lanes.
+let ZAI_DEAD = false;
+type ZAIClient = Awaited<ReturnType<typeof ZAI.create>>;
+async function getZAI(): Promise<ZAIClient | null> {
+  if (ZAI_DEAD) return null;
+  try {
+    return await ZAI.create();
+  } catch (e) {
+    if (/configuration file not found|\.z-ai-config|not configured/i.test(String((e as Error)?.message || e))) ZAI_DEAD = true;
+    return null;
+  }
+}
+
 // XR-Code hosted brain — no API keys in the client, no modes, nothing to configure.
 // One highly capable agent: reads each message and automatically responds the
 // best way — complete runnable code, precise debugging, clear explanations, or
@@ -272,7 +293,8 @@ async function runImageGen(prompt: string, size?: string): Promise<{ url: string
   const fast = await pollinationsImage(prompt, size);
   if (fast) return fast;
   try {
-    const zai = await ZAI.create();
+    const zai = await getZAI();
+    if (!zai) return null;
     const res = (await Promise.race([
       zai.images.generations.create({ prompt, size: (size && IMG_SIZES.has(size) ? size : "1024x1024") as "1024x1024" }),
       new Promise<null>(r => setTimeout(() => r(null), 120000)),
@@ -345,7 +367,8 @@ async function runVideoGen(prompt: string, withAudio: boolean): Promise<{ url: s
     let task: { id?: string } | null = null;
     for (let a = 0; a < 3 && !task; a++) {
       try {
-        const zai = await ZAI.create();
+        const zai = await getZAI();
+        if (!zai) return null;
         task = (await Promise.race([
           zai.video.generations.create({
             prompt,
@@ -368,7 +391,8 @@ async function runVideoGen(prompt: string, withAudio: boolean): Promise<{ url: s
       }
     }
     if (!task?.id) return null;
-    const zai = await ZAI.create();
+    const zai = await getZAI();
+    if (!zai) return null;
     // speed-critical polling: query immediately (tasks CAN finish fast), then
     // every 3s — the old 10s-then-check loop added up to ~20s of dead air to
     // every job even when the engine had already finished rendering
@@ -472,7 +496,7 @@ async function fetchPage(url: string, ms: number): Promise<string | null> {
 // Google News RSS — real Google results, no JS wall, no API key
 async function googleNews(q: string): Promise<SearchItem[]> {
   const xml = await fetchPage(
-    `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`, 9000);
+    `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`, 7000);
   if (!xml) return [];
   const out: SearchItem[] = [];
   for (const chunk of xml.split("<item>").slice(1, 9)) {
@@ -487,10 +511,9 @@ async function googleNews(q: string): Promise<SearchItem[]> {
 
 // DuckDuckGo HTML — general-web gap filler (Google News skews to current events)
 async function duckWeb(q: string): Promise<SearchItem[]> {
-  let html: string | null = null;
-  for (let i = 0; i < 2 && !html; i++) {
-    html = await fetchPage(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`, 8000);
-  }
+  // ONE attempt, 7s budget — a second retry pushed the worst-case grounding
+  // latency past Vercel's function kill window and read as "busy · retrying…"
+  const html = await fetchPage(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`, 7000);
   if (!html) return [];
   const out: SearchItem[] = [];
   const re = /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
@@ -511,7 +534,8 @@ async function duckWeb(q: string): Promise<SearchItem[]> {
 // hosted search index — last resort when both scrapes come up empty
 async function hostedSearch(q: string): Promise<SearchItem[]> {
   try {
-    const zai = await ZAI.create();
+    const zai = await getZAI();
+    if (!zai) return [];
     const res = await Promise.race([
       zai.functions.invoke("web_search", { query: q.slice(0, 300), num: 8 }),
       new Promise<unknown>(r => setTimeout(() => r(null), 12000)),
@@ -668,9 +692,9 @@ async function primeChat(sys: string, msgs: { role: "user" | "assistant"; conten
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${PRIME_KEY}` },
         body: JSON.stringify({ model, max_tokens: 4096, system: sys, messages: clean }),
-        signal: AbortSignal.timeout(45000),
+        signal: AbortSignal.timeout(25000),
       }),
-      new Promise<null>(r => setTimeout(() => r(null), 50000)),
+      new Promise<null>(r => setTimeout(() => r(null), 27000)),
     ])) as Response | null;
     if (!res || !res.ok) return null;
     const d = (await res.json()) as { content?: { type?: string; text?: string }[]; usage?: { input_tokens?: number; output_tokens?: number } };
@@ -706,7 +730,8 @@ async function glmChat(sys: string, msgs: { role: "user" | "assistant"; content:
   // 16+ gateway calls.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const zai = await ZAI.create();
+      const zai = await getZAI();
+      if (!zai) return { text: null, quota: false }; // config missing — walk the chain now
       // thinking toggle is a GLM knob — applied to glm-* models only, never
       // to the emergency dpsk/argon lanes
       const glmish = model.startsWith("glm");
@@ -810,7 +835,8 @@ function imagesOf(content: unknown): { mt: string; b64: string }[] {
 async function describeImages(imgs: { mt: string; b64: string }[]): Promise<string> {
   if (!imgs.length) return "";
   try {
-    const zai = await ZAI.create();
+    const zai = await getZAI();
+    if (!zai) return ""; // vision preprocessing down → fall back to blind text notes
     const content: Extract<VisionMessage["content"], unknown[]> = [
       {
         type: "text",
@@ -852,7 +878,10 @@ export async function POST(req: Request) {
   try {
     const quota = await reserveDailyMessage(firebaseDb(), user.uid, new Date(), user.email);
     if (!quota.allowed) return NextResponse.json({ ok: false, error: quota.reason }, { status: quota.reason === 'disabled' ? 403 : 429 });
-  } catch {
+  } catch (e) {
+    // surface the REAL storage error in the server logs — a silent 503 here was
+    // indistinguishable from an engine outage ("busy · retrying…" forever)
+    console.error("[chat] quota reserve failed:", String((e as Error)?.message || e).slice(0, 300));
     return NextResponse.json({ ok: false, error: "quota_unavailable" }, { status: 503 });
   }
   const uid = user.uid;
@@ -1082,10 +1111,16 @@ export async function POST(req: Request) {
   let actText: string | null = null;
   let engineUsed = "";
   let act: Action | null = null;
-  // BYOK lane 0 — the user's own OpenAI-compatible key (encrypted server-side,
+  // BYOK lane 0 — the user's own OpenAI-compatible key (encrypted in Firestore,
   // their quota). Tries FIRST; on any failure the hosted chain runs untouched —
-  // the chat never goes dark either way.
-  const byok = loadByok(uid);
+  // the chat never goes dark either way. A vault read blip must not kill the
+  // request: the hosted chain simply takes over.
+  let byok: Awaited<ReturnType<typeof loadByok>> = null;
+  try {
+    byok = await loadByok(uid);
+  } catch {
+    /* vault read failed — hosted chain answers */
+  }
   if (byok) {
     const r = await byokChat(byok, sys, chatText);
     if (r) {

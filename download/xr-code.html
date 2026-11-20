@@ -336,6 +336,12 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 }
 .file-btn:hover{color:var(--text);box-shadow:inset 0 0 0 1px var(--accent-2);transform:translateY(-2px)}
 .file-btn:active{transform:scale(.92)}
+/* BYOK popup + owner admin panel */
+.byok-modal{width:min(480px,94vw);background:var(--panel-2);border:1px solid var(--line);border-radius:20px;padding:22px;display:flex;flex-direction:column;gap:12px;box-shadow:0 30px 90px rgba(0,0,0,.5);animation:stIn .45s var(--spring) backwards;max-height:86vh;overflow-y:auto}
+.byok-head{display:flex;align-items:center;justify-content:space-between;font-family:var(--font-head);font-weight:700;font-size:16px;color:var(--text)}
+.byok-head .bh-t{display:inline-flex;align-items:center;gap:9px}
+.adm-check{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);cursor:pointer;white-space:nowrap}
+.file-btn.has{color:var(--text);box-shadow:inset 0 0 0 1px var(--accent-2),0 0 16px -6px var(--glow)}
 .attach-row{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;padding:2px 2px 0}
 .attach-row:empty{display:none}
 .att-chip{display:inline-flex;align-items:center;gap:7px;max-width:100%;font-size:12px;color:var(--text);background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:5px 10px;transition:border-color .2s,transform .25s var(--spring)}
@@ -1057,6 +1063,7 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
             </div>
           </div>
           <input id="homeInput" autocomplete="off" placeholder="What would you like to do with XR-Code?">
+          <button class="file-btn" id="byokBtnHome" type="button" title="Your API key (BYOK)"><i class="ic" data-ic="i-key"></i></button>
           <button class="send-btn" type="submit" title="Send"><i class="ic" data-ic="i-chev"></i></button>
         </form>
 
@@ -1087,6 +1094,7 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
           <div class="chip-row" id="sizeChips"></div>
         </div>
         <input id="chatInput" autocomplete="off" placeholder="Message XR Code...">
+        <button class="file-btn" id="byokBtn" type="button" title="Your API key (BYOK)"><i class="ic" data-ic="i-key"></i></button>
         <button class="send-btn" type="submit" title="Send"><i class="ic" data-ic="i-send"></i></button>
       </form>
     </section>
@@ -1123,26 +1131,22 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
           </div>
 
           <div class="panel">
-            <h3><i class="ic big" data-ic="i-cpu"></i> Your own API key (BYOK)</h3>
+            <h3><i class="ic big" data-ic="i-key"></i> Your own API key (BYOK)</h3>
+            <div class="data-row"><button class="mini-btn" id="byokManage" type="button"><i class="ic small" data-ic="i-key"></i> Manage keys</button></div>
+            <p class="note">Bring your own key: it is encrypted on the XR-Code server, used only for your account, and never shown again. The key vault also opens from the key button beside Send.</p>
+          </div>
+          <div class="panel" id="adminPanel" hidden>
+            <h3><i class="ic big" data-ic="i-gear"></i> Admin — Account access</h3>
+            <div class="byok-row"><input id="admEmail" type="email" autocomplete="off" placeholder="account@gmail.com"></div>
             <div class="byok-row">
-              <select id="byokProvider">
-                <option value="openai">OpenAI</option>
-                <option value="openrouter">OpenRouter</option>
-                <option value="groq">Groq</option>
-                <option value="deepseek">DeepSeek</option>
-                <option value="custom">Custom (OpenAI-compatible)</option>
-              </select>
-              <input id="byokModel" autocomplete="off" placeholder="model (optional)">
+              <input id="admLimit" type="number" min="0" max="100000" placeholder="Daily message limit (100)">
+              <label class="adm-check"><input type="checkbox" id="admDisabled"> Block account</label>
             </div>
-            <div class="byok-row" id="byokBaseRow" hidden>
-              <input id="byokBase" autocomplete="off" placeholder="base URL — https://host/v1">
+            <div class="data-row">
+              <button class="mini-btn" id="admLoad" type="button"><i class="ic small" data-ic="i-search"></i> Load policy</button>
+              <button class="mini-btn" id="admSave" type="button"><i class="ic small" data-ic="i-down"></i> Save policy</button>
             </div>
-            <div class="byok-row">
-              <input id="byokKey" type="password" autocomplete="off" placeholder="API key (sk-…)">
-              <button class="mini-btn" id="byokSave" type="button">Save key</button>
-              <button class="mini-btn danger" id="byokDel" type="button">Remove</button>
-            </div>
-            <p class="note" id="byokStatus">Bring your own key: it is encrypted on the XR-Code server, used only for your account, and never shown again. Your replies then ride YOUR key first — the hosted brain stays as backup, so the chat never goes dark.</p>
+            <p class="note" id="admMsg">Per-email daily message limit or block. Every account gets 100 messages a day by default.</p>
           </div>
           <div class="panel">
             <h3>Account</h3>
@@ -1152,6 +1156,33 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
       </div>
     </section>
   </main>
+
+  <!-- ===== BYOK POPUP — your own API key (opened beside Send / from Settings) ===== -->
+  <div class="sandbox-back" id="byokBack">
+    <div class="byok-modal" role="dialog" aria-modal="true" aria-label="Your API key">
+      <div class="byok-head"><span class="bh-t"><i class="ic" data-ic="i-key"></i> Your API key</span>
+        <button class="code-fold" id="byokClose" type="button" title="Close"><svg class="ic small"><use href="#i-down"/></svg></button></div>
+      <div class="byok-row">
+        <select id="byokProvider">
+          <option value="openai">OpenAI</option>
+          <option value="openrouter">OpenRouter</option>
+          <option value="groq">Groq</option>
+          <option value="deepseek">DeepSeek</option>
+          <option value="custom">Custom (OpenAI-compatible)</option>
+        </select>
+        <input id="byokModel" autocomplete="off" placeholder="model (optional)">
+      </div>
+      <div class="byok-row" id="byokBaseRow" hidden>
+        <input id="byokBase" autocomplete="off" placeholder="base URL — https://host/v1">
+      </div>
+      <div class="byok-row">
+        <input id="byokKey" type="password" autocomplete="off" placeholder="API key (sk-…)">
+        <button class="mini-btn" id="byokSave" type="button">Save key</button>
+        <button class="mini-btn danger" id="byokDel" type="button">Remove</button>
+      </div>
+      <p class="note" id="byokStatus">Bring your own key: it is encrypted on the XR-Code server, used only for your account, and never shown again. Your replies then ride YOUR key first — the hosted brain stays as backup, so the chat never goes dark.</p>
+    </div>
+  </div>
 
   <!-- ===== SANDBOX (run code right in the chat) ===== -->
   <div class="sandbox-back" id="sandboxBack">
@@ -1974,7 +2005,7 @@ async function askBrain(c, text, atts){
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messages: ctx, model: S.model || 'auto', mode: S.mode || 'koder' })   // engine + mode ride together
   });
-  let d = null, failed = null;
+  let d = null, failed = null, triedQuotaRetry = false;
   const RETRY_WAITS = [4000, 8000, 15000, 20000];      // lifetime net — ~47s of silent self-healing
   for(let attempt = 0; attempt <= RETRY_WAITS.length; attempt++){
     failed = null;
@@ -1989,6 +2020,22 @@ async function askBrain(c, text, atts){
       if(res.status === 401 && d && d.error === 'auth'){        // members gate bounced this send
         chip.textContent = 'Hosted by Z.ai'; pen.remove();
         window.dsShowLock(d.auth); return;
+      }
+      if(d && d.error === 'daily_limit'){                       // per-account daily message cap (resets 00:00 UTC)
+        chip.textContent = 'daily limit'; pen.remove();
+        typeReply(c, splitFence("You've used today's messages for this account — the counter resets at 00:00 UTC. The owner can raise the limit in Settings → Admin."), null);
+        return;
+      }
+      if(d && d.error === 'disabled'){                          // account blocked by the owner
+        chip.textContent = 'Hosted by Z.ai'; pen.remove();
+        typeReply(c, splitFence("This account can't send messages right now — it was disabled in Admin → Account access."), null);
+        return;
+      }
+      if(d && d.error === 'quota_unavailable' && !triedQuotaRetry){   // storage hiccup — ONE short retry, not the long loop
+        triedQuotaRetry = true;
+        chip.textContent = 'busy · retrying…';
+        await new Promise(r => setTimeout(r, 3000));
+        continue;
       }
       if(d && d.ok && (d.text || '').trim()) break;
       failed = new Error(d && d.error ? d.error : 'HTTP ' + res.status);
@@ -2023,7 +2070,9 @@ async function askBrain(c, text, atts){
   const el = document.createElement('div'); el.className = 'msg a';
   const who = document.createElement('span'); who.className = 'who'; who.textContent = 'XR Code';
   const body = document.createElement('div'); body.className = 'bubble';
-  body.textContent = 'The AI server is unreachable right now — check your connection and try again in a moment.';
+  body.textContent = failed && failed.message === 'quota_unavailable'
+    ? 'The message service is warming up on the server — give it a minute and try again.'
+    : 'The AI server is unreachable right now — check your connection and try again in a moment.';
   const ch = document.createElement('span'); ch.className = 'chip'; ch.textContent = 'offline';
   const re = document.createElement('button'); re.className = 'retry-btn'; re.type = 'button';
   re.innerHTML = '<svg class="ic small"><use href="#i-sync"/></svg>Try again';
@@ -2197,15 +2246,19 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
   const NOTE = 'Bring your own key: it is encrypted on the XR-Code server, used only for your account, and never shown again. Your replies then ride YOUR key first — the hosted brain stays as backup, so the chat never goes dark.';
   prov.addEventListener('change', () => { baseRow.hidden = prov.value !== 'custom'; });
   async function paint(){
+    let has = false, txt = NOTE;
     try{
       const r = await fetch(API_BASE + '/api/keys');
       const d = await r.json().catch(() => null);
-      if(r.status === 401){ status.textContent = 'Sign in with Google to use your own API key.'; return; }
-      if(d && d.ok && d.keys.length){
-        const k = d.keys.map(x => x.provider + ' (' + x.hint + (x.model ? ' · ' + x.model : '') + ')').join(', ');
-        status.textContent = 'Active: ' + k + '. Replies ride your key first — hosted brain is the backup.';
-      }else status.textContent = NOTE;
-    }catch(e){ status.textContent = NOTE; }
+      if(r.status === 401){ txt = 'Sign in with Google to use your own API key.'; }
+      else if(d && d.ok && d.keys.length){
+        has = true;
+        const k = d.keys.map(x => (x.active ? '▸ ' : '') + x.provider + ' (' + x.hint + (x.model ? ' · ' + x.model : '') + ')').join(', ');
+        txt = 'Active: ' + k + '. Replies ride your key first — hosted brain is the backup.';
+      }
+    }catch(e){ /* server unreachable — keep the default note */ }
+    ['#byokBtn', '#byokBtnHome'].forEach(s => { const b = $(s); if (b) b.classList.toggle('has', has); });
+    status.textContent = txt;
   }
   $('#byokSave').onclick = async () => {
     if(!(key.value || '').trim()){ status.textContent = 'Paste your API key first.'; return; }
@@ -2230,8 +2283,49 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
       if(d && d.ok){ toast('Key removed'); paint(); }
     }catch(e){}
   };
+  // popup wiring — the vault opens from the key button beside Send (chat +
+  // home) and from Settings → Manage keys; Esc / backdrop / × close it
+  const back = $('#byokBack');
+  window.byokOpen = () => { back.classList.add('open'); paint(); setTimeout(() => key.focus(), 80); };
+  const byokCloseFn = () => back.classList.remove('open');
+  ['#byokBtn', '#byokBtnHome', '#byokManage'].forEach(s => { const b = $(s); if (b) b.onclick = window.byokOpen; });
+  $('#byokClose').onclick = byokCloseFn;
+  back.addEventListener('click', e => { if (e.target === back) byokCloseFn(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && back.classList.contains('open')) byokCloseFn(); });
   window.paintByok = paint;
   paint();
+})();
+
+/* ---------- Admin — per-email access & daily limits (owner only, server-verified) ---------- */
+(function(){
+  const $ = s => document.querySelector(s);
+  const panel = $('#adminPanel'); if(!panel) return;
+  const email = $('#admEmail'), limit = $('#admLimit'), dis = $('#admDisabled'), msg = $('#admMsg');
+  async function loadPolicy(){
+    msg.textContent = 'Loading policy…';
+    try{
+      const r = await fetch(API_BASE + '/api/admin/policy?email=' + encodeURIComponent(email.value.trim()), {cache:'no-store'});
+      const d = await r.json().catch(() => null);
+      if(r.status === 403){ msg.textContent = 'Admin access is limited to the owner account.'; return; }
+      if(d && d.policy){ limit.value = String(d.policy.dailyLimit != null ? d.policy.dailyLimit : 100); dis.checked = d.policy.disabled === true; msg.textContent = 'Policy loaded for ' + email.value.trim() + '.'; }
+      else msg.textContent = (d && d.error) || 'Could not load the policy.';
+    }catch(e){ msg.textContent = 'Could not reach the server.'; }
+  }
+  async function savePolicy(){
+    msg.textContent = 'Saving policy…';
+    try{
+      const r = await fetch(API_BASE + '/api/admin/policy', { method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ email: email.value.trim(), dailyLimit: Number(limit.value || 100), disabled: dis.checked }) });
+      const d = await r.json().catch(() => null);
+      if(d && d.ok){ toast('Policy saved for ' + email.value.trim()); msg.textContent = 'Policy saved.'; }
+      else msg.textContent = (d && d.error) || 'Could not save the policy.';
+    }catch(e){ msg.textContent = 'Could not reach the server.'; }
+  }
+  $('#admLoad').onclick = () => { if(email.value.trim()) loadPolicy(); else msg.textContent = 'Type the account email first.'; };
+  $('#admSave').onclick = () => { if(email.value.trim()) savePolicy(); else msg.textContent = 'Type the account email first.'; };
+  fetch(API_BASE + '/api/google-session', { cache: 'no-store' }).then(r => r.json()).then(d => {
+    if(d && d.email && String(d.email).toLowerCase() === 'rochke12@gmail.com') panel.hidden = false;
+  }).catch(() => {});
 })();
 
 /* ---------- file attach (paperclip right of send) ---------- */(function(){

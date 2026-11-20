@@ -1,36 +1,41 @@
 // BYOK vault — "bring your own key". Users store an OpenAI-compatible API key
-// (OpenAI / OpenRouter / Groq / DeepSeek / custom) for their Discord account;
+// (OpenAI / OpenRouter / Groq / DeepSeek / custom) for their Google account;
 // the chat tries THEIR key first, the hosted brain stays as the backup lane.
-// Keys are encrypted at rest (AES-256-GCM, key derived from XR_AUTH_SECRET)
-// and never returned to the browser — only a masked hint.
-import crypto from "crypto";
-import fs from "fs";
-import path from "path";
+// Storage is FIRESTORE (xrByokKeys/{uid}) — Vercel's filesystem is ephemeral,
+// so the old file vault would have silently emptied on every deploy. Keys are
+// encrypted at rest (AES-256-GCM, key derived from XR_AUTH_SECRET), never
+// returned to the browser — only a masked hint — and never logged.
+import { firebaseDb } from "./firebase-server";
 import { XR_SECRETS } from "./xrsecrets";
-import { subdir } from "./xrstore";
+import { encryptSecret, decryptSecret, maskKey } from "./byok-cipher.mjs";
 
 export type ByokEntry = { enc: string; hint: string; baseUrl?: string; model?: string; at: number };
-type Vault = { keys: Record<string, ByokEntry> };
+type Vault = { keys: Record<string, ByokEntry>; active?: string };
+export type ByokLane = { provider: string; key: string; baseUrl: string; model: string };
 
-const AAD = "xr-byok-v1";
-function cipherKey(): Buffer {
-  return crypto.createHash("sha256").update(XR_SECRETS.XR_AUTH_SECRET + ":byok").digest();
+const UID_RE = /^[A-Za-z0-9_-]{1,128}$/; // Firebase uid / Discord snowflake — no traversal
+
+function vaultSecret(): string {
+  return process.env.XR_AUTH_SECRET || XR_SECRETS.XR_AUTH_SECRET;
 }
-function encrypt(plain: string): string {
-  const iv = crypto.randomBytes(12);
-  const c = crypto.createCipheriv("aes-256-gcm", cipherKey(), iv);
-  const out = Buffer.concat([c.update(plain, "utf8"), c.final()]);
-  return iv.toString("base64") + "." + c.getAuthTag().toString("base64") + "." + out.toString("base64");
+
+function vaultRef(uid: string) {
+  if (!UID_RE.test(uid)) return null;
+  return firebaseDb().collection("xrByokKeys").doc(uid);
 }
-function decrypt(enc: string): string {
-  const [iv, tag, data] = enc.split(".");
-  const d = crypto.createDecipheriv("aes-256-gcm", cipherKey(), Buffer.from(iv, "base64"));
-  d.setAuthTag(Buffer.from(tag, "base64"));
-  return Buffer.concat([d.update(Buffer.from(data, "base64")), d.final()]).toString("utf8");
+
+async function readVault(uid: string): Promise<Vault> {
+  const ref = vaultRef(uid);
+  if (!ref) return { keys: {} };
+  const snap = await ref.get();
+  const data = snap.data() as { keys?: Record<string, ByokEntry>; active?: string } | undefined;
+  return { keys: data?.keys || {}, active: data?.active };
 }
-export function maskKey(key: string): string {
-  const t = key.trim();
-  return t.length <= 10 ? t.slice(0, 2) + "…" : t.slice(0, 6) + "…" + t.slice(-4);
+
+async function writeVault(uid: string, v: Vault): Promise<void> {
+  const ref = vaultRef(uid);
+  if (!ref) throw new Error("bad uid");
+  await ref.set({ keys: v.keys, active: v.active || null, updatedAt: Date.now() });
 }
 
 // provider → OpenAI-compatible base URL (+ default model when the user omits one)
@@ -42,29 +47,8 @@ export const PROVIDERS: Record<string, { base: string; model: string; label: str
   custom: { base: "", model: "", label: "Custom" },
 };
 
-function vaultPath(uid: string): string | null {
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(uid)) return null; // Discord snowflake only — no traversal
-  return path.join(subdir("keys"), uid + ".json");
-}
-
-function readVault(uid: string): Vault {
-  const p = vaultPath(uid);
-  if (!p) return { keys: {} };
-  try {
-    return JSON.parse(fs.readFileSync(p, "utf8")) as Vault;
-  } catch {
-    return { keys: {} };
-  }
-}
-function writeVault(uid: string, v: Vault): boolean {
-  const p = vaultPath(uid);
-  if (!p) return false;
-  fs.writeFileSync(p, JSON.stringify(v, null, 1));
-  return true;
-}
-
 // POST /api/keys { provider, key, model?, baseUrl? } → save/replace (encrypted)
-export function putKey(uid: string, provider: string, key: string, model?: string, baseUrl?: string): { ok: boolean; error?: string } {
+export async function putKey(uid: string, provider: string, key: string, model?: string, baseUrl?: string): Promise<{ ok: boolean; error?: string }> {
   if (!PROVIDERS[provider]) return { ok: false, error: "unknown provider" };
   const k = key.trim();
   if (k.length < 8 || k.length > 400) return { ok: false, error: "key looks invalid" };
@@ -73,34 +57,38 @@ export function putKey(uid: string, provider: string, key: string, model?: strin
     base = (baseUrl || "").trim().replace(/\/+$/, "");
     if (!/^https:\/\/[A-Za-z0-9.-]+([/:A-Za-z0-9._-]*)?$/.test(base)) return { ok: false, error: "custom provider needs a valid https base URL" };
   }
-  const v = readVault(uid);
-  v.keys[provider] = { enc: encrypt(k), hint: maskKey(k), baseUrl: base || undefined, model: (model || "").trim() || undefined, at: Date.now() };
-  return writeVault(uid, v) ? { ok: true } : { ok: false, error: "could not store key" };
+  const v = await readVault(uid);
+  v.keys[provider] = { enc: encryptSecret(k, vaultSecret()), hint: maskKey(k), baseUrl: base || undefined, model: (model || "").trim() || undefined, at: Date.now() };
+  v.active = provider; // last saved key becomes the lane the chat rides
+  await writeVault(uid, v);
+  return { ok: true };
 }
 
 // DELETE /api/keys { provider } → remove
-export function delKey(uid: string, provider: string): boolean {
-  const v = readVault(uid);
+export async function delKey(uid: string, provider: string): Promise<boolean> {
+  const v = await readVault(uid);
   if (!v.keys[provider]) return true;
   delete v.keys[provider];
-  return writeVault(uid, v);
+  if (v.active === provider) v.active = Object.keys(v.keys)[0];
+  await writeVault(uid, v);
+  return true;
 }
 
 // GET /api/keys → masked listing (never the raw key)
-export function listKeys(uid: string): { provider: string; hint: string; model?: string; at: number }[] {
-  const v = readVault(uid);
-  return Object.entries(v.keys).map(([provider, e]) => ({ provider, hint: e.hint, model: e.model, at: e.at }));
+export async function listKeys(uid: string): Promise<{ provider: string; hint: string; model?: string; at: number; active?: boolean }[]> {
+  const v = await readVault(uid);
+  return Object.entries(v.keys).map(([provider, e]) => ({ provider, hint: e.hint, model: e.model, at: e.at, active: v.active === provider }));
 }
 
-// the chat lane: the user's own key, resolved to a transport config
-export type ByokLane = { provider: string; key: string; baseUrl: string; model: string };
-export function loadByok(uid: string): ByokLane | null {
-  const v = readVault(uid);
-  const providers = Object.keys(v.keys);
-  for (const p of providers) {
+// the chat lane: the user's own key, resolved to a transport config.
+// The ACTIVE provider rides; without one, the first saved provider does.
+export async function loadByok(uid: string): Promise<ByokLane | null> {
+  const v = await readVault(uid);
+  const order = v.active && v.keys[v.active] ? [v.active, ...Object.keys(v.keys).filter(p => p !== v.active)] : Object.keys(v.keys);
+  for (const p of order) {
     const e = v.keys[p];
     try {
-      const key = decrypt(e.enc);
+      const key = decryptSecret(e.enc, vaultSecret());
       const base = e.baseUrl || PROVIDERS[p]?.base;
       const model = e.model || PROVIDERS[p]?.model || "";
       if (key && base && model) return { provider: p, key, baseUrl: base, model };
@@ -112,8 +100,9 @@ export function loadByok(uid: string): ByokLane | null {
 }
 
 // one OpenAI-compatible chat call on the user's key; null on any failure —
-// the hosted chain takes over and the chat never goes dark
-export async function byokChat(lane: ByokLane, sys: string, messages: { role: string; content: string }[], timeoutMs = 45000): Promise<string | null> {
+// the hosted chain takes over and the chat never goes dark. The raw key is
+// used only inside this request scope: never logged, never echoed back.
+export async function byokChat(lane: ByokLane, sys: string, messages: { role: string; content: string }[], timeoutMs = 25000): Promise<string | null> {
   try {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), timeoutMs);

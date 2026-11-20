@@ -3,7 +3,12 @@ import { firebaseAuth, verifiedGoogleSession } from '@/lib/firebase-server';
 
 const origin = 'https://xr-code.vercel.app';
 const maxAge = 5 * 24 * 60 * 60;
-function sameOrigin(req: Request) { return [origin, 'https://xr-code-git-google-login-fix-ict-oxford.vercel.app'].includes(req.headers.get('origin') || ''); }
+// any xr-code Vercel deployment (production + every preview branch); the
+// session itself still requires a fresh Google idToken verified server-side
+function sameOrigin(req: Request) {
+  const o = req.headers.get('origin') || '';
+  return o === origin || /^https:\/\/xr-code-.*\.vercel\.app$/.test(o);
+}
 function cookie(value: string, age: number) {
   return `__Host-xr_google=${encodeURIComponent(value)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${age}`;
 }

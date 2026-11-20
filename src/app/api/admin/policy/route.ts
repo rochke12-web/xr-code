@@ -14,8 +14,14 @@ export async function GET(req: Request) {
     return NextResponse.json({policy: snap.exists ? snap.data() : {dailyLimit:100, disabled:false}}, {headers:{'Cache-Control':'no-store'}});
   } catch { return NextResponse.json({error:'invalid_email_or_unavailable'}, {status:400}); }
 }
+// any xr-code Vercel deployment origin (production + every preview branch) —
+// the hard authorization line stays the session email check below
+function originOk(req: Request) {
+  const o = req.headers.get('origin') || '';
+  return o === 'https://xr-code.vercel.app' || /^https:\/\/xr-code-.*\.vercel\.app$/.test(o);
+}
 export async function PUT(req: Request) {
-  if (![ 'https://xr-code.vercel.app', 'https://xr-code-git-google-login-fix-ict-oxford.vercel.app' ].includes(req.headers.get('origin') || '')) return NextResponse.json({error:'origin'}, {status:403});
+  if (!originOk(req)) return NextResponse.json({error:'origin'}, {status:403});
   if (!await isAdmin(req)) return NextResponse.json({error:'forbidden'}, {status:403});
   try {
     const body = await req.json();
