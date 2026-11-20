@@ -124,74 +124,76 @@ async function deWatermark(buf: Buffer): Promise<Buffer> {
   }
 }
 
-// the painter: Pollinations fast lane first (zero-auth FLUX-class, measured
-// 6.1s/1024px from this host, 2026-11-19), then nano banana pro, nano banana,
-// and the gateway default lane as quality fallbacks.
-// The fast lane retries 3x with backoff — the free tier rate-limits bursts,
-// and a short pause clears a 429 where falling straight to the 30s+ slow
-// lanes would hang the request and read as "not working" on the user's screen.
-async function paintFast(prompt: string, size: string): Promise<{ url: string; model: string } | null> {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt) await withJail(1500 + attempt * 2500);
-    try {
-      const [w, h] = size.split("x").map(Number);
-      const url = "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt.slice(0, 1800)) +
-        `?width=${w}&height=${h}&nologo=true&nofeed=true&seed=${Math.floor(Math.random() * 1e9)}`;
-      const res = (await Promise.race([
-        fetch(url, { signal: AbortSignal.timeout(28000) }),
-        withJail(30000),
-      ])) as Response | null;
-      if (!res) continue;
-      if (res.status === 429 || res.status === 502 || res.status === 503) {
-        console.error("[imagine] fast lane busy:", res.status, "attempt", attempt + 1);
-        continue;
-      }
-      if (!res.ok) continue;
-      const buf = Buffer.from(await res.arrayBuffer());
-      if (buf.length < 2000) continue; // error page / blank — reject
-      const head = buf.subarray(0, 4).toString("hex");
-      if (!head.startsWith("ffd8") && !head.startsWith("8950")) continue; // not JPEG/PNG
-      const clean = await deWatermark(buf);                              // kill the corner watermark
-      fs.mkdirSync(ASSET_DIR, { recursive: true });
-      const id = randomUUID().replace(/-/g, "").slice(0, 20);
-      fs.writeFileSync(path.join(ASSET_DIR, id + ".jpg"), clean);
-      return { url: `/api/asset/${id}`, model: "fast-painter" };
-    } catch (e) {
-      console.error("[imagine] fast painter failed:", String(e).slice(0, 140));
-    }
+// the painter: race ALL lanes in parallel — first valid image wins. This is
+// what the video pipeline does, and it kills the "busy · retrying" UX where a
+// 503 on the fast lane forced a serial fall-through to a 50s model. Every lane
+// has its own timeout + jail, so a dead lane never blocks the others.
+async function paintPollinations(prompt: string, size: string): Promise<{ url: string; model: string } | null> {
+  try {
+    const [w, h] = size.split("x").map(Number);
+    const url = "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt.slice(0, 1800)) +
+      `?width=${w}&height=${h}&nologo=true&nofeed=true&seed=${Math.floor(Math.random() * 1e9)}`;
+    const res = (await Promise.race([
+      fetch(url, { signal: AbortSignal.timeout(28000) }),
+      withJail(30000),
+    ])) as Response | null;
+    if (!res || (res.status === 429 || res.status === 502 || res.status === 503) || !res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 2000) return null;
+    const head = buf.subarray(0, 4).toString("hex");
+    if (!head.startsWith("ffd8") && !head.startsWith("8950")) return null;
+    const clean = await deWatermark(buf);
+    fs.mkdirSync(ASSET_DIR, { recursive: true });
+    const id = randomUUID().replace(/-/g, "").slice(0, 20);
+    fs.writeFileSync(path.join(ASSET_DIR, id + ".jpg"), clean);
+    return { url: `/api/asset/${id}`, model: "fast-painter" };
+  } catch {
+    return null;
   }
-  return null;
 }
 
-async function paint(
-  prompt: string,
-  size: string
-): Promise<{ url: string; model: string } | null> {
-  const fast = await paintFast(prompt, size);
-  if (fast) return fast;
-  for (const model of PAINTERS) {
-    try {
-      const zai = await ZAI.create();
-      const body: Record<string, unknown> = { prompt, size };
-      if (model) body.model = model;
-      const res = (await Promise.race([
-        zai.images.generations.create(body as Parameters<typeof zai.images.generations.create>[0]),
-        withJail(45000), // dead quota lanes must not hang the request for minutes
-      ])) as { data?: { base64?: string }[] } | null;
-      const b64 = res?.data?.[0]?.base64;
-      if (!b64) {
-        console.error("[imagine] painter", model || "default", "returned no base64");
-        continue;
-      }
-      fs.mkdirSync(ASSET_DIR, { recursive: true });
-      const id = randomUUID().replace(/-/g, "").slice(0, 20);
-      fs.writeFileSync(path.join(ASSET_DIR, id + ".png"), Buffer.from(b64, "base64"));
-      return { url: `/api/asset/${id}`, model: model || "default-painter" };
-    } catch (e) {
-      console.error("[imagine] painter", model || "default", "failed:", String((e as Error)?.message || e).slice(0, 160));
-    }
+async function paintZai(prompt: string, size: string, model?: string): Promise<{ url: string; model: string } | null> {
+  try {
+    const zai = await ZAI.create();
+    const body: Record<string, unknown> = { prompt, size };
+    if (model) body.model = model;
+    const res = (await Promise.race([
+      zai.images.generations.create(body as Parameters<typeof zai.images.generations.create>[0]),
+      withJail(45000),
+    ])) as { data?: { base64?: string }[] } | null;
+    const b64 = res?.data?.[0]?.base64;
+    if (!b64) return null;
+    fs.mkdirSync(ASSET_DIR, { recursive: true });
+    const id = randomUUID().replace(/-/g, "").slice(0, 20);
+    fs.writeFileSync(path.join(ASSET_DIR, id + ".png"), Buffer.from(b64, "base64"));
+    return { url: `/api/asset/${id}`, model: model || "default-painter" };
+  } catch {
+    return null;
   }
-  return null;
+}
+
+async function paint(prompt: string, size: string): Promise<{ url: string; model: string } | null> {
+  // race every lane at once — first to return a valid image wins. Dead lanes
+  // are absorbed; the user sees the fastest available painter, never a retry loop.
+  const lanes: Promise<{ url: string; model: string } | null>[] = [
+    paintPollinations(prompt, size),
+    ...PAINTERS.map((m) => paintZai(prompt, size, m)),
+  ];
+  // first-non-null wins; if all fail, return null
+  return new Promise((resolve) => {
+    let pending = lanes.length;
+    let resolved = false;
+    for (const p of lanes) {
+      p.then((r) => {
+        if (resolved) return;
+        if (r) { resolved = true; resolve(r); }
+        else if (--pending === 0) resolve(null);
+      }).catch(() => {
+        if (resolved) return;
+        if (--pending === 0) resolve(null);
+      });
+    }
+  });
 }
 
 export async function GET() {
