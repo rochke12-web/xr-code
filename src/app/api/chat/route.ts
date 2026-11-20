@@ -55,7 +55,7 @@ async function getZAI(): Promise<ZAIClient | null> {
 // for every engine.
 // Server-side only: no keys ever reach the browser.
 // Per-account daily quota (2026-11-16): every reply's tokens are counted
-// against the user's Discord id — 10M tokens/day per id, bucket resets at
+// against the user's account id — 10M tokens/day per id, bucket resets at
 // 00:00 UTC (xrstore.ts). Cloud chats: /api/chats stores each account's chats
 // keyed by the same id.
 // Real vision: photos & video keyframes are DESCRIBED here by a vision
@@ -886,7 +886,7 @@ export async function POST(req: Request) {
   }
   const uid = user.uid;
   const TALLY = { n: 0 }; // tokens spent by this request → swept into the id's daily bucket on exit
-  // ---- per-account daily quota (user directive: 10M tokens/day per Discord id) ----
+  // ---- per-account daily quota (user directive: 10M tokens/day per Google account id) ----
   // Pre-flight gate: a dry bucket is refused BEFORE any engine is called —
   // an over-quota id burns nothing. The calm ok:true bubble keeps the served
   // client's "unreachable" failure branch out of the story.

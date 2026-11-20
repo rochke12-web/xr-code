@@ -13,7 +13,7 @@ export type ByokEntry = { enc: string; hint: string; baseUrl?: string; model?: s
 type Vault = { keys: Record<string, ByokEntry>; active?: string };
 export type ByokLane = { provider: string; key: string; baseUrl: string; model: string };
 
-const UID_RE = /^[A-Za-z0-9_-]{1,128}$/; // Firebase uid / Discord snowflake — no traversal
+const UID_RE = /^[A-Za-z0-9_-]{1,128}$/; // Firebase uid — no traversal
 
 function vaultSecret(): string {
   return process.env.XR_AUTH_SECRET || XR_SECRETS.XR_AUTH_SECRET;

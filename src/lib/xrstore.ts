@@ -1,12 +1,13 @@
 // XR-Code per-account stores — server-side only.
-// Cloud chats + daily token usage, keyed by the verified Discord user id (the
-// uid inside the signed xr_ds cookie). Files live in the stable db/ dir — same
+// Cloud chats + daily token usage, keyed by the verified Google account id (the
+// Firebase uid inside the signed __Host-xr_google session cookie). Files live in
+// the stable db/ dir — same
 // policy as asset-dir.ts: hosted standalone cwd is .next/standalone → ../../db;
 // local dev cwd is the project root → ./db; XR_DATA_DIR always wins.
 import fs from "fs";
 import path from "path";
 
-export const DAILY_TOKEN_LIMIT = 10_000_000; // user directive: 10M tokens/day per Discord id
+export const DAILY_TOKEN_LIMIT = 10_000_000; // user directive: 10M tokens/day per account
 
 function baseDir(): string {
   if (process.env.XR_DATA_DIR) return process.env.XR_DATA_DIR;
@@ -28,7 +29,7 @@ export function subdir(name: string): string {
   return dir;
 }
 
-// uid is a Discord snowflake — strict whitelist, nothing else can ever become
+// uid is strictly whitelisted — nothing else can ever become
 // a file name here (no path traversal, no junk files).
 function safeUid(uid: string): string | null {
   return /^[A-Za-z0-9_-]{1,128}$/.test(uid) ? uid : null;

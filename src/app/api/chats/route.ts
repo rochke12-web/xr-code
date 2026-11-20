@@ -1,8 +1,8 @@
-// Per-account cloud chat store — chats follow the Discord account.
+// Per-account cloud chat store — chats follow the Google account.
 // GET  → { ok, chats, tokens, limit, day }
 // PUT  → body { chats } → { ok, savedAt }
-// Fail closed: every call needs the signed xr_ds cookie (verified member only).
-// The Discord user id is the storage key — two accounts can never see each
+// Fail closed: every call needs the verified Google session cookie.
+// The Firebase uid is the storage key — two accounts can never see each
 // other's chats, and usage/quota rides the same id.
 import { NextResponse } from "next/server";
 import { verifyRequest } from "@/lib/request-auth";

@@ -6,7 +6,7 @@ import { verifyRequest } from "../../../lib/request-auth";
 // speech-to-text: attached voice notes / audio files get transcribed so the
 // brain can hear them like everything else
 export async function POST(req: Request) {
-  // Discord gate — verified member (XR-Auth role) only. Fail closed.
+  // Google session gate — verified account only. Fail closed.
   const gv = await verifyRequest(req);
   if (!gv.ok)
     return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
