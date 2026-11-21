@@ -60,8 +60,10 @@ export async function POST(req: Request) {
       }
     }
 
-    const size = SIZES.has(String(body?.size || "")) ? String(body?.size) : "1920x1080";
-    const duration = DURATIONS.has(Number(body?.duration)) ? Number(body?.duration) : 10;
+    const size = SIZES.has(String(body?.size || "")) ? String(body?.size) : "1280x720";
+    // 5s/720p finishes in ~155s — fits the 300s function cap. 10s/1080p runs 300s+
+    // and dies mid-render, so it stays selectable but is NOT the default.
+    const duration = DURATIONS.has(Number(body?.duration)) ? Number(body?.duration) : 5;
     const withAudio = body?.withAudio === true;
     const narrate = body?.narrate === true;
     const quality = body?.quality === "quality" ? "quality" : "speed";

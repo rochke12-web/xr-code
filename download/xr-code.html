@@ -990,7 +990,7 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
             <div class="mmenu" id="homeModeMenu">
               <button type="button" data-mode="koder"><b>Koder Mode</b><small>code, debug &amp; build — the full developer brain</small></button>
               <button type="button" data-mode="image"><b>Image Mode</b><small>text → art — describe it, styles, refine it — painted in seconds</small></button>
-              <button type="button" data-mode="video"><b>Video Mode</b><small>text → film — a 10-second clip, optional narration · 3/day free</small></button>
+              <button type="button" data-mode="video"><b>Video Mode</b><small>text → film — a 5-second clip, optional narration · 3/day free</small></button>
               <button type="button" data-mode="qna"><b>QnA Mode</b><small>sources never shown</small></button>
             </div>
           </div>
@@ -1018,7 +1018,7 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
           <div class="mmenu" id="chatModeMenu">
             <button type="button" data-mode="koder"><b>Koder Mode</b><small>code, debug &amp; build — the full developer brain</small></button>
             <button type="button" data-mode="image"><b>Image Mode</b><small>text → art — describe it, styles, refine it — painted in seconds</small></button>
-            <button type="button" data-mode="video"><b>Video Mode</b><small>text → film — a 10-second clip, optional narration · 3/day free</small></button>
+            <button type="button" data-mode="video"><b>Video Mode</b><small>text → film — a 5-second clip, optional narration · 3/day free</small></button>
             <button type="button" data-mode="qna"><b>QnA Mode</b><small>sources never shown</small></button>
           </div>
         </div>
@@ -1554,7 +1554,7 @@ function renderModel(){
   if(imgRows) imgRows.hidden = S.mode !== 'image';
   if(szRows) szRows.hidden = S.mode !== 'image';
   if(vidRow) vidRow.hidden = S.mode !== 'video';
-  const ci = $('#chatInput'); if(ci) ci.placeholder = S.mode === 'image' ? 'Describe the image to paint… (a follow-up like “make it night” refines the last one)' : S.mode === 'video' ? 'Describe the video to make… (a 10-second clip — add “with narration” for a voice-over)' : 'Message XR Code...';
+  const ci = $('#chatInput'); if(ci) ci.placeholder = S.mode === 'image' ? 'Describe the image to paint… (a follow-up like “make it night” refines the last one)' : S.mode === 'video' ? 'Describe the video to make… (a 5-second clip — add “with narration” for a voice-over)' : 'Message XR Code...';
 }
 /* ---------- Image mode: style + ratio chips ---------- */
 const IMG_STYLES = [ ['auto','Auto'], ['photoreal','Photoreal'], ['anime','Anime'], ['cinematic','Cinematic'], ['digital','Art'], ['render3d','3D'], ['watercolor','Watercolor'], ['pixel','Pixel'] ];
@@ -1926,7 +1926,7 @@ async function askBrain(c, text, atts){
       const res = await fetch(API_BASE + '/api/video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: text, mode: 'clip', duration: 10, withAudio: !!wantNarrate, narrate: !!wantNarrate, quality: 'speed', size: '1920x1080', model: S.videoModel || 'auto' })
+        body: JSON.stringify({ prompt: text, mode: 'clip', duration: 5, withAudio: !!wantNarrate, narrate: !!wantNarrate, quality: 'speed', size: '1280x720', model: S.videoModel || 'auto' })
       });
       q = await res.json().catch(() => null);
       if(res.status === 401 && q && q.error === 'auth'){ chip.textContent = 'Made by Yug Sunar'; pen.remove(); window.xrSessionExpired(); return; }
@@ -1940,7 +1940,7 @@ async function askBrain(c, text, atts){
     chip.textContent = 'Made by Yug Sunar';
     if(q && q.url){
       const eng = q.engine && /seedance/i.test(q.engine) ? 'Seedance' : (q.engine && /cogvideox/i.test(q.engine) ? 'CogVideoX' : '');
-      const cap = '✦ Here is your 10-second clip' + (eng ? ' — filmed by ' + eng : '') + (wantNarrate ? ' with narration.' : '.');
+      const cap = '✦ Here is your 5-second clip' + (eng ? ' — filmed by ' + eng : '') + (wantNarrate ? ' with narration.' : '.');
       typeReply(c, Object.assign(splitFence(cap), { asset: { type: 'video', url: q.url } }), pen);
     }else{
       pen.remove();
