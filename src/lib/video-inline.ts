@@ -55,16 +55,15 @@ function parseJsonBlock(text: string): any | null {
 }
 
 // one SDK video task → downloaded mp4 (429-aware, patient polling)
-// Arena-style racing, like the image painters: every round fires 4 parallel
-// lanes, each with a DIFFERENT video model (Seedance first — arena.ai's engine
-// — then the z.ai native CogVideoX and the gateway default). First task id
-// wins, losers ignored; the winning model is reported so the UI can show it.
-const MODEL_LANES: (string | undefined)[] = ["seedance-1.0-pro", "seedance-1.0-lite", "cogvideox-3", undefined];
-
+// The gateway exposes ONE concurrent video slot per account and maps every
+// model name (seedance included) onto cogvideox-3 — parallel lane bursts only
+// burn the rate limiter. What actually works: ONE create attempt per round,
+// retried patiently until the deadline, then a long poll.
 async function genScene(spec: VideoSpec, prompt: string, dir: string, label: string, log: (s: string) => void): Promise<{ file: string; engine: string } | null> {
   const zai = await ZAI.create();
   const body: any = {
     prompt,
+    model: "cogvideox-3",           // the only real engine behind the gateway
     quality: spec.quality || "speed",
     with_audio: spec.withAudio !== false,
     size: spec.size || "1920x1080",
@@ -74,37 +73,30 @@ async function genScene(spec: VideoSpec, prompt: string, dir: string, label: str
   };
   if (spec.imageUrl) body.image_url = spec.imageUrl;
 
-  const tryCreate = async (model: string | undefined): Promise<{ id: string; model: string } | "rate" | null> => {
+  const createDeadline = Date.now() + 60000;   // up to 60s to land a free slot
+  let taskId: string | null = null;
+  let round = 0;
+  while (!taskId && Date.now() < createDeadline) {
+    round++;
     try {
       const t = await Promise.race([
-        zai.video.generations.create({ ...body, ...(model ? { model } : {}), request_id: crypto.randomBytes(8).toString("hex") }),
-        new Promise((r) => setTimeout(() => r(null), 30000)),
+        zai.video.generations.create({ ...body, request_id: crypto.randomBytes(8).toString("hex") }),
+        new Promise((r) => setTimeout(() => r(null), 25000)),
       ]);
-      const id = (t as any)?.id;
-      return id ? { id, model: model || "default" } : null;
+      taskId = (t as any)?.id || null;
+      if (taskId) break;
     } catch (e) {
       const m = String(e);
-      if (/\b429\b|rate/i.test(m)) return "rate";  // signal: rate-limited, retry round
-      if (model) log(`${model} lane rejected: ${m.slice(0, 90)}`);
-      return null;
+      if (!/\b429\b|rate/i.test(m)) log(`create round ${round} threw: ${m.slice(0, 100)}`);
     }
-  };
-
-  let win: { id: string; model: string } | null = null;
-  for (let round = 0; round < 6 && !win; round++) {  // 6 rounds × 4 model lanes = 24 attempts max
-    const lanes = await Promise.all(MODEL_LANES.map((m) => tryCreate(m)));
-    const hit = lanes.find((x) => x && x !== "rate");
-    if (hit && typeof hit === "object") { win = hit; break; }
-    // all rate-limited or rejected — brief backoff before the next round
-    log(`create round ${round + 1}: no id (rates: ${lanes.filter((x) => x === "rate").length}/4) — retrying in 15s`);
-    await new Promise(r => setTimeout(r, 15000));
+    const left = createDeadline - Date.now();
+    if (left > 0) await new Promise(r => setTimeout(r, Math.min(10000, left)));
   }
-  if (!win) return null;
-  const taskId = win.id;
-  const engine = win.model;
-  log(`task created via ${engine}: ${taskId}`);
+  if (!taskId) { log(`no free slot within 60s`); return null; }
+  const engine = "cogvideox-3";
+  log(`task created after ${round} round(s): ${taskId}`);
   saveEngine(dir, engine);
-  for (let i = 0; i < 80; i++) {  // 80 × 3s = 240s max polling
+  for (let i = 0; i < 70; i++) {  // 70 × 3s = 210s max polling (~3.5 min)
     if (i > 0) await new Promise(r => setTimeout(r, 3000));
     let r: any = null;
     try { r = await Promise.race([zai.async.result.query(taskId), new Promise(x => setTimeout(() => x(null), 8000))]); }
