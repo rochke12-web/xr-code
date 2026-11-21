@@ -1025,6 +1025,7 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
         <div class="gen-chips" id="genChips" hidden>
           <div class="chip-row" id="styleChips"></div>
           <div class="chip-row" id="sizeChips"></div>
+          <div class="chip-row" id="videoModelChips" hidden></div>
         </div>
         <input id="chatInput" autocomplete="off" placeholder="Message XR Code...">
         <button class="file-btn" id="byokBtn" type="button" title="Your API key (BYOK)"><i class="ic" data-ic="i-key"></i></button>
@@ -1227,6 +1228,7 @@ function defaults(){
     mode: 'koder',             // 'koder' | 'qna' | 'image'
     imgStyle: 'auto',          // Image mode style preset
     imgSize: '1024x1024',      // Image mode canvas ratio
+    videoModel: 'auto',        // Video mode engine (arena-style chips)
     anim: 'auto',              // UI effects: 'auto' follows the OS motion setting | 'on' | 'off'
     lastSync: null
   };
@@ -1242,6 +1244,7 @@ let S = load() || defaults();
   if(S.mode !== 'koder' && S.mode !== 'qna' && S.mode !== 'image' && S.mode !== 'video') S.mode = 'koder';   // four modes: koder | qna | image | video
   if(!['auto','photoreal','anime','cinematic','digital','render3d','watercolor','pixel'].includes(S.imgStyle)) S.imgStyle = 'auto';
   if(!['1024x1024','768x1344','864x1152','1344x768','1152x864'].includes(S.imgSize)) S.imgSize = '1024x1024';
+  if(!['auto','seedance-1.0-pro','seedance-1.0-lite','cogvideox-3'].includes(S.videoModel)) S.videoModel = 'auto';
   if(S.user && S.user.provider === 'api') S.user = null;
   delete S.api;
   try{ localStorage.setItem(LSKEY, JSON.stringify(S)); }catch(e){}  // persist repairs immediately
@@ -1546,30 +1549,52 @@ function renderModel(){
   $$('#homeModeMenu button[data-model],#chatModeMenu button[data-model],#engineList button[data-model]').forEach(b => b.classList.toggle('current', b.dataset.model === S.model));
   const chip = $('#chatModelChip');
   if(chip) chip.textContent = S.model === 'prime-v1' ? 'Prime' : S.model === 'prime-v1-flash' ? 'Prime Flash' : 'Made by Yug Sunar';
-  const gc = $('#genChips'); if(gc) gc.hidden = S.mode !== 'image';
+  const gc = $('#genChips'); if(gc) gc.hidden = (S.mode !== 'image' && S.mode !== 'video');
+  const imgRows = $('#styleChips'), szRows = $('#sizeChips'), vidRow = $('#videoModelChips');
+  if(imgRows) imgRows.hidden = S.mode !== 'image';
+  if(szRows) szRows.hidden = S.mode !== 'image';
+  if(vidRow) vidRow.hidden = S.mode !== 'video';
   const ci = $('#chatInput'); if(ci) ci.placeholder = S.mode === 'image' ? 'Describe the image to paint… (a follow-up like “make it night” refines the last one)' : S.mode === 'video' ? 'Describe the video to make… (a 10-second clip — add “with narration” for a voice-over)' : 'Message XR Code...';
 }
 /* ---------- Image mode: style + ratio chips ---------- */
 const IMG_STYLES = [ ['auto','Auto'], ['photoreal','Photoreal'], ['anime','Anime'], ['cinematic','Cinematic'], ['digital','Art'], ['render3d','3D'], ['watercolor','Watercolor'], ['pixel','Pixel'] ];
 const IMG_RATIOS = [ ['1024x1024','1:1'], ['864x1152','3:4'], ['1152x864','4:3'], ['768x1344','9:16'], ['1344x768','16:9'] ];
+/* ---------- Video mode: model chips (arena-style — pick the film engine) ---------- */
+const VIDEO_MODELS = [
+  ['auto', 'Auto'],
+  ['seedance-1.0-pro', 'Seedance Pro'],
+  ['seedance-1.0-lite', 'Seedance Lite'],
+  ['cogvideox-3', 'CogVideoX-3'],
+];
 function paintChips(){
   $$('#styleChips .gen-chip').forEach(b => b.classList.toggle('on', (S.imgStyle || 'auto') === b.dataset.v));
   $$('#sizeChips .gen-chip').forEach(b => b.classList.toggle('on', (S.imgSize || '1024x1024') === b.dataset.v));
+  $$('#videoModelChips .gen-chip').forEach(b => b.classList.toggle('on', (S.videoModel || 'auto') === b.dataset.v));
 }
 function buildGenChips(){
-  const sc = $('#styleChips'), zc = $('#sizeChips');
-  if(!sc || !zc || sc.dataset.built) return;
-  sc.dataset.built = '1';
-  IMG_STYLES.forEach(([v, n]) => {
-    const b = document.createElement('button'); b.type = 'button'; b.className = 'gen-chip'; b.textContent = n; b.dataset.v = v;
-    b.onclick = () => { S.imgStyle = v; save(); paintChips(); };
-    sc.append(b);
-  });
-  IMG_RATIOS.forEach(([v, n]) => {
-    const b = document.createElement('button'); b.type = 'button'; b.className = 'gen-chip ratio'; b.textContent = n; b.dataset.v = v;
-    b.onclick = () => { S.imgSize = v; save(); paintChips(); };
-    zc.append(b);
-  });
+  const sc = $('#styleChips'), zc = $('#sizeChips'), vc = $('#videoModelChips');
+  if((!sc || !zc) || (sc.dataset.built && (!vc || vc.dataset.built))) return;
+  if(sc && !sc.dataset.built){
+    sc.dataset.built = '1';
+    IMG_STYLES.forEach(([v, n]) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'gen-chip'; b.textContent = n; b.dataset.v = v;
+      b.onclick = () => { S.imgStyle = v; save(); paintChips(); };
+      sc.append(b);
+    });
+    IMG_RATIOS.forEach(([v, n]) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'gen-chip ratio'; b.textContent = n; b.dataset.v = v;
+      b.onclick = () => { S.imgSize = v; save(); paintChips(); };
+      zc.append(b);
+    });
+  }
+  if(vc && !vc.dataset.built){
+    vc.dataset.built = '1';
+    VIDEO_MODELS.forEach(([v, n]) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'gen-chip'; b.textContent = n; b.dataset.v = v;
+      b.onclick = () => { S.videoModel = v; save(); paintChips(); };
+      vc.append(b);
+    });
+  }
   paintChips();
 }
 buildGenChips();
@@ -1901,7 +1926,7 @@ async function askBrain(c, text, atts){
       const res = await fetch(API_BASE + '/api/video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: text, mode: 'clip', duration: 10, withAudio: !!wantNarrate, narrate: !!wantNarrate, quality: 'speed', size: '1920x1080' })
+        body: JSON.stringify({ prompt: text, mode: 'clip', duration: 10, withAudio: !!wantNarrate, narrate: !!wantNarrate, quality: 'speed', size: '1920x1080', model: S.videoModel || 'auto' })
       });
       q = await res.json().catch(() => null);
       if(res.status === 401 && q && q.error === 'auth'){ chip.textContent = 'Made by Yug Sunar'; pen.remove(); window.xrSessionExpired(); return; }

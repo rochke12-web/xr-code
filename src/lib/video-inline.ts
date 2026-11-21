@@ -26,6 +26,7 @@ export type VideoSpec = {
   scenes: number;
   narrate: boolean;
   quality: "speed" | "quality";
+  model?: string;    // arena-style engine pick ('auto' resolves server-side)
   imageUrl: string;  // base64 data URL or "" for text-to-video
   watermark: boolean;
 };
@@ -63,7 +64,7 @@ async function genScene(spec: VideoSpec, prompt: string, dir: string, label: str
   const zai = await ZAI.create();
   const body: any = {
     prompt,
-    model: "cogvideox-3",           // the only real engine behind the gateway
+    model: spec.model || "cogvideox-3",   // arena-style pick; gateway maps unknowns to its engine
     quality: spec.quality || "speed",
     with_audio: spec.withAudio !== false,
     size: spec.size || "1920x1080",
@@ -75,6 +76,7 @@ async function genScene(spec: VideoSpec, prompt: string, dir: string, label: str
 
   const createDeadline = Date.now() + 60000;   // up to 60s to land a free slot
   let taskId: string | null = null;
+  let engineActual = spec.model || "cogvideox-3";
   let round = 0;
   while (!taskId && Date.now() < createDeadline) {
     round++;
@@ -84,7 +86,11 @@ async function genScene(spec: VideoSpec, prompt: string, dir: string, label: str
         new Promise((r) => setTimeout(() => r(null), 25000)),
       ]);
       taskId = (t as any)?.id || null;
-      if (taskId) break;
+      if (taskId) {
+        // report the engine the gateway ACTUALLY used (it may remap the pick)
+        engineActual = String((t as any)?.model || body.model);
+        break;
+      }
     } catch (e) {
       const m = String(e);
       if (!/\b429\b|rate/i.test(m)) log(`create round ${round} threw: ${m.slice(0, 100)}`);
@@ -93,7 +99,7 @@ async function genScene(spec: VideoSpec, prompt: string, dir: string, label: str
     if (left > 0) await new Promise(r => setTimeout(r, Math.min(10000, left)));
   }
   if (!taskId) { log(`no free slot within 60s`); return null; }
-  const engine = "cogvideox-3";
+  const engine = engineActual;
   log(`task created after ${round} round(s): ${taskId}`);
   saveEngine(dir, engine);
   for (let i = 0; i < 70; i++) {  // 70 × 3s = 210s max polling (~3.5 min)

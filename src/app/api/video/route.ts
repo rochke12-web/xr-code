@@ -65,6 +65,10 @@ export async function POST(req: Request) {
     const withAudio = body?.withAudio === true;
     const narrate = body?.narrate === true;
     const quality = body?.quality === "quality" ? "quality" : "speed";
+    // arena-style model pick — 'auto' resolves to the gateway's real engine;
+    // anything else passes through (the gateway maps unknown names to its engine)
+    const reqModel = /^[A-Za-z0-9._-]{1,40}$/.test(String(body?.model || "")) ? String(body?.model) : "auto";
+    const model = reqModel === "auto" ? "cogvideox-3" : reqModel;
 
     const id = crypto.randomBytes(10).toString("hex");
     const dir = path.join(JOBS, id);
@@ -72,7 +76,7 @@ export async function POST(req: Request) {
     fs.writeFileSync(path.join(dir, "job.json"), JSON.stringify({
       id, status: "queued", step: "queued", note: "", progress: 0,
       mode: "clip", prompt: prompt.slice(0, 2000), size, duration, withAudio, scenes: 1,
-      narrate, quality, imageUrl, watermark: false, createdAt: Date.now(),
+      narrate, quality, model, imageUrl, watermark: false, createdAt: Date.now(),
     }));
 
     await addMedia(uid, "videos", 1);
@@ -82,7 +86,7 @@ export async function POST(req: Request) {
     try {
       const { url, engine } = await runVideoJob({
         id, mode: "clip", prompt: prompt.slice(0, 2000), size, duration,
-        withAudio, scenes: 1, narrate, quality, imageUrl, watermark: false,
+        withAudio, scenes: 1, narrate, quality, imageUrl, watermark: false, model,
       });
       return NextResponse.json({
         ok: true, id, url, engine,
