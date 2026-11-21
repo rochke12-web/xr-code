@@ -80,12 +80,12 @@ export async function POST(req: Request) {
     // RUN INLINE — long-poll up to 240s. On Vercel Pro the function timeout is
     // 300s, so this fits. The client gets the final URL in the same response.
     try {
-      const { url } = await runVideoJob({
+      const { url, engine } = await runVideoJob({
         id, mode: "clip", prompt: prompt.slice(0, 2000), size, duration,
         withAudio, scenes: 1, narrate, quality, imageUrl, watermark: false,
       });
       return NextResponse.json({
-        ok: true, id, url,
+        ok: true, id, url, engine,
         usage: { used: q.used + 1, limit: q.limit, day: q.day },
       });
     } catch (e) {

@@ -219,6 +219,14 @@ export function readChats(uid: string): unknown[] {
   }
 }
 
+// does this account have cloud chats stored on this server? (read-only probe
+// for the admin panel — never touches the file)
+export function hasLocalChats(uid: string): boolean {
+  const p = chatsPath(uid);
+  if (!p) return false;
+  try { return fs.existsSync(p) && fs.statSync(p).size > 2; } catch { return false; }
+}
+
 export function writeChats(uid: string, chats: unknown): { ok: boolean; savedAt?: number; error?: string } {
   const p = chatsPath(uid);
   if (!p) return { ok: false, error: "bad uid" };

@@ -55,9 +55,13 @@ function parseJsonBlock(text: string): any | null {
 }
 
 // one SDK video task → downloaded mp4 (429-aware, patient polling)
-// Races N parallel create calls so one lands in a free rate-limit slot — same
-// parallel-painter pattern Image Mode uses. First task id wins, losers ignored.
-async function genScene(spec: VideoSpec, prompt: string, dir: string, label: string, log: (s: string) => void): Promise<string | null> {
+// Arena-style racing, like the image painters: every round fires 4 parallel
+// lanes, each with a DIFFERENT video model (Seedance first — arena.ai's engine
+// — then the z.ai native CogVideoX and the gateway default). First task id
+// wins, losers ignored; the winning model is reported so the UI can show it.
+const MODEL_LANES: (string | undefined)[] = ["seedance-1.0-pro", "seedance-1.0-lite", "cogvideox-3", undefined];
+
+async function genScene(spec: VideoSpec, prompt: string, dir: string, label: string, log: (s: string) => void): Promise<{ file: string; engine: string } | null> {
   const zai = await ZAI.create();
   const body: any = {
     prompt,
@@ -70,33 +74,36 @@ async function genScene(spec: VideoSpec, prompt: string, dir: string, label: str
   };
   if (spec.imageUrl) body.image_url = spec.imageUrl;
 
-  // fire up to 3 parallel create calls per round; first non-empty task id wins
-  const tryCreate = async (): Promise<string | null> => {
+  const tryCreate = async (model: string | undefined): Promise<{ id: string; model: string } | "rate" | null> => {
     try {
       const t = await Promise.race([
-        zai.video.generations.create({ ...body, request_id: crypto.randomBytes(8).toString("hex") }),
+        zai.video.generations.create({ ...body, ...(model ? { model } : {}), request_id: crypto.randomBytes(8).toString("hex") }),
         new Promise((r) => setTimeout(() => r(null), 30000)),
       ]);
-      return (t as any)?.id || null;
+      const id = (t as any)?.id;
+      return id ? { id, model: model || "default" } : null;
     } catch (e) {
       const m = String(e);
       if (/\b429\b|rate/i.test(m)) return "rate";  // signal: rate-limited, retry round
-      log(`${label} create threw: ${m.slice(0, 100)}`);
+      if (model) log(`${model} lane rejected: ${m.slice(0, 90)}`);
       return null;
     }
   };
 
-  let taskId: string | null = null;
-  for (let round = 0; round < 6 && !taskId; round++) {  // 6 rounds × 3 parallel = 18 attempts max
-    const lanes = await Promise.all([tryCreate(), tryCreate(), tryCreate()]);
-    const id = lanes.find((x) => x && x !== "rate");
-    if (id) { taskId = id; break; }
-    // all rate-limited or empty — brief backoff before next round
-    log(`${label} create round ${round + 1}: no id (rates: ${lanes.filter(x => x === "rate").length}/3) — retrying in 15s`);
+  let win: { id: string; model: string } | null = null;
+  for (let round = 0; round < 6 && !win; round++) {  // 6 rounds × 4 model lanes = 24 attempts max
+    const lanes = await Promise.all(MODEL_LANES.map((m) => tryCreate(m)));
+    const hit = lanes.find((x) => x && x !== "rate");
+    if (hit && typeof hit === "object") { win = hit; break; }
+    // all rate-limited or rejected — brief backoff before the next round
+    log(`create round ${round + 1}: no id (rates: ${lanes.filter((x) => x === "rate").length}/4) — retrying in 15s`);
     await new Promise(r => setTimeout(r, 15000));
   }
-  if (!taskId) return null;
-  log(`${label} task created: ${taskId}`);
+  if (!win) return null;
+  const taskId = win.id;
+  const engine = win.model;
+  log(`task created via ${engine}: ${taskId}`);
+  saveEngine(dir, engine);
   for (let i = 0; i < 80; i++) {  // 80 × 3s = 240s max polling
     if (i > 0) await new Promise(r => setTimeout(r, 3000));
     let r: any = null;
@@ -109,13 +116,21 @@ async function genScene(spec: VideoSpec, prompt: string, dir: string, label: str
       const buf = Buffer.from(await res.arrayBuffer());
       const f = path.join(dir, label + ".mp4");
       fs.writeFileSync(f, buf);
-      log(`${label} downloaded ${(buf.length / 1048576).toFixed(1)} MB`);
-      return f;
+      log(`downloaded ${(buf.length / 1048576).toFixed(1)} MB`);
+      return { file: f, engine };
     }
-    if (r?.task_status === "FAIL") { log(`${label} task FAIL`); return null; }
+    if (r?.task_status === "FAIL") { log(`task FAIL`); return null; }
   }
-  log(`${label} polling window exhausted`);
+  log(`polling window exhausted`);
   return null;
+}
+
+function saveEngine(dir: string, engine: string) {
+  try {
+    const jp = path.join(dir, "job.json");
+    const j = JSON.parse(fs.readFileSync(jp, "utf8"));
+    fs.writeFileSync(jp, JSON.stringify({ ...j, engine }));
+  } catch { /* job.json missing — cosmetic only */ }
 }
 
 async function brainText(sys: string, user: string, timeout = 60000): Promise<string> {
@@ -172,7 +187,7 @@ function publish(final: string): string {
 }
 
 // Main entry — runs inline, returns the asset URL or throws.
-export async function runVideoJob(spec: VideoSpec): Promise<{ url: string; polishedPrompt?: string }> {
+export async function runVideoJob(spec: VideoSpec): Promise<{ url: string; engine: string; polishedPrompt?: string }> {
   const dir = path.join(JOBS, spec.id);
   fs.mkdirSync(dir, { recursive: true });
   const log = (s: string) => { logLine(dir, `[${new Date().toISOString().slice(11, 19)}] ${s}`); };
@@ -192,12 +207,12 @@ export async function runVideoJob(spec: VideoSpec): Promise<{ url: string; polis
   save({ step: "clip", note: "generating the shot", progress: 20 });
   const polished = await polishClip(spec.prompt, spec.duration, log);
   if (polished !== spec.prompt) save({ polishedPrompt: polished });
-  const f = await genScene(spec, polished, dir, "clip", log);
-  if (!f) throw new Error("video generation failed");
+  const gen = await genScene(spec, polished, dir, "clip", log);
+  if (!gen) throw new Error("video generation failed");
   save({ step: "assemble", note: "stitching", progress: 82 });
-  const final = await assemble([f], spec, dir, log);
+  const final = await assemble([gen.file], spec, dir, log);
   const url = publish(final);
   save({ status: "done", progress: 100, step: "done", note: "", result: { url, finishedAt: Date.now() } });
   log(`DONE → ${url}`);
-  return { url, polishedPrompt: polished !== spec.prompt ? polished : undefined };
+  return { url, engine: gen.engine, polishedPrompt: polished !== spec.prompt ? polished : undefined };
 }

@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
-import { firebaseDb, verifiedGoogleSession } from '@/lib/firebase-server';
+import { currentAdmin } from '@/lib/admin';
+import { firebaseDb } from '@/lib/firebase-server';
 import { policyId } from '@/lib/daily-message-policy.mjs';
 
+// master (hardcoded) + any xrAdmins doc — shared with the other admin routes
 async function isAdmin(req: Request) {
-  const user = await verifiedGoogleSession(req);
-  return user?.email.toLowerCase() === 'rochke12@gmail.com';
+  return !!(await currentAdmin(req));
 }
 export async function GET(req: Request) {
   if (!await isAdmin(req)) return NextResponse.json({error:'forbidden'}, {status:403});

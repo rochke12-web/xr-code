@@ -927,6 +927,19 @@ body.kbd-open .composer{padding-bottom:10px}
 html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
 .resizer{width:6px;flex:none;order:-1;cursor:col-resize;background:transparent;transition:background .2s}
 .resizer:hover,.resizer.drag{background:var(--accent-2)}
+/* admin master panel */
+.adm-users{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto}
+.adm-user{display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg2);font-size:12.5px}
+.adm-user .au-mail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.adm-user .au-tag{font-size:10.5px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.adm-user .au-tag.blocked{color:#ff6b6b;border-color:#ff6b6b55}
+.adm-user .au-tag.master{color:var(--accent);border-color:var(--accent)}
+.adm-user .au-tag.admin{color:var(--accent-2);border-color:var(--accent-2)}
+.adm-chats{display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto;margin-top:8px}
+.adm-chat{border:1px solid var(--line);border-radius:10px;background:var(--bg2);padding:8px 10px;font-size:12.5px}
+.adm-chat .ac-t{font-weight:600;color:var(--text);cursor:pointer}
+.adm-chat .ac-m{margin-top:6px;color:var(--muted);line-height:1.55;white-space:pre-wrap;word-break:break-word}
+.adm-chat .ac-who{color:var(--accent-2);font-size:11px}
 </style>
 
 </head>
@@ -1056,7 +1069,13 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
             <p class="note">Bring your own key: it is encrypted on the XR-Code server, used only for your account, and never shown again. The key vault also opens from the key button beside Send.</p>
           </div>
           <div class="panel" id="adminPanel" hidden>
-            <h3><i class="ic big" data-ic="i-gear"></i> Admin — Account access</h3>
+            <h3><i class="ic big" data-ic="i-gear"></i> Admin — Master access</h3>
+            <p class="note" id="admWho">Checking admin access…</p>
+            <div class="adm-users" id="admUsers"><span class="au-tag">loading users…</span></div>
+            <div class="data-row">
+              <button class="mini-btn" id="admRefresh" type="button"><i class="ic small" data-ic="i-search"></i> Refresh users</button>
+            </div>
+            <div class="adm-chats" id="admChats" hidden></div>
             <div class="byok-row"><input id="admEmail" type="email" autocomplete="off" placeholder="account@gmail.com"></div>
             <div class="byok-row">
               <input id="admLimit" type="number" min="0" max="100000" placeholder="Daily message limit (100)">
@@ -1066,7 +1085,12 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
               <button class="mini-btn" id="admLoad" type="button"><i class="ic small" data-ic="i-search"></i> Load policy</button>
               <button class="mini-btn" id="admSave" type="button"><i class="ic small" data-ic="i-down"></i> Save policy</button>
             </div>
-            <p class="note" id="admMsg">Per-email daily message limit or block. Every account gets 100 messages a day by default.</p>
+            <div class="byok-row"><input id="admNew" type="email" autocomplete="off" placeholder="grant admin access — account@gmail.com"></div>
+            <div class="data-row">
+              <button class="mini-btn" id="admAdd" type="button"><i class="ic small" data-ic="i-key"></i> Add admin</button>
+              <button class="mini-btn danger" id="admDel" type="button"><i class="ic small" data-ic="i-trash"></i> Remove admin</button>
+            </div>
+            <p class="note" id="admMsg">Master access: read any user's chats, block or unblock an account, set daily limits, and grant or revoke admin access. The master account cannot be removed.</p>
           </div>
           <div class="panel">
             <h3>Account</h3>
@@ -1890,7 +1914,8 @@ async function askBrain(c, text, atts){
     }catch(e){ httpErr = e; q = null; }
     chip.textContent = 'Hosted by Z.ai';
     if(q && q.url){
-      const cap = '✦ Here is your 10-second clip' + (wantNarrate ? ' with narration.' : '.');
+      const eng = q.engine && /seedance/i.test(q.engine) ? 'Seedance' : (q.engine && /cogvideox/i.test(q.engine) ? 'CogVideoX' : '');
+      const cap = '✦ Here is your 10-second clip' + (eng ? ' — filmed by ' + eng : '') + (wantNarrate ? ' with narration.' : '.');
       typeReply(c, Object.assign(splitFence(cap), { asset: { type: 'video', url: q.url } }), pen);
     }else{
       pen.remove();
@@ -2247,17 +2272,97 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
   paint();
 })();
 
-/* ---------- Admin — per-email access & daily limits (owner only, server-verified) ---------- */
+/* ---------- Admin — master access: users, chats, admins, policies (server-verified) ---------- */
 (function(){
   const $ = s => document.querySelector(s);
   const panel = $('#adminPanel'); if(!panel) return;
   const email = $('#admEmail'), limit = $('#admLimit'), dis = $('#admDisabled'), msg = $('#admMsg');
+  const usersBox = $('#admUsers'), chatsBox = $('#admChats'), who = $('#admWho');
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let ADMIN_EMAILS = new Set(['rochke12@gmail.com']);   // refreshed from the server
+  const isMaster = e => String(e || '').toLowerCase() === 'rochke12@gmail.com';
+
+  async function loadAdmins(){
+    try{
+      const r = await fetch(API_BASE + '/api/admin/admins', {cache:'no-store'});
+      if(!r.ok) return;
+      const d = await r.json().catch(() => null);
+      if(d && d.ok && Array.isArray(d.admins)) ADMIN_EMAILS = new Set(d.admins.map(x => String(x.email || '').toLowerCase()));
+    }catch(e){ /* keep bootstrap default */ }
+  }
+
+  async function loadUsers(){
+    usersBox.innerHTML = '<span class="au-tag">loading users…</span>';
+    try{
+      const r = await fetch(API_BASE + '/api/admin/users', {cache:'no-store'});
+      if(r.status === 403){ usersBox.innerHTML = '<span class="au-tag">admin access only</span>'; return; }
+      const d = await r.json().catch(() => null);
+      if(!(d && d.ok && Array.isArray(d.users))){ usersBox.innerHTML = '<span class="au-tag">could not load users</span>'; return; }
+      if(!d.users.length){ usersBox.innerHTML = '<span class="au-tag">no sign-ins yet</span>'; return; }
+      usersBox.innerHTML = d.users.map(u => {
+        const tags = (u.blocked ? '<span class="au-tag blocked">blocked</span>' : '') +
+          (isMaster(u.email) ? '<span class="au-tag master">master</span>' :
+           ADMIN_EMAILS.has(String(u.email || '').toLowerCase()) ? '<span class="au-tag admin">admin</span>' : '');
+        const chatsBtn = u.hasChats ? `<button class="mini-btn" data-chats="${esc(u.uid)}" data-mail="${esc(u.email)}" type="button">Chats</button>` : '';
+        const blockBtn = (u.email && !isMaster(u.email))
+          ? `<button class="mini-btn ${u.blocked ? '' : 'danger'}" data-block="${esc(u.email)}" data-to="${u.blocked ? '0' : '1'}" type="button">${u.blocked ? 'Unblock' : 'Block'}</button>` : '';
+        return `<div class="adm-user"><span class="au-mail">${esc(u.email) || esc(u.uid)}</span>${tags}${chatsBtn}${blockBtn}</div>`;
+      }).join('');
+    }catch(e){ usersBox.innerHTML = '<span class="au-tag">could not reach the server</span>'; }
+  }
+
+  async function toggleBlock(mail, to){
+    msg.textContent = (to === '1' ? 'Blocking ' : 'Unblocking ') + mail + '…';
+    try{
+      const r = await fetch(API_BASE + '/api/admin/access', { method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ email: mail, disabled: to === '1' }) });
+      const d = await r.json().catch(() => null);
+      if(d && d.ok){ toast((to === '1' ? 'Blocked ' : 'Unblocked ') + mail); msg.textContent = 'Saved — ' + mail + ' is now ' + (to === '1' ? 'blocked.' : 'active.'); loadUsers(); }
+      else msg.textContent = (d && d.error) || 'Could not update access.';
+    }catch(e){ msg.textContent = 'Could not reach the server.'; }
+  }
+
+  async function viewChats(uid, mail){
+    chatsBox.hidden = false;
+    chatsBox.innerHTML = '<div class="adm-chat"><span class="ac-t">loading chats for ' + esc(mail) + '…</span></div>';
+    try{
+      const r = await fetch(API_BASE + '/api/admin/chats?uid=' + encodeURIComponent(uid), {cache:'no-store'});
+      const d = await r.json().catch(() => null);
+      if(!(d && d.ok)){ chatsBox.innerHTML = '<div class="adm-chat"><span class="ac-t">could not load chats</span></div>'; return; }
+      const list = Array.isArray(d.chats) ? d.chats : [];
+      if(!list.length){ chatsBox.innerHTML = '<div class="adm-chat"><span class="ac-t">no chats stored on this server yet for ' + esc(mail) + '</span></div>'; return; }
+      chatsBox.innerHTML = '<div class="adm-chat"><span class="ac-t">Chats of ' + esc(mail) + ' — ' + list.length + ' conversation(s) <button class="mini-btn" id="admChatsClose" type="button">Close</button></span></div>' +
+        list.map(c => `<div class="adm-chat"><span class="ac-t">${esc(c.title || 'New chat')}</span> <span class="au-tag">${(c.messages || []).length} msgs</span>` +
+          (c.messages || []).map(m => `<div class="ac-m"><span class="ac-who">${m.r === 'u' ? 'user' : 'XR Code'}</span> ${esc(String(m.t || '').slice(0, 1200))}</div>`).join('') +
+          `</div>`).join('');
+      const closeBtn = $('#admChatsClose'); if(closeBtn) closeBtn.onclick = () => { chatsBox.hidden = true; chatsBox.innerHTML = ''; };
+      toast('Read-only view of ' + mail + (list.length ? ' — ' + list.length + ' chat(s).' : ''));
+    }catch(e){ chatsBox.innerHTML = '<div class="adm-chat"><span class="ac-t">could not reach the server</span></div>'; }
+  }
+
+  async function manageAdmin(mail, action){
+    msg.textContent = (action === 'add' ? 'Granting admin to ' : 'Revoking admin from ') + mail + '…';
+    try{
+      const r = await fetch(API_BASE + '/api/admin/admins', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ email: mail, action }) });
+      const d = await r.json().catch(() => null);
+      if(d && d.ok){ toast(action === 'add' ? 'Admin granted to ' + mail : 'Admin revoked from ' + mail); msg.textContent = 'Done.'; await loadAdmins(); loadUsers(); }
+      else msg.textContent = (d && d.error === 'master_immutable') ? 'The master account cannot be removed.' : (d && d.error) || 'Could not update admins.';
+    }catch(e){ msg.textContent = 'Could not reach the server.'; }
+  }
+
+  usersBox.addEventListener('click', e => {
+    const b = e.target.closest('button'); if(!b) return;
+    if(b.dataset.chats) viewChats(b.dataset.chats, b.dataset.mail || '');
+    else if(b.dataset.block) toggleBlock(b.dataset.block, b.dataset.to);
+  });
+
   async function loadPolicy(){
     msg.textContent = 'Loading policy…';
     try{
       const r = await fetch(API_BASE + '/api/admin/policy?email=' + encodeURIComponent(email.value.trim()), {cache:'no-store'});
       const d = await r.json().catch(() => null);
-      if(r.status === 403){ msg.textContent = 'Admin access is limited to the owner account.'; return; }
+      if(r.status === 403){ msg.textContent = 'Admin access is limited to the master and added admins.'; return; }
       if(d && d.policy){ limit.value = String(d.policy.dailyLimit != null ? d.policy.dailyLimit : 100); dis.checked = d.policy.disabled === true; msg.textContent = 'Policy loaded for ' + email.value.trim() + '.'; }
       else msg.textContent = (d && d.error) || 'Could not load the policy.';
     }catch(e){ msg.textContent = 'Could not reach the server.'; }
@@ -2268,14 +2373,23 @@ $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('
       const r = await fetch(API_BASE + '/api/admin/policy', { method:'PUT', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ email: email.value.trim(), dailyLimit: Number(limit.value || 100), disabled: dis.checked }) });
       const d = await r.json().catch(() => null);
-      if(d && d.ok){ toast('Policy saved for ' + email.value.trim()); msg.textContent = 'Policy saved.'; }
+      if(d && d.ok){ toast('Policy saved for ' + email.value.trim()); msg.textContent = 'Policy saved.'; loadUsers(); }
       else msg.textContent = (d && d.error) || 'Could not save the policy.';
     }catch(e){ msg.textContent = 'Could not reach the server.'; }
   }
   $('#admLoad').onclick = () => { if(email.value.trim()) loadPolicy(); else msg.textContent = 'Type the account email first.'; };
   $('#admSave').onclick = () => { if(email.value.trim()) savePolicy(); else msg.textContent = 'Type the account email first.'; };
-  fetch(API_BASE + '/api/google-session', { cache: 'no-store' }).then(r => r.json()).then(d => {
-    if(d && d.email && String(d.email).toLowerCase() === 'rochke12@gmail.com') panel.hidden = false;
+  $('#admRefresh').onclick = () => { loadUsers(); };
+  $('#admAdd').onclick = () => { const v = $('#admNew').value.trim(); if(v) manageAdmin(v, 'add'); else msg.textContent = 'Type the email to grant.'; };
+  $('#admDel').onclick = () => { const v = $('#admNew').value.trim(); if(v) manageAdmin(v, 'remove'); else msg.textContent = 'Type the email to revoke.'; };
+
+  // server decides who sees this panel — master or any added admin
+  fetch(API_BASE + '/api/admin/me', { cache: 'no-store' }).then(r => r.json()).then(d => {
+    if(d && d.admin){
+      panel.hidden = false;
+      who.textContent = d.role === 'master' ? 'Signed in as MASTER (' + d.email + ') — full control.' : 'Signed in as admin (' + d.email + ').';
+      loadAdmins().then(loadUsers);
+    }
   }).catch(() => {});
 })();
 
