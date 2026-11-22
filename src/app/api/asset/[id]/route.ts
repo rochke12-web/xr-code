@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { assetDir } from "../../../../lib/asset-dir";
-import { loadAsset } from "../../../../lib/asset-store";
+import { loadAssetBytes } from "../../../../lib/asset-store";
 
 // GET /api/asset/[id] → a generated asset from db/assets
 //  · legacy ids: 20-char hex tokens (png / jpeg / mp4, magic-byte sniffed)
@@ -43,6 +43,19 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         },
       });
     } catch {
+      // not on disk — Firestore store (Vercel writes there; covers produced
+      // files too, with the original filename kept in the doc)
+      const stored = await loadAssetBytes(id);
+      if (stored && stored.buf.length > 0) {
+        return new NextResponse(new Uint8Array(stored.buf), {
+          headers: {
+            "Content-Type": stored.mime,
+            "Content-Disposition": `attachment; filename="${stored.name || m[2]}"`,
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "X-Content-Type-Options": "nosniff",
+          },
+        });
+      }
       return NextResponse.json({ ok: false, error: "not found" }, { status: 404 });
     }
   }
@@ -70,8 +83,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       continue;
     }
   }
-  // Firestore-backed assets (Vercel: read-only FS — painters store in assets/<id>)
-  const stored = await loadAsset(id);
+  // Firestore-backed assets (Vercel: read-only FS — everything stores in assets/<id>)
+  const stored = await loadAssetBytes(id);
   if (stored && stored.buf.length > 0) {
     return new NextResponse(new Uint8Array(stored.buf), {
       headers: {

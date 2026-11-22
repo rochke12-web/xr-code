@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import os from "os";
 import crypto from "crypto";
 import { spawn } from "child_process";
 import { verifyRequest } from "../../../lib/request-auth";
+import { ON_VERCEL } from "../../../lib/asset-store";
 
 // POST /api/videoedit — start a brain-driven edit of an uploaded talking-head video.
 //   multipart/form-data: file=<video>, style?, captions?, lang?, noSilence?, pause?
@@ -12,7 +14,10 @@ import { verifyRequest } from "../../../lib/request-auth";
 // GET /api/videoedit?id=<id> → { ok, job } (live status from job.json)
 
 const ROOT = process.cwd();
-const JOBS = path.join(ROOT, "db", "videoedits");
+// job scratch must be writable — Vercel's FS is read-only outside /tmp
+// (note: the detached edit driver still can't outlive a Vercel request —
+// videoedit stays a local/sandbox-only feature for now)
+const JOBS = ON_VERCEL ? path.join(os.tmpdir(), "videoedits") : path.join(ROOT, "db", "videoedits");
 const MAX_BYTES = 200_000_000;
 const STYLES = new Set(["warm-canvas", "creator-motion-graphics", "clean-tech", "software-walkthrough", "data-story", "chalk-talk", "pop-info"]);
 

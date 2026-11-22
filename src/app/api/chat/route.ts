@@ -1,12 +1,7 @@
 import { NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
 import type { VisionMessage } from "z-ai-web-dev-sdk";
-import fs from "fs";
-import path from "path";
-import os from "os";
-import { randomUUID } from "crypto";
-import { execFile } from "child_process";
-import { assetDir } from "../../../lib/asset-dir";
+import { saveAsset, saveAssetBytes, makeZip } from "../../../lib/asset-store";
 import { produceBinary } from "../../../lib/xrbuild";
 import { firebaseDb, verifiedGoogleSession } from "../../../lib/firebase-server";
 import { reserveDailyMessage } from "../../../lib/daily-message-policy.mjs";
@@ -258,8 +253,6 @@ function parseAction(reply: string | null): Action | null {
 }
 
 const IMG_SIZES = new Set(["1024x1024", "768x1344", "864x1152", "1344x768", "1152x864", "1472x736", "736x1472"]);
-// stable asset dir OUTSIDE .next — survives rebuilds (standalone cwd is .next/standalone)
-const ASSET_DIR = assetDir();
 
 // Pollinations — zero-auth FLUX-class painter, measured 6.1s/1024px from this
 // host (2026-11-19): 5x faster than the ZAI painter and immune to its quota
@@ -278,11 +271,9 @@ async function pollinationsImage(prompt: string, size?: string): Promise<{ url: 
     if (buf.length < 2000) return null; // error page / blank — reject
     const head = buf.subarray(0, 4).toString("hex");
     if (!head.startsWith("ffd8") && !head.startsWith("8950")) return null; // not JPEG/PNG
-    fs.mkdirSync(ASSET_DIR, { recursive: true });
-    const id = randomUUID().replace(/-/g, "").slice(0, 20);
-    fs.writeFileSync(path.join(ASSET_DIR, id + ".jpg"), buf);
+    const assetUrl = await saveAsset(buf, "jpg");
     console.error("[image-gen] pollinations ok:", Math.round(buf.length / 1024) + "KB");
-    return { url: `/api/asset/${id}` };
+    return { url: assetUrl };
   } catch (e) {
     console.error("[image-gen] pollinations failed:", String(e).slice(0, 160));
     return null;
@@ -301,10 +292,8 @@ async function runImageGen(prompt: string, size?: string): Promise<{ url: string
     ])) as { data?: { base64?: string }[] } | null;
     const b64 = res?.data?.[0]?.base64;
     if (!b64) { console.error("[image-gen] no base64 in response"); return null; }
-    fs.mkdirSync(ASSET_DIR, { recursive: true });
-    const id = randomUUID().replace(/-/g, "").slice(0, 20);
-    fs.writeFileSync(path.join(ASSET_DIR, id + ".png"), Buffer.from(b64, "base64"));
-    return { url: `/api/asset/${id}` };
+    const url = await saveAsset(Buffer.from(b64, "base64"), "png");
+    return { url };
   } catch (e) {
     console.error("[image-gen] failed:", String((e as Error)?.message || e).slice(0, 200));
     return null;
@@ -316,26 +305,18 @@ async function runImageGen(prompt: string, size?: string): Promise<{ url: string
 const SAFE_STORE = /^[A-Za-z0-9._-]{1,100}$/;
 async function produceFiles(act: { action: string; name?: string; files: { name: string; content: string }[] }): Promise<{ url: string; name: string; size: number } | null> {
   try {
-    const id = randomUUID().replace(/-/g, "").slice(0, 20);
-    fs.mkdirSync(ASSET_DIR, { recursive: true });
     if (act.files.some(f => !SAFE_STORE.test(f.name))) return null;
     if (act.action === "file" && act.files.length === 1) {
       const f = act.files[0];
-      const store = id + "__" + f.name;
-      fs.writeFileSync(path.join(ASSET_DIR, store), f.content, "utf8");
-      return { url: "/api/asset/" + store, name: f.name, size: Buffer.byteLength(f.content, "utf8") };
+      const data = Buffer.from(f.content, "utf8");
+      const url = await saveAssetBytes(data, "application/octet-stream", f.name);
+      return { url, name: f.name, size: data.length };
     }
-    // zip bundle (the zip binary ships on the host)
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "xrfactory-"));
-    for (const f of act.files) fs.writeFileSync(path.join(dir, f.name), f.content, "utf8");
+    // zip bundle — pure-JS STORE zip (the `zip` binary doesn't exist on Vercel)
     const zname = (SAFE_STORE.test(act.name || "") ? (act.name as string).replace(/\.zip$/i, "") : "xr-code-files") + ".zip";
-    const store = id + "__" + zname;
-    const zpath = path.join(ASSET_DIR, store);
-    await new Promise<void>((res, rej) =>
-      execFile("zip", ["-j", "-q", zpath, ...act.files.map(f => path.join(dir, f.name))], (err) => (err ? rej(err) : res()))
-    );
-    fs.rmSync(dir, { recursive: true, force: true });
-    return { url: "/api/asset/" + store, name: zname, size: fs.statSync(zpath).size };
+    const zip = makeZip(act.files.map(f => ({ name: f.name, data: Buffer.from(f.content, "utf8") })));
+    const url = await saveAssetBytes(zip, "application/zip", zname);
+    return { url, name: zname, size: zip.length };
   } catch (e) {
     console.error("[file-factory] failed:", String((e as Error)?.message || e).slice(0, 160));
     return null;

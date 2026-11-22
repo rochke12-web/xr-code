@@ -2,8 +2,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { execFile } from "child_process";
-import { randomUUID } from "crypto";
-import { assetDir } from "./asset-dir";
+import { saveAssetBytes } from "./asset-store";
 
 // XR-Code binary factory — the brain can ship REAL Windows executables.
 // A zig toolchain (zig cc is a drop-in C/C++ cross-compiler with Windows
@@ -101,15 +100,12 @@ export async function produceBinary(
         console.error("[binary-factory] compile failed:", err.slice(-400).replace(/\s+/g, " "));
         return null;
       }
-      const store = assetDir();
-      fs.mkdirSync(store, { recursive: true });
-      const id = randomUUID().replace(/-/g, "").slice(0, 20);
-      const dest = path.join(store, id + "__" + outName);
-      fs.renameSync(out, dest);
+      const bin = fs.readFileSync(out);
+      const url = await saveAssetBytes(bin, "application/octet-stream", outName);
       return {
-        url: "/api/asset/" + id + "__" + outName,
+        url,
         name: outName,
-        size: fs.statSync(dest).size,
+        size: bin.length,
         kind: "file",
         ms: Date.now() - t0,
       };

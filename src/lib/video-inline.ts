@@ -8,12 +8,15 @@
 import ZAI from "z-ai-web-dev-sdk";
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { spawn } from "child_process";
 import crypto from "crypto";
-import { assetDir } from "./asset-dir";
+import { ON_VERCEL, saveAssetBytes } from "./asset-store";
 
 const ROOT = process.cwd();
-const JOBS = path.join(ROOT, "db", "videojobs");
+// scratch dirs must be writable — Vercel's FS is read-only outside /tmp
+// (and job/frame scratch is ephemeral by nature anyway)
+const JOBS = ON_VERCEL ? path.join(os.tmpdir(), "videojobs") : path.join(ROOT, "db", "videojobs");
 const CLEAN_PATH = "/home/z/.venv/bin:/usr/local/bin:/usr/bin:/bin";
 
 export type VideoSpec = {
@@ -176,12 +179,8 @@ async function assemble(files: string[], spec: VideoSpec, dir: string, log: (s: 
   return concat;
 }
 
-function publish(final: string): string {
-  const assets = assetDir();
-  fs.mkdirSync(assets, { recursive: true });
-  const aid = crypto.randomBytes(10).toString("hex");
-  fs.copyFileSync(final, path.join(assets, aid + ".mp4"));
-  return `/api/asset/${aid}`;
+async function publish(final: string): Promise<string> {
+  return saveAssetBytes(fs.readFileSync(final), "video/mp4");
 }
 
 // Main entry — runs inline, returns the asset URL or throws.
@@ -209,7 +208,7 @@ export async function runVideoJob(spec: VideoSpec): Promise<{ url: string; engin
   if (!gen) throw new Error("video generation failed");
   save({ step: "assemble", note: "stitching", progress: 82 });
   const final = await assemble([gen.file], spec, dir, log);
-  const url = publish(final);
+  const url = await publish(final);
   save({ status: "done", progress: 100, step: "done", note: "", result: { url, finishedAt: Date.now() } });
   log(`DONE → ${url}`);
   return { url, engine: gen.engine, polishedPrompt: polished !== spec.prompt ? polished : undefined };

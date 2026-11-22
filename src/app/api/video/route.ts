@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { verifyRequest } from "../../../lib/request-auth";
 import { mediaOverLimit, addMedia } from "../../../lib/xrstore";
 import { runVideoJob } from "../../../lib/video-inline";
+import { ON_VERCEL } from "../../../lib/asset-store";
 import fs from "fs";
 import path from "path";
+import os from "os";
 import crypto from "crypto";
 
 // POST /api/video — inline video generation (runs in-process so it survives on
@@ -15,7 +17,8 @@ import crypto from "crypto";
 // Free tier: 3 videos/day per Google account (mediaOverLimit). Counted when the
 // job starts — a failed generation still counts (the model slot was spent).
 const ROOT = process.cwd();
-const JOBS = path.join(ROOT, "db", "videojobs");
+// job scratch must be writable — Vercel's FS is read-only outside /tmp
+const JOBS = ON_VERCEL ? path.join(os.tmpdir(), "videojobs") : path.join(ROOT, "db", "videojobs");
 const SIZES = new Set(["1920x1080", "1080x1920", "1024x1024"]);
 const DURATIONS = new Set([5, 10]);
 const OUTAGE_TEXT =
