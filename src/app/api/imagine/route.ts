@@ -197,37 +197,48 @@ async function paintPollinations(prompt: string, size: string): Promise<{ url: s
   });
 }
 
-async function paintZai(prompt: string, size: string, model?: string): Promise<{ url: string; model: string } | null> {
+async function paintZai(prompt: string, size: string, model?: string, budgetMs = 50000): Promise<{ url: string; model: string } | null> {
   try {
     const zai = await ZAI.create();
     const body: Record<string, unknown> = { prompt, size };
     if (model) body.model = model;
     const res = (await Promise.race([
       zai.images.generations.create(body as Parameters<typeof zai.images.generations.create>[0]),
-      withJail(50000), // 16:9 paints take 30-36s on the gateway — let the slot-holder finish
+      withJail(budgetMs), // bounded by the worker's remaining budget — the POST must always fit the 60s cap
     ])) as { data?: { base64?: string }[] } | null;
     const b64 = res?.data?.[0]?.base64;
-    if (!b64) return null;
+    if (!b64) { console.error("[imagine] paintZai", model || "default", "empty/jail"); return null; }
     const url = await saveAsset(Buffer.from(b64, "base64"), "png");
     return { url, model: model || "default-painter" };
-  } catch {
+  } catch (e) {
+    console.error("[imagine] paintZai", model || "default", "failed:", String((e as Error)?.message || e).slice(0, 140));
     return null;
   }
 }
 
 async function paint(prompt: string, size: string, pick?: string): Promise<{ url: string; model: string } | null> {
   // Gateway reality (measured 2026-11-22): image paints SERIALIZE — extra
-  // concurrent calls get instant 429s — and a 16:9 paint takes 30-36s. So
-  // ONE worker walks the fast-first queue with a 50s jail (long enough for
-  // a slot-holding paint to finish), plus 2 free pollinations lanes racing
-  // alongside. Budget: enhance ≤6s + paint ≤50s = 56s < 60s Vercel cap.
+  // concurrent calls get instant 429s — and a 16:9 paint takes 30-44s. Vercel's
+  // SHARED egress IP exhausts the gateway's rate window after ~2 heavy paints
+  // (the sandbox's dedicated IP never sees this), which users experienced as
+  // "worked twice, then warming up". So: ONE worker walks the fast-first queue,
+  // and when the queue empties early it WAITS 6s and walks again — the window
+  // refills inside the request instead of failing it. Budget: enhance ≤6s +
+  // paint ≤50s, every pull's jail bounded by remaining budget → always < 60s.
   const deadline = Date.now() + 50000;
-  const models: (string | undefined)[] = pick && pick !== "auto"
-    ? [pick, undefined] // explicit pick + gateway-default backup so a pick never hard-fails
-    : [...PAINTERS];
+  const queue = (): (string | undefined)[] =>
+    pick && pick !== "auto" ? [pick, undefined] : [...PAINTERS]; // explicit pick + gateway-default backup
   const worker = async (): Promise<{ url: string; model: string } | null> => {
-    while (models.length && Date.now() < deadline) {
-      const r = await paintZai(prompt, size, models.shift()!);
+    let models = queue();
+    while (Date.now() < deadline) {
+      if (!models.length) {
+        // queue exhausted (429 window) — re-walk if a paint can still finish
+        if (deadline - Date.now() < 22000) return null;
+        await new Promise(res => setTimeout(res, 6000));
+        models = queue();
+        continue;
+      }
+      const r = await paintZai(prompt, size, models.shift()!, deadline - Date.now());
       if (r) return r;
       // a 429-rate-window needs a beat to clear before the next pull
       await new Promise(res => setTimeout(res, 1200));
@@ -304,7 +315,7 @@ export async function POST(req: Request) {
   if (!painted) {
     console.error("[imagine] all painters failed after", Date.now() - t0, "ms");
     return NextResponse.json(
-      { ok: false, error: "The art models are warming up right now — give it a moment and try again." },
+      { ok: false, error: "The art gateway is rate-limiting this host right now — wait about a minute and send the same prompt again." },
       { status: 502 }
     );
   }
