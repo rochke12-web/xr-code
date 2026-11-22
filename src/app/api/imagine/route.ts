@@ -43,10 +43,34 @@ const ASSET_DIR = assetDir();
 // the enhancer must never add real latency — an 8s cap keeps the total paint
 // job inside the fast lane's own floor.
 const ENHANCERS = ["glm-4.5-flash", "dpsk-4.1-flash", "kimi-k2", "glm-4.6"];
+// Arena lanes — every model id below was probe-verified against the gateway
+// 2026-11-22 (19/19 returned real images, 11.7-24s). Auto mode races ALL of
+// them at once + the free pollinations lane; first valid image wins. If the
+// gateway serializes per account, exactly one lane still gets its slot — so
+// Auto never dies. A specific model pick races just that lane (+ the free
+// lane as a silent backup so a pick can never hard-fail).
 const PAINTERS: (string | undefined)[] = [
-  "gemini-3-pro-image-preview", // nano banana pro — primary painter
-  "gemini-2.5-flash-image", // nano banana — first fallback
-  undefined, // gateway default painter — last lane
+  "gemini-3-pro-image-preview", // nano banana pro
+  "gemini-2.5-flash-image",     // nano banana flash
+  "glm-image",                  // GLM photo gen
+  "glm-4.5-image",
+  "mai-image-2.7",
+  "muse-image",
+  "seedream-5.0-pro",
+  "seedream-5.9-lite",
+  "qwen-image-2.0-pro",
+  "qwen-image-2.0",
+  "uni-1.1-max",
+  "uni-1.1",
+  "grok-imagein-image",
+  "krea-2-medium",
+  "krea-3-high",
+  "wan-2.7-image",
+  "flux-3-image-klein",
+  "hunyuan-image-3.0-instruct",
+  "ideogram-4.5",
+  "cogview-4",
+  undefined, // gateway default painter
 ];
 
 function withJail(ms: number): Promise<null> {
@@ -192,12 +216,17 @@ async function paintZai(prompt: string, size: string, model?: string): Promise<{
   }
 }
 
-async function paint(prompt: string, size: string): Promise<{ url: string; model: string } | null> {
-  // race every lane at once — first to return a valid image wins. Dead lanes
+async function paint(prompt: string, size: string, pick?: string): Promise<{ url: string; model: string } | null> {
+  // race every lane at once — first valid image wins. Dead lanes
   // are absorbed; the user sees the fastest available painter, never a retry loop.
+  // A specific pick narrows the race to that painter (+ free lane backup).
+  const pickLower = pick && pick !== "auto" ? pick : "";
+  const zaiLanes = pickLower
+    ? PAINTERS.filter((m) => m && m === pickLower)
+    : PAINTERS;
   const lanes: Promise<{ url: string; model: string } | null>[] = [
     paintPollinations(prompt, size),
-    ...PAINTERS.map((m) => paintZai(prompt, size, m)),
+    ...zaiLanes.map((m) => paintZai(prompt, size, m)),
   ];
   // first-non-null wins; if all fail, return null
   return new Promise((resolve) => {
@@ -239,7 +268,7 @@ export async function POST(req: Request) {
   }
 
   const t0 = Date.now();
-  let body: { prompt?: unknown; style?: unknown; size?: unknown; base?: unknown } = {};
+  let body: { prompt?: unknown; style?: unknown; size?: unknown; base?: unknown; model?: unknown } = {};
   try {
     body = await req.json();
   } catch {
@@ -254,11 +283,12 @@ export async function POST(req: Request) {
   const size = typeof body.size === "string" && SIZES.has(body.size) ? body.size : "1024x1024";
 
   const base = typeof body.base === "string" ? body.base.slice(0, 600) : "";
+  const pick = typeof body.model === "string" && body.model && body.model !== "auto" ? body.model : undefined;
 
-  console.log("[imagine] job:", JSON.stringify({ prompt: prompt.slice(0, 80), style, size, refine: !!base }));
+  console.log("[imagine] job:", JSON.stringify({ prompt: prompt.slice(0, 80), style, size, pick: pick || "auto", refine: !!base }));
   const enhanced = await enhance(prompt, style, base);
   const paintPrompt = enhanced ? enhanced.text : `${prompt}${STYLES[style] ? ". " + STYLES[style] : ""}`;
-  const painted = await paint(paintPrompt, size);
+  const painted = await paint(paintPrompt, size, pick);
 
   if (!painted) {
     console.error("[imagine] all painters failed after", Date.now() - t0, "ms");
@@ -277,6 +307,7 @@ export async function POST(req: Request) {
     enhanced: enhanced ? enhanced.text : "",
     prompt: paintPrompt,
     ms,
+    engine: painted.model,
     usage: { used: usage.images, limit: q.limit, day: usage.day },
   });
 }

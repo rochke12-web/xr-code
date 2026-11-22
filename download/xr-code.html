@@ -1025,6 +1025,7 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
         <div class="gen-chips" id="genChips" hidden>
           <div class="chip-row" id="styleChips"></div>
           <div class="chip-row" id="sizeChips"></div>
+          <div class="chip-row" id="imgModelChips" hidden></div>
           <div class="chip-row" id="videoModelChips" hidden></div>
         </div>
         <input id="chatInput" autocomplete="off" placeholder="Message XR Code...">
@@ -1550,15 +1551,39 @@ function renderModel(){
   const chip = $('#chatModelChip');
   if(chip) chip.textContent = S.model === 'prime-v1' ? 'Prime' : S.model === 'prime-v1-flash' ? 'Prime Flash' : 'Made by Yug Sunar';
   const gc = $('#genChips'); if(gc) gc.hidden = (S.mode !== 'image' && S.mode !== 'video');
-  const imgRows = $('#styleChips'), szRows = $('#sizeChips'), vidRow = $('#videoModelChips');
+  const imgRows = $('#styleChips'), szRows = $('#sizeChips'), vidRow = $('#videoModelChips'), imgMRow = $('#imgModelChips');
   if(imgRows) imgRows.hidden = S.mode !== 'image';
   if(szRows) szRows.hidden = S.mode !== 'image';
+  if(imgMRow) imgMRow.hidden = S.mode !== 'image';
   if(vidRow) vidRow.hidden = S.mode !== 'video';
   const ci = $('#chatInput'); if(ci) ci.placeholder = S.mode === 'image' ? 'Describe the image to paint… (a follow-up like “make it night” refines the last one)' : S.mode === 'video' ? 'Describe the video to make… (a 5-second clip — add “with narration” for a voice-over)' : 'Message XR Code...';
 }
 /* ---------- Image mode: style + ratio chips ---------- */
 const IMG_STYLES = [ ['auto','Auto'], ['photoreal','Photoreal'], ['anime','Anime'], ['cinematic','Cinematic'], ['digital','Art'], ['render3d','3D'], ['watercolor','Watercolor'], ['pixel','Pixel'] ];
 const IMG_RATIOS = [ ['1024x1024','1:1'], ['864x1152','3:4'], ['1152x864','4:3'], ['768x1344','9:16'], ['1344x768','16:9'] ];
+/* ---------- Image mode: model chips (arena-style — pick the painter) ---------- */
+const IMG_MODELS = [
+  ['auto', 'Auto'],
+  ['glm-image', 'GLM'],
+  ['gemini-3-pro-image-preview', 'Nano Pro'],
+  ['gemini-2.5-flash-image', 'Nano Flash'],
+  ['mai-image-2.7', 'Mai 2.7'],
+  ['muse-image', 'Muse'],
+  ['seedream-5.0-pro', 'Seedream 5.0 Pro'],
+  ['seedream-5.9-lite', 'Seedream 5.9 Lite'],
+  ['qwen-image-2.0-pro', 'Qwen 2.0 Pro'],
+  ['qwen-image-2.0', 'Qwen 2.0'],
+  ['uni-1.1-max', 'Uni 1.1 Max'],
+  ['uni-1.1', 'Uni 1.1'],
+  ['grok-imagein-image', 'Grok'],
+  ['krea-2-medium', 'Krea 2 Medium'],
+  ['krea-3-high', 'Krea 3 High'],
+  ['wan-2.7-image', 'Wan 2.7'],
+  ['flux-3-image-klein', 'Flux 3 Klein'],
+  ['hunyuan-image-3.0-instruct', 'Hunyuan 3.0'],
+  ['ideogram-4.5', 'Ideogram 4.5'],
+  ['cogview-4', 'CogView-4'],
+];
 /* ---------- Video mode: model chips (arena-style — pick the film engine) ---------- */
 const VIDEO_MODELS = [
   ['auto', 'Auto'],
@@ -1569,11 +1594,12 @@ const VIDEO_MODELS = [
 function paintChips(){
   $$('#styleChips .gen-chip').forEach(b => b.classList.toggle('on', (S.imgStyle || 'auto') === b.dataset.v));
   $$('#sizeChips .gen-chip').forEach(b => b.classList.toggle('on', (S.imgSize || '1024x1024') === b.dataset.v));
+  $$('#imgModelChips .gen-chip').forEach(b => b.classList.toggle('on', (S.imgModel || 'auto') === b.dataset.v));
   $$('#videoModelChips .gen-chip').forEach(b => b.classList.toggle('on', (S.videoModel || 'auto') === b.dataset.v));
 }
 function buildGenChips(){
-  const sc = $('#styleChips'), zc = $('#sizeChips'), vc = $('#videoModelChips');
-  if((!sc || !zc) || (sc.dataset.built && (!vc || vc.dataset.built))) return;
+  const sc = $('#styleChips'), zc = $('#sizeChips'), vc = $('#videoModelChips'), ic = $('#imgModelChips');
+  if((!sc || !zc) || (sc.dataset.built && (!vc || vc.dataset.built) && (!ic || ic.dataset.built))) return;
   if(sc && !sc.dataset.built){
     sc.dataset.built = '1';
     IMG_STYLES.forEach(([v, n]) => {
@@ -1585,6 +1611,14 @@ function buildGenChips(){
       const b = document.createElement('button'); b.type = 'button'; b.className = 'gen-chip ratio'; b.textContent = n; b.dataset.v = v;
       b.onclick = () => { S.imgSize = v; save(); paintChips(); };
       zc.append(b);
+    });
+  }
+  if(ic && !ic.dataset.built){
+    ic.dataset.built = '1';
+    IMG_MODELS.forEach(([v, n]) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'gen-chip'; b.textContent = n; b.dataset.v = v;
+      b.onclick = () => { S.imgModel = v; save(); paintChips(); };
+      ic.append(b);
     });
   }
   if(vc && !vc.dataset.built){
@@ -1959,7 +1993,7 @@ async function askBrain(c, text, atts){
         const res = await fetch(API_BASE + '/api/imagine', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: text, style: S.imgStyle || 'auto', size: S.imgSize || '1024x1024', base: (c.lastEnhanced || '') })
+          body: JSON.stringify({ prompt: text, style: S.imgStyle || 'auto', size: S.imgSize || '1024x1024', base: (c.lastEnhanced || ''), model: S.imgModel || 'auto' })
         });
         d = await res.json().catch(() => null);
         if(res.status === 401 && d && d.error === 'auth'){      // members gate bounced this painting
@@ -1977,7 +2011,8 @@ async function askBrain(c, text, atts){
     if(d){
       chip.textContent = 'Made by Yug Sunar';
       if(d.enhanced){ c.lastEnhanced = d.enhanced; save(); }   // remember for conversational refine ("make it night")
-      const cap = (d.enhanced ? '✦ ' + d.enhanced : '✦ Here it is.');
+      const eng = d.engine && /glm|gemini|seedream|qwen|muse|uni|grok|krea|wan|flux|hunyuan|ideogram|cogview|mai/i.test(d.engine) ? (IMG_MODELS.find(m => m[0] === d.engine) || [])[1] : '';
+      const cap = (d.enhanced ? '✦ ' + d.enhanced : '✦ Here it is.') + (eng ? ' — painted by ' + eng + '.' : '');
       typeReply(c, Object.assign(splitFence(cap), { asset: { type: 'image', url: d.url, prompt: text } }), pen);
     }else{
       chip.textContent = 'offline';
