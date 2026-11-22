@@ -1960,16 +1960,29 @@ async function askBrain(c, text, atts){
         return;
       }
       if(!(q && q.ok)) q = null;
+      if(q && q.pending && q.jobId){          // studio lane — the render lives engine-side; poll until the mp4 lands
+        for(let i = 0; i < 60 && !(q && q.url); i++){
+          await new Promise(r => setTimeout(r, 5000));
+          const pr = await fetch(API_BASE + '/api/video?pl=1&id=' + encodeURIComponent(q.jobId)).catch(() => null);
+          const pj = pr ? await pr.json().catch(() => null) : null;
+          if(pj && pj.ok && pj.url){ q = pj; break; }
+          if(pj && pj.ok === false){ q = pj; break; }
+          if(i === 10) body0.innerHTML = '<span class="paint-label">filming — the studio is rolling…</span>';
+          if(i === 30) body0.innerHTML = '<span class="paint-label">filming — ~2½ min in, still rendering…</span>';
+          if(i === 50) body0.innerHTML = '<span class="paint-label">filming — final cut coming, ~4 min mark…</span>';
+        }
+      }
     }catch(e){ httpErr = e; q = null; }
     chip.textContent = 'Made by Yug Sunar';
     if(q && q.url){
-      const eng = q.engine && /seedance/i.test(q.engine) ? 'Seedance' : (q.engine && /cogvideox/i.test(q.engine) ? 'CogVideoX' : '');
+      const eng = q.engine && /seedance/i.test(q.engine) ? 'Seedance' : (q.engine && /cogvideox/i.test(q.engine) ? 'CogVideoX' : (q.engine && /studio/i.test(q.engine) ? 'Grok Imagine' : ''));
       const cap = '✦ Here is your 5-second clip' + (eng ? ' — filmed by ' + eng : '') + (wantNarrate ? ' with narration.' : '.');
       typeReply(c, Object.assign(splitFence(cap), { asset: { type: 'video', url: q.url } }), pen);
     }else{
       pen.remove();
-      const why = (q && q.error) ? ' (' + String(q.error).slice(0,120) + ')' : (httpErr ? ' (network)' : '');
-      typeReply(c, splitFence('The film studio could not finish that clip — please try again in a moment.' + why), null);
+      const base = (q && q.nokey) ? 'The film studio is switching to a new engine right now — clips will be back shortly. Images still work.' : 'The film studio could not finish that clip — please try again in a moment.';
+      const why = (q && q.error && !q.nokey) ? ' (' + String(q.error).slice(0,120) + ')' : (httpErr ? ' (network)' : '');
+      typeReply(c, splitFence(base + why), null);
     }
     return;
   }
