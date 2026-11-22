@@ -222,20 +222,28 @@ async function paintPollinations(prompt: string, size: string): Promise<{ url: s
   const seed = () => Math.floor(Math.random() * 1e9);
   const fetchOne = async (s: number): Promise<{ url: string; model: string } | null> => {
     try {
-      const u = "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt.slice(0, 1800)) +
-        `?width=${w}&height=${h}&nologo=true&nofeed=true&seed=${s}`;
-      const res = (await Promise.race([
-        fetch(u, { signal: AbortSignal.timeout(28000), headers: { Referer: "https://xr-code.vercel.app" } }),
-        withJail(30000),
-      ])) as Response | null;
-      if (!res || res.status === 402 || res.status === 429 || res.status === 502 || res.status === 503 || !res.ok) return null;
-      const buf = Buffer.from(await res.arrayBuffer());
-      if (buf.length < 2000) return null;
-      const head = buf.subarray(0, 4).toString("hex");
-      if (!head.startsWith("ffd8") && !head.startsWith("8950")) return null;
-      const clean = await deWatermark(buf);
+      // flux first (pollinations' quality model — turbo is the blurry one
+      // users complained about), turbo as same-seed fallback if flux 402s
+      let painted: { buf: Buffer; engine: string } | null = null;
+      for (const engine of ["flux", ""]) {
+        const u = "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt.slice(0, 1800)) +
+          `?width=${w}&height=${h}&nologo=true&nofeed=true&seed=${s}` + (engine ? `&model=${engine}` : "");
+        const res = (await Promise.race([
+          fetch(u, { signal: AbortSignal.timeout(28000), headers: { Referer: "https://xr-code.vercel.app" } }),
+          withJail(30000),
+        ])) as Response | null;
+        if (!res || res.status === 402 || res.status === 429 || res.status === 502 || res.status === 503 || !res.ok) continue;
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length < 2000) continue;
+        const head = buf.subarray(0, 4).toString("hex");
+        if (!head.startsWith("ffd8") && !head.startsWith("8950")) continue;
+        painted = { buf, engine: engine || "fast" };
+        break;
+      }
+      if (!painted) return null;
+      const clean = await deWatermark(painted.buf);
       const url = await saveAsset(clean, "jpg");
-      return { url, model: "fast-painter" };
+      return { url, model: painted.engine === "flux" ? "flux-painter" : "fast-painter" };
     } catch {
       return null;
     }
