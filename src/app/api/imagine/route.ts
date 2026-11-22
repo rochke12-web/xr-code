@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import ZAI from "z-ai-web-dev-sdk";
 import { verifyRequest } from "../../../lib/request-auth";
 import { mediaOverLimit, addMedia } from "../../../lib/xrstore";
 import { saveAsset } from "../../../lib/asset-store";
 import { orderLanes, recordLane } from "../../../lib/arena-lanes";
 import { createHash } from "crypto";
+import { createZai, zaiConfigState } from "../../../lib/zai-config";
 
 // explicit Vercel budget — Hobby caps at 60s; without this export the
 // platform default can be shorter and the paint race dies mid-flight
@@ -159,7 +159,7 @@ async function enhance(prompt: string, style: string, base: string, hint = ""): 
   for (const model of ENHANCERS) {
     if (Date.now() >= enhanceDeadline) break;
     try {
-      const zai = await ZAI.create();
+      const zai = await createZai();
       const res = (await Promise.race([
         zai.chat.completions.create({
           model,
@@ -266,7 +266,7 @@ async function paintZai(prompt: string, size: string, model?: string, budgetMs =
   const s = Date.now();
   const who = model || "gateway-default";
   try {
-    const zai = await ZAI.create();
+    const zai = await createZai();
     const body: Record<string, unknown> = { prompt, size };
     if (model) body.model = model;
     const res = (await Promise.race([
@@ -350,8 +350,32 @@ async function paint(prompt: string, size: string, pick?: string): Promise<{ url
   });
 }
 
-export async function GET() {
-  return NextResponse.json({ ok: true, engine: "imagine" });
+export async function GET(req: Request) {
+  // ?probe=1 → try one TINY gateway paint and return the REAL failure text
+  // (config missing / auth / 429 / ok). No secrets — booleans + message only.
+  const url = new URL(req.url);
+  if (url.searchParams.get("probe") !== "1") {
+    return NextResponse.json({ ok: true, engine: "imagine", config: zaiConfigState() });
+  }
+  const t = Date.now();
+  try {
+    const zai = await createZai();
+    const res = (await Promise.race([
+      zai.images.generations.create({ model: "wan-2.7-image", prompt: "a red cube on white background", size: "512x512" }),
+      withJail(25000),
+    ])) as { data?: { base64?: string }[] } | null;
+    const b64 = res?.data?.[0]?.base64;
+    return NextResponse.json({
+      ok: true, probe: "gateway", config: zaiConfigState(),
+      result: b64 ? "painted-ok" : "empty",
+      ms: Date.now() - t,
+    });
+  } catch (e) {
+    return NextResponse.json({
+      ok: true, probe: "gateway", config: zaiConfigState(),
+      result: "error", error: String((e as Error)?.message || e).slice(0, 200), ms: Date.now() - t,
+    });
+  }
 }
 
 export async function POST(req: Request) {

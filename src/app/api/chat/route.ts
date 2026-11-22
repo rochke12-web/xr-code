@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
+import { createZai } from "../../../lib/zai-config";
 import type { VisionMessage } from "z-ai-web-dev-sdk";
 import { saveAsset, saveAssetBytes, makeZip } from "../../../lib/asset-store";
 import { produceBinary } from "../../../lib/xrbuild";
@@ -23,7 +24,7 @@ type ZAIClient = Awaited<ReturnType<typeof ZAI.create>>;
 async function getZAI(): Promise<ZAIClient | null> {
   if (ZAI_DEAD) return null;
   try {
-    return await ZAI.create();
+    return await createZai();
   } catch (e) {
     if (/configuration file not found|\.z-ai-config|not configured/i.test(String((e as Error)?.message || e))) ZAI_DEAD = true;
     return null;
