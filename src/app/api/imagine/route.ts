@@ -115,7 +115,7 @@ function uiPrompt(subject: string, styleLine: string): string {
     `(${subject}) — clean modern interface, dark theme with one accent color, ` +
     `titled titlebar with traffic-light window buttons, left sidebar navigation with legible labels, ` +
     `main content area with realistic UI elements: cards, buttons, input fields, ` +
-    `crisp readable English text everywhere, flat vector UI presentation, figma quality, dribbble shot, ` +
+    `minimal clean UI text — prefer icons over wordy labels, flat vector UI presentation, figma quality, dribbble shot, ` +
     `soft drop shadow, neutral light background, centered composition, high detail`;
   return styleLine ? `${base}. ${styleLine}` : base;
 }
