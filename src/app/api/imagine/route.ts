@@ -81,7 +81,61 @@ function withJail(ms: number): Promise<null> {
 // Kimi turns the user's idea into one vivid English image prompt. Never
 // blocks the generator: any failure just returns null and the raw idea
 // (plus the chosen style suffix) is painted as-is.
-async function enhance(prompt: string, style: string, base: string): Promise<{ text: string; model: string } | null> {
+/* ---------- intent brain — deterministic, subject-first ---------- */
+// The LLM enhancer is an ART director: for "make a window of xr code app" it
+// wrote painter poetry (or timed out) and the raw imperative hit the model,
+// which painted random UI mush. Software/UI/logo requests need MOCKUP
+// vocabulary — deterministic, same words in → same prompt out, subject never
+// lost, no LLM roulette ("brain, not brainrot").
+
+const UI_RE = /\b(app|application|window|ui|interface|dashboard|website|web ?page|landing|screen|mockup|screenshot|editor|panel|menu|button|homepage|site)\b/i;
+const LOGO_RE = /\b(logo|icon|favicon|emblem|badge)\b/i;
+const IMPERATIVE_RE = /^\s*(please\s+)?(can you\s+|could you\s+)?(make|create|draw|generate|paint|design|build|render|show|give|produce|do)(\s+(me|us))?\s+(an|a|the|some)?\s*/i;
+
+/** Strip the imperative shell: "make a window of xr code app" → "window of xr code app". */
+function subjectOf(p: string): string {
+  const s = p.trim().replace(IMPERATIVE_RE, "").replace(/\s+/g, " ").trim();
+  return s || p.trim();
+}
+
+/** "window of xr code app" → "XR Code" — the product name for the titlebar. */
+function titleFrom(subject: string): string {
+  const m = subject.match(/\b(?:of|for|called|named)\s+(.+)$/i);
+  const core = (m ? m[1] : subject)
+    .replace(/\b(app|application|website|ui|window|interface|dashboard|site)\b/gi, "")
+    .replace(/[^A-Za-z0-9 ]/g, " ")
+    .trim();
+  return core.split(/\s+/).slice(0, 4).map(w => (w === w.toUpperCase() && w.length <= 4 ? w : w[0] ? w[0].toUpperCase() + w.slice(1) : w)).join(" ") || "XR App";
+}
+
+function uiPrompt(subject: string, styleLine: string): string {
+  const title = titleFrom(subject);
+  const base =
+    `professional UI design mockup of a desktop application window titled "${title}" ` +
+    `(${subject}) — clean modern interface, dark theme with one accent color, ` +
+    `titled titlebar with traffic-light window buttons, left sidebar navigation with legible labels, ` +
+    `main content area with realistic UI elements: cards, buttons, input fields, ` +
+    `crisp readable English text everywhere, flat vector UI presentation, figma quality, dribbble shot, ` +
+    `soft drop shadow, neutral light background, centered composition, high detail`;
+  return styleLine ? `${base}. ${styleLine}` : base;
+}
+
+function logoPrompt(subject: string, styleLine: string): string {
+  const base =
+    `flat vector logo design for ${subject}, minimalist geometric mark, balanced negative space, ` +
+    `bold simple shapes, solid clean background, professional branding, high contrast, centered, ` +
+    `no stray text artifacts`;
+  return styleLine ? `${base}. ${styleLine}` : base;
+}
+
+/** Mockup vocabulary injected into the LLM enhancer when an edit (base) must stay a mockup. */
+function kindHint(kind: "ui" | "logo"): string {
+  return kind === "ui"
+    ? "\n\nThis request is a SOFTWARE UI MOCKUP. Use flat vector UI-design vocabulary (clean interface, titled titlebar, sidebar, legible English labels, figma/dribbble presentation) — never painterly metaphors."
+    : "\n\nThis request is a LOGO/ICON design. Use flat vector logo vocabulary (minimal geometric mark, negative space, solid background) — never painterly scenes.";
+}
+
+async function enhance(prompt: string, style: string, base: string, hint = ""): Promise<{ text: string; model: string } | null> {
   const styleLine = STYLES[style] || "";
   const sys =
     "You are the prompt engineer inside an image generator. Rewrite the user's idea as ONE vivid, " +
@@ -89,6 +143,7 @@ async function enhance(prompt: string, style: string, base: string): Promise<{ t
     "lighting, the mood and the composition. Keep every fact of the original idea intact, never ask " +
     "questions, never add captions, watermarks or text into the scene unless the user asked for text. " +
     "Maximum 90 words. Reply with ONLY the prompt sentence(s) — no quotes, no preface, no explanations." +
+    hint +
     (base
       ? "\n\nAn earlier image in this conversation was painted from this prompt: \"" + base.slice(0, 600) + "\". " +
         "If the user's message is a tweak or continuation of it (\"make it night\", \"add snow\", \"same but red\", " +
@@ -233,7 +288,7 @@ async function paint(prompt: string, size: string, pick?: string): Promise<{ url
   const deadline = Date.now() + 50000;
   const queue = (): (string | undefined)[] =>
     pick && pick !== "auto" ? [pick, undefined] // explicit pick + gateway-default backup
-      : orderLanes([...PAINTERS]); // arena ordering: healthy + fast lanes first, cooling lanes last
+      : orderLanes(PAINTERS.filter((m): m is string => !!m)); // arena ordering: healthy + fast lanes first, cooling lanes last
   const worker = async (): Promise<{ url: string; model: string } | null> => {
     let models = queue();
     while (Date.now() < deadline) {
@@ -333,8 +388,23 @@ export async function POST(req: Request) {
   const pick = typeof body.model === "string" && body.model && body.model !== "auto" ? body.model : undefined;
 
   console.log("[imagine] job:", JSON.stringify({ prompt: prompt.slice(0, 80), style, size, pick: pick || "auto", refine: !!base }));
-  const enhanced = await enhance(prompt, style, base);
-  const paintPrompt = enhanced ? enhanced.text : `${prompt}${STYLES[style] ? ". " + STYLES[style] : ""}`;
+  // intent brain: UI/logo requests get a DETERMINISTIC mockup prompt (subject
+  // locked, mockup vocabulary); photo requests keep the LLM enhancer with a
+  // clean-subject fallback so a raw imperative never reaches the painter
+  const styleLine = STYLES[style] || "";
+  const kind = LOGO_RE.test(prompt) ? "logo" : UI_RE.test(prompt) ? "ui" : "photo";
+  const subject = subjectOf(prompt);
+  let paintPrompt: string;
+  let brain: string;
+  if (kind !== "photo" && !base) {
+    paintPrompt = kind === "ui" ? uiPrompt(subject, styleLine) : logoPrompt(subject, styleLine);
+    brain = `template:${kind}`;
+  } else {
+    const enhanced = await enhance(prompt, style, base, kind !== "photo" ? kindHint(kind) : "");
+    paintPrompt = enhanced ? enhanced.text : `${subject}${styleLine ? ". " + styleLine : ""}`;
+    brain = enhanced ? `llm:${enhanced.model}` : "subject-fallback";
+  }
+  console.log("[imagine] brain:", brain, "→", paintPrompt.slice(0, 110));
   const painted = await paint(paintPrompt, size, pick);
 
   if (!painted) {
@@ -351,8 +421,9 @@ export async function POST(req: Request) {
   return NextResponse.json({
     ok: true,
     url: painted.url,
-    enhanced: enhanced ? enhanced.text : "",
+    enhanced: brain.startsWith("llm:") ? paintPrompt : "",
     prompt: paintPrompt,
+    brain,
     ms,
     engine: painted.model,
     usage: { used: usage.images, limit: q.limit, day: usage.day },
