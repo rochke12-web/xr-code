@@ -3,6 +3,8 @@ import ZAI from "z-ai-web-dev-sdk";
 import { verifyRequest } from "../../../lib/request-auth";
 import { mediaOverLimit, addMedia } from "../../../lib/xrstore";
 import { saveAsset } from "../../../lib/asset-store";
+import { orderLanes, recordLane } from "../../../lib/arena-lanes";
+import { createHash } from "crypto";
 
 // explicit Vercel budget — Hobby caps at 60s; without this export the
 // platform default can be shorter and the paint race dies mid-flight
@@ -197,7 +199,9 @@ async function paintPollinations(prompt: string, size: string): Promise<{ url: s
   });
 }
 
-async function paintZai(prompt: string, size: string, model?: string, budgetMs = 50000): Promise<{ url: string; model: string } | null> {
+async function paintZai(prompt: string, size: string, model?: string, budgetMs = 50000): Promise<{ url: string; model: string; ms: number; err: string }> {
+  const s = Date.now();
+  const who = model || "gateway-default";
   try {
     const zai = await ZAI.create();
     const body: Record<string, unknown> = { prompt, size };
@@ -207,12 +211,13 @@ async function paintZai(prompt: string, size: string, model?: string, budgetMs =
       withJail(budgetMs), // bounded by the worker's remaining budget — the POST must always fit the 60s cap
     ])) as { data?: { base64?: string }[] } | null;
     const b64 = res?.data?.[0]?.base64;
-    if (!b64) { console.error("[imagine] paintZai", model || "default", "empty/jail"); return null; }
+    if (!b64) { console.error("[imagine] paintZai", who, "empty/jail"); return { url: "", model: who, ms: Date.now() - s, err: "empty/jail" }; }
     const url = await saveAsset(Buffer.from(b64, "base64"), "png");
-    return { url, model: model || "default-painter" };
+    return { url, model: model || "default-painter", ms: Date.now() - s, err: "" };
   } catch (e) {
-    console.error("[imagine] paintZai", model || "default", "failed:", String((e as Error)?.message || e).slice(0, 140));
-    return null;
+    const err = String((e as Error)?.message || e).slice(0, 140);
+    console.error("[imagine] paintZai", who, "failed:", err);
+    return { url: "", model: who, ms: Date.now() - s, err };
   }
 }
 
@@ -227,7 +232,8 @@ async function paint(prompt: string, size: string, pick?: string): Promise<{ url
   // paint ≤50s, every pull's jail bounded by remaining budget → always < 60s.
   const deadline = Date.now() + 50000;
   const queue = (): (string | undefined)[] =>
-    pick && pick !== "auto" ? [pick, undefined] : [...PAINTERS]; // explicit pick + gateway-default backup
+    pick && pick !== "auto" ? [pick, undefined] // explicit pick + gateway-default backup
+      : orderLanes([...PAINTERS]); // arena ordering: healthy + fast lanes first, cooling lanes last
   const worker = async (): Promise<{ url: string; model: string } | null> => {
     let models = queue();
     while (Date.now() < deadline) {
@@ -238,8 +244,13 @@ async function paint(prompt: string, size: string, pick?: string): Promise<{ url
         models = queue();
         continue;
       }
-      const r = await paintZai(prompt, size, models.shift()!, deadline - Date.now());
-      if (r) return r;
+      const m = models.shift()!;
+      const r = await paintZai(prompt, size, m, deadline - Date.now());
+      if (r.url) {
+        recordLane(m || "gateway-default", true, r.ms);
+        return { url: r.url, model: r.model };
+      }
+      recordLane(m || "gateway-default", false, r.ms, r.err);
       // a 429-rate-window needs a beat to clear before the next pull
       await new Promise(res => setTimeout(res, 1200));
     }
@@ -273,17 +284,31 @@ export async function GET() {
 
 export async function POST(req: Request) {
   // Google session gate — verified account only. Fail closed.
+  // Arena-style access — free photo generation for ANY user: signed-in Google
+  // accounts get the 10/day tier; everyone else still paints, 5/day keyed to
+  // a fingerprint (IP+UA hash). Same Firestore quota store, different bucket.
   const gv = await verifyRequest(req);
-  if (!gv.ok)
-    return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
-  const uid = gv.uid || "";
+  const anon = !gv.ok;
+  let uid: string;
+  if (!anon) {
+    uid = gv.uid || "";
+  } else {
+    const fwd = (req.headers.get("x-forwarded-for") || "").split(",")[0].trim();
+    const fp = createHash("sha256")
+      .update(`${fwd}|${req.headers.get("user-agent") || ""}|xr-imagine-fp`)
+      .digest("hex")
+      .slice(0, 14);
+    uid = `fp:${fp}`;
+  }
 
-  // ---- free-tier quota gate (10 images / day / Google account) ----
+  // ---- free-tier quota gate (10/day signed-in · 5/day anonymous) ----
   const q = await mediaOverLimit(uid, "image");
   if (q.over) {
     return NextResponse.json({
       ok: false,
-      error: "You've used today's 10-image allowance for this account — it resets at 00:00 UTC.",
+      error: anon
+        ? "You've used today's 5 free images — sign in with Google for 10/day, or come back after 00:00 UTC."
+        : "You've used today's 10-image allowance for this account — it resets at 00:00 UTC.",
       limit: true,
       usage: { used: q.used, limit: q.limit, day: q.day },
     }, { status: 429 });
