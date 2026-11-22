@@ -401,6 +401,10 @@ async function runVideoGen(prompt: string, withAudio: boolean, pick: string | un
         } catch (e) {
           const msg = String(e);
           console.error("[videogen] create attempt", a, m || "default", "threw:", msg.slice(0, 200));
+          if (/fetch failed|UND_ERR_CONNECT|ECONNREFUSED|ETIMEDOUT/i.test(msg)) {
+            ZAI_DEAD = true; // gateway host unreachable from this network (Vercel→gateway blocked) — skip all gateway rungs instantly
+            return null;
+          }
           if (msg.includes("429") && a < 1) {
             console.error("[videogen] rate-limited — waiting 45s");
             await new Promise(r => setTimeout(r, 45000));
@@ -446,6 +450,7 @@ async function runVideoGen(prompt: string, withAudio: boolean, pick: string | un
     return null; // timed out — composer apologizes
   } catch (e) {
     console.error("[videogen] outer error:", String(e).slice(0, 200));
+    if (/fetch failed|UND_ERR_CONNECT|ECONNREFUSED|ETIMEDOUT/i.test(String(e))) ZAI_DEAD = true;
     return null;
   }
 }
