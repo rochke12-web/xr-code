@@ -7,7 +7,7 @@ import { produceBinary } from "../../../lib/xrbuild";
 import { firebaseDb, verifiedGoogleSession } from "../../../lib/firebase-server";
 import { reserveDailyMessage } from "../../../lib/daily-message-policy.mjs";
 import { XR_SECRETS } from "../../../lib/xrsecrets";
-import { addUsage, overLimit, DAILY_TOKEN_LIMIT, estTokens } from "../../../lib/xrstore";
+import { addUsage, overLimit, DAILY_TOKEN_LIMIT, estTokens, mediaOverLimit, addMedia } from "../../../lib/xrstore";
 import { loadByok, byokChat } from "../../../lib/xrkeys";
 
 // Vercel serverless ceiling — the chat route does search + vision + engine
@@ -334,9 +334,9 @@ async function produceFiles(act: { action: string; name?: string; files: { name:
 }
 
 // one creation dispatcher for every tool site (image / video / file / zip / exe / dll)
-async function runCreation(act: Action): Promise<{ url: string; name?: string; size?: number; cover?: string; kind?: string } | null> {
+async function runCreation(act: Action, uid: string): Promise<{ url: string; name?: string; size?: number; cover?: string; kind?: string; limit?: string } | null> {
   if (act.action === "image") return runImageGen(act.prompt, act.size);
-  if (act.action === "video") return runVideoGen(act.prompt, act.with_audio === true, act.model);
+  if (act.action === "video") return runVideoGen(act.prompt, act.with_audio === true, act.model, uid);
   if (act.action === "file" || act.action === "zip") return produceFiles(act);
   // exe / dll — real Windows binary; if the compile fails the sources the
   // brain already wrote are still delivered as a zip (never an empty answer)
@@ -367,8 +367,14 @@ const VIDEO_MODELS: (string | undefined)[] = [
   undefined,                  // gateway default — proven lane, always last
 ];
 
-async function runVideoGen(prompt: string, withAudio: boolean, pick?: string): Promise<{ url: string; cover?: string } | null> {
+async function runVideoGen(prompt: string, withAudio: boolean, pick: string | undefined, uid: string): Promise<{ url: string; cover?: string; limit?: string } | null> {
   try {
+    // free-tier gate — user directive: 3 videos/day per account, counted only
+    // on SUCCESS (a failed render never eats the allowance)
+    const q = await mediaOverLimit(uid, "video");
+    if (q.over) {
+      return { url: "", limit: `You've used all ${q.limit} free videos for today on this account — it resets at 00:00 UTC. Images are still open (10/day), and your chats are safe.` };
+    }
     const ladder: (string | undefined)[] =
       pick && pick !== "auto" ? [pick, undefined] : VIDEO_MODELS;
     // create the task — walk the model ladder; on 429 rate-limit wait 45s and retry once
@@ -430,6 +436,8 @@ async function runVideoGen(prompt: string, withAudio: boolean, pick?: string): P
       if (r?.task_status === "SUCCESS") {
         const url = r.video_result?.[0]?.url;
         if (!url) { console.error("[videogen] SUCCESS but no url"); return null; }
+        // count against the 3/day cap only after a real render lands
+        try { await addMedia(uid, "videos", 1); } catch { /* quota store hiccup never eats the video */ }
         return { url, cover: r.video_result?.[0]?.cover_image_url };
       }
       if (r?.task_status === "FAIL") { console.error("[videogen] task FAIL"); return null; }
@@ -1050,7 +1058,10 @@ export async function POST(req: Request) {
       }
       // image / video generation
       trace.push(`${a.action} ✓`);
-      const asset = await runCreation(a);
+      const asset = await runCreation(a, uid);
+      if (asset?.limit) {
+        return done({ ok: true, limit: true, text: asset.limit, mode, trace });
+      }
       if (asset) {
         const composerMsgs = [
           ...chatText,
@@ -1180,7 +1191,10 @@ export async function POST(req: Request) {
   }
 
   // creation request — build the real asset, then present it in one natural line
-  const asset = await runCreation(act);
+  const asset = await runCreation(act, uid);
+  if (asset?.limit) {
+    return done({ ok: true, limit: true, text: asset.limit, mode });
+  }
   const composerMsgs = [
     ...chatText,
     { role: "assistant" as const, content: JSON.stringify(act) },
