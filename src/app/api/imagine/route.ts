@@ -10,6 +10,24 @@ import { createZai, zaiConfigState } from "../../../lib/zai-config";
 // platform default can be shorter and the paint race dies mid-flight
 export const maxDuration = 60;
 
+// gateway reality on Vercel (measured 2026-11-22 via ?probe=1): the gateway
+// host is UNREACHABLE from AWS egress — UND_ERR_CONNECT_TIMEOUT after ~10s
+// (sandbox is China-networked; the gateway blocks/is blocked from AWS). Once
+// one connect fails, mark the gateway DEAD for this lambda instance: every
+// later lane skips in ms instead of burning its own timeout. A fresh (cold)
+// instance pays the ~10s probe once, then memoizes.
+let ZAI_DEAD = false;
+async function getZai(): Promise<Awaited<ReturnType<typeof createZai>> | null> {
+  if (ZAI_DEAD) return null;
+  try {
+    return await createZai();
+  } catch (e) {
+    if (/configuration file not found|\.z-ai-config|not configured/i.test(String(e))) ZAI_DEAD = true;
+    return null;
+  }
+}
+const CONNECT_WALL = /fetch failed|UND_ERR_CONNECT|ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH/i;
+
 // XR-Code Imagine — the built-in image generator (NoteGPT-style).
 // Pipeline: user idea → Kimi AI (kimi-k2) rewrites it into one vivid English
 // image prompt → Gemini 3 Pro Image ("nano banana pro") paints it.
@@ -135,6 +153,34 @@ function kindHint(kind: "ui" | "logo"): string {
     : "\n\nThis request is a LOGO/ICON design. Use flat vector logo vocabulary (minimal geometric mark, negative space, solid background) — never painterly scenes.";
 }
 
+// zero-auth brain lane — text.pollinations.ai (free, no key; same host family
+// as the free painter that already works from Vercel, so the prompt brain
+// survives the gateway network-wall too). One POST per paint fits the
+// anonymous rate window; any failure just returns null and the gateway
+// enhancers (or the subject fallback) take over.
+async function enhanceFast(sys: string, user: string): Promise<string | null> {
+  try {
+    const res = (await Promise.race([
+      fetch("https://text.pollinations.ai/openai", {
+        method: "POST",
+        headers: { "content-type": "application/json", Referer: "https://xr-code.vercel.app" },
+        body: JSON.stringify({ model: "openai", messages: [{ role: "system", content: sys }, { role: "user", content: user }] }),
+        signal: AbortSignal.timeout(5000),
+      }),
+      withJail(6000),
+    ])) as Response | null;
+    if (!res?.ok) return null;
+    const j = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+    const text = (j?.choices?.[0]?.message?.content || "").trim();
+    if (text && text.length > 8 && text.length < 1200) {
+      return text.replace(/^["'`\s]+|["'`\s]+$/g, "");
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function enhance(prompt: string, style: string, base: string, hint = ""): Promise<{ text: string; model: string } | null> {
   const styleLine = STYLES[style] || "";
   const sys =
@@ -153,13 +199,19 @@ async function enhance(prompt: string, style: string, base: string, hint = ""): 
   const user = styleLine
     ? `${prompt}\n\n(Extra style direction to weave in: ${styleLine})`
     : prompt;
+  const clean = (t: string) => t.replace(/^["'`\s]+|["'`\s]+$/g, "");
+  // brain lane 1: zero-auth pollinations text — 2-4s, works from Vercel
+  const fast = await enhanceFast(sys, user);
+  if (fast) return { text: fast, model: "pollinations-brain" };
+  if (ZAI_DEAD) return null;
   // one GLOBAL budget for the whole enhancer chain — the old 8s-per-model
   // jail × 4 serial models could burn 32s before a single pixel was painted
   const enhanceDeadline = Date.now() + 6000;
   for (const model of ENHANCERS) {
     if (Date.now() >= enhanceDeadline) break;
     try {
-      const zai = await createZai();
+      const zai = await getZai();
+      if (!zai) break;
       const res = (await Promise.race([
         zai.chat.completions.create({
           model,
@@ -173,9 +225,10 @@ async function enhance(prompt: string, style: string, base: string, hint = ""): 
       ])) as { choices?: { message?: { content?: string } }[] } | null;
       const text = (res?.choices?.[0]?.message?.content || "").trim();
       if (text && text.length > 8 && text.length < 1200) {
-        return { text: text.replace(/^["'`\s]+|["'`\s]+$/g, ""), model };
+        return { text: clean(text), model };
       }
     } catch (e) {
+      if (CONNECT_WALL.test(String(e))) ZAI_DEAD = true;
       console.error("[imagine] enhancer", model, "failed:", String((e as Error)?.message || e).slice(0, 120));
     }
   }
@@ -266,11 +319,12 @@ async function paintZai(prompt: string, size: string, model?: string, budgetMs =
   const s = Date.now();
   const who = model || "gateway-default";
   try {
-    const zai = await createZai();
+    const zai = await getZai();
+    if (!zai) return { url: "", model: who, ms: Date.now() - s, err: "zai-dead" };
     const body: Record<string, unknown> = { prompt, size };
     if (model) body.model = model;
     const res = (await Promise.race([
-      zai.images.generations.create(body as Parameters<typeof zai.images.generations.create>[0]),
+      zai.images.generations.create(body as unknown as Parameters<typeof zai.images.generations.create>[0]),
       withJail(budgetMs), // bounded by the worker's remaining budget — the POST must always fit the 60s cap
     ])) as { data?: { base64?: string }[] } | null;
     const b64 = res?.data?.[0]?.base64;
@@ -279,6 +333,7 @@ async function paintZai(prompt: string, size: string, model?: string, budgetMs =
     return { url, model: model || "default-painter", ms: Date.now() - s, err: "" };
   } catch (e) {
     const err = String((e as Error)?.message || e).slice(0, 140);
+    if (CONNECT_WALL.test(err)) ZAI_DEAD = true; // network wall — skip every later gateway pull in ms
     console.error("[imagine] paintZai", who, "failed:", err);
     return { url: "", model: who, ms: Date.now() - s, err };
   }
@@ -300,6 +355,7 @@ async function paint(prompt: string, size: string, pick?: string): Promise<{ url
   const worker = async (): Promise<{ url: string; model: string } | null> => {
     let models = queue();
     while (Date.now() < deadline) {
+      if (ZAI_DEAD) return null; // network wall — the whole queue is unreachable; hand over to the free lane NOW
       if (!models.length) {
         // queue exhausted (429 window) — re-walk if a paint can still finish
         if (deadline - Date.now() < 22000) return null;
@@ -314,6 +370,7 @@ async function paint(prompt: string, size: string, pick?: string): Promise<{ url
         return { url: r.url, model: r.model };
       }
       recordLane(m || "gateway-default", false, r.ms, r.err);
+      if (r.err === "zai-dead") return null; // marked dead mid-walk — no point touching the next rung
       // a 429-rate-window needs a beat to clear before the next pull
       await new Promise(res => setTimeout(res, 1200));
     }
@@ -321,15 +378,16 @@ async function paint(prompt: string, size: string, pick?: string): Promise<{ url
   };
   // QUALITY-FIRST lane policy: pollinations paints in ~6s so it won every
   // race — users got fast but BLURRY mockups. Gateway lanes (30-45s) are the
-  // quality tier, so pollinations is demoted to a LATE BACKUP: it only fires
-  // at 40s/45s, i.e. when the gateway is dead or still 429-walking. A 40s
-  // start + ~6-10s paint still fits the 60s Vercel cap.
+  // quality tier, so pollinations is demoted to a LATE BACKUP when the
+  // gateway is merely rate-walking. When the gateway is a confirmed NETWORK
+  // WALL (Vercel → unreachable), the worker hands over the moment it marks
+  // ZAI_DEAD — the fallback lane below fires THEN, not at a fixed 40s timer.
   const latePollinations = (delayMs: number) => (async () => {
     await new Promise(res => setTimeout(res, delayMs));
     return paintPollinations(prompt, size);
   })();
   const lanes: Promise<{ url: string; model: string } | null>[] = [
-    worker(),
+    worker().then(r => r || paintPollinations(prompt, size)), // worker gave up (dead / 429-walked out) → free lane immediately
     latePollinations(40000),
     latePollinations(45000),
   ];
@@ -354,8 +412,9 @@ export async function GET(req: Request) {
   // ?probe=1 → try one TINY gateway paint and return the REAL failure text
   // (config missing / auth / 429 / ok). No secrets — booleans + message only.
   const url = new URL(req.url);
+  const state = () => ({ ...zaiConfigState(), dead: ZAI_DEAD, painters: "pollinations-flux" });
   if (url.searchParams.get("probe") !== "1") {
-    return NextResponse.json({ ok: true, engine: "imagine", config: zaiConfigState() });
+    return NextResponse.json({ ok: true, engine: "imagine", config: state() });
   }
   const t = Date.now();
   try {
@@ -366,14 +425,16 @@ export async function GET(req: Request) {
     ])) as { data?: { base64?: string }[] } | null;
     const b64 = res?.data?.[0]?.base64;
     return NextResponse.json({
-      ok: true, probe: "gateway", config: zaiConfigState(),
+      ok: true, probe: "gateway", config: state(),
       result: b64 ? "painted-ok" : "empty",
       ms: Date.now() - t,
     });
   } catch (e) {
+    const msg = String((e as Error)?.message || e);
+    if (CONNECT_WALL.test(msg)) ZAI_DEAD = true;
     return NextResponse.json({
-      ok: true, probe: "gateway", config: zaiConfigState(),
-      result: "error", error: String((e as Error)?.message || e).slice(0, 200),
+      ok: true, probe: "gateway", config: state(),
+      result: "error", error: msg.slice(0, 200),
       cause: String(((e as { cause?: { code?: string; message?: string } }).cause)?.code || (e as { cause?: { message?: string } }).cause?.message || "").slice(0, 120), ms: Date.now() - t,
     });
   }
