@@ -311,10 +311,19 @@ async function paint(prompt: string, size: string, pick?: string): Promise<{ url
     }
     return null;
   };
+  // QUALITY-FIRST lane policy: pollinations paints in ~6s so it won every
+  // race — users got fast but BLURRY mockups. Gateway lanes (30-45s) are the
+  // quality tier, so pollinations is demoted to a LATE BACKUP: it only fires
+  // at 40s/45s, i.e. when the gateway is dead or still 429-walking. A 40s
+  // start + ~6-10s paint still fits the 60s Vercel cap.
+  const latePollinations = (delayMs: number) => (async () => {
+    await new Promise(res => setTimeout(res, delayMs));
+    return paintPollinations(prompt, size);
+  })();
   const lanes: Promise<{ url: string; model: string } | null>[] = [
-    paintPollinations(prompt, size),
-    paintPollinations(prompt, size),
     worker(),
+    latePollinations(40000),
+    latePollinations(45000),
   ];
   // first-non-null wins; if all fail, return null
   return new Promise((resolve) => {

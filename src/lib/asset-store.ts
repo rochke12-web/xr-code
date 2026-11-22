@@ -20,7 +20,7 @@ export const ON_VERCEL = !!process.env.VERCEL;
 async function toJpeg(buf: Buffer): Promise<Buffer> {
   if (buf[0] === 0xff && buf[1] === 0xd8) return buf; // already jpeg
   const { default: sharp } = await import("sharp");
-  for (const q of [82, 65, 50]) {
+  for (const q of [90, 80, 65]) {
     const out = await sharp(buf).jpeg({ quality: q }).toBuffer();
     if (out.length < 650_000) return out; // b64 lands under the 1 MiB doc cap
   }
