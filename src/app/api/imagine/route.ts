@@ -373,7 +373,8 @@ export async function GET(req: Request) {
   } catch (e) {
     return NextResponse.json({
       ok: true, probe: "gateway", config: zaiConfigState(),
-      result: "error", error: String((e as Error)?.message || e).slice(0, 200), ms: Date.now() - t,
+      result: "error", error: String((e as Error)?.message || e).slice(0, 200),
+      cause: String(((e as { cause?: { code?: string; message?: string } }).cause)?.code || (e as { cause?: { message?: string } }).cause?.message || "").slice(0, 120), ms: Date.now() - t,
     });
   }
 }
