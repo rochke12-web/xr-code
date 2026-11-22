@@ -361,7 +361,7 @@ export async function GET(req: Request) {
   try {
     const zai = await createZai();
     const res = (await Promise.race([
-      zai.images.generations.create({ model: "wan-2.7-image", prompt: "a red cube on white background", size: "512x512" }),
+      zai.images.generations.create({ model: "wan-2.7-image", prompt: "a red cube on white background", size: "1024x1024" }),
       withJail(25000),
     ])) as { data?: { base64?: string }[] } | null;
     const b64 = res?.data?.[0]?.base64;
