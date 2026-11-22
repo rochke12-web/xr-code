@@ -217,16 +217,28 @@ async function paintZai(prompt: string, size: string, model?: string): Promise<{
 }
 
 async function paint(prompt: string, size: string, pick?: string): Promise<{ url: string; model: string } | null> {
-  // race every lane at once — first valid image wins. Dead lanes
-  // are absorbed; the user sees the fastest available painter, never a retry loop.
-  // A specific pick narrows the race to that painter (+ free lane backup).
-  const pickLower = pick && pick !== "auto" ? pick : "";
-  const zaiLanes = pickLower
-    ? PAINTERS.filter((m) => m && m === pickLower)
-    : PAINTERS;
+  // A 21-way burst gets every gateway call rejected (measured 2026-11-22:
+  // sequential probe all-OK, concurrent burst all-429 → the "warming up"
+  // error). So: 2 free pollinations lanes + a pool of 3 workers pulling the
+  // gateway models one at a time. First success resolves the race instantly;
+  // a dead/rejected model just moves the queue to the next painter.
+  const deadline = Date.now() + 46000;
+  const models: (string | undefined)[] = pick && pick !== "auto"
+    ? [pick, undefined] // explicit pick + gateway-default backup so a pick never hard-fails
+    : [...PAINTERS];
+  const worker = async (): Promise<{ url: string; model: string } | null> => {
+    while (models.length && Date.now() < deadline) {
+      const r = await paintZai(prompt, size, models.shift()!);
+      if (r) return r;
+    }
+    return null;
+  };
   const lanes: Promise<{ url: string; model: string } | null>[] = [
     paintPollinations(prompt, size),
-    ...zaiLanes.map((m) => paintZai(prompt, size, m)),
+    paintPollinations(prompt, size),
+    worker(),
+    worker(),
+    worker(),
   ];
   // first-non-null wins; if all fail, return null
   return new Promise((resolve) => {
@@ -280,7 +292,7 @@ export async function POST(req: Request) {
   }
   const prompt = raw.slice(0, 600);
   const style = typeof body.style === "string" && STYLES[body.style] !== undefined ? body.style : "auto";
-  const size = typeof body.size === "string" && SIZES.has(body.size) ? body.size : "1024x1024";
+  const size = typeof body.size === "string" && SIZES.has(body.size) ? body.size : "1344x768";
 
   const base = typeof body.base === "string" ? body.base.slice(0, 600) : "";
   const pick = typeof body.model === "string" && body.model && body.model !== "auto" ? body.model : undefined;

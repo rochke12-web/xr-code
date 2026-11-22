@@ -1025,7 +1025,6 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
         <div class="gen-chips" id="genChips" hidden>
           <div class="chip-row" id="styleChips"></div>
           <div class="chip-row" id="sizeChips"></div>
-          <div class="chip-row" id="imgModelChips" hidden></div>
           <div class="chip-row" id="videoModelChips" hidden></div>
         </div>
         <input id="chatInput" autocomplete="off" placeholder="Message XR Code...">
@@ -1228,7 +1227,7 @@ function defaults(){
     model: 'auto',             // engine: 'auto' (flagship brain) | 'prime-v1' | 'prime-v1-flash'
     mode: 'koder',             // 'koder' | 'qna' | 'image'
     imgStyle: 'auto',          // Image mode style preset
-    imgSize: '1024x1024',      // Image mode canvas ratio
+    imgSize: '1344x768',       // Image mode canvas ratio (16:9 default)
     videoModel: 'auto',        // Video mode engine (arena-style chips)
     anim: 'auto',              // UI effects: 'auto' follows the OS motion setting | 'on' | 'off'
     lastSync: null
@@ -1244,7 +1243,8 @@ let S = load() || defaults();
   if(S.mode === 'sight' || S.mode === 'imagine') S.mode = 'image';   // visual modes merged into Image Mode
   if(S.mode !== 'koder' && S.mode !== 'qna' && S.mode !== 'image' && S.mode !== 'video') S.mode = 'koder';   // four modes: koder | qna | image | video
   if(!['auto','photoreal','anime','cinematic','digital','render3d','watercolor','pixel'].includes(S.imgStyle)) S.imgStyle = 'auto';
-  if(!['1024x1024','768x1344','864x1152','1344x768','1152x864'].includes(S.imgSize)) S.imgSize = '1024x1024';
+  if(!['1024x1024','768x1344','864x1152','1344x768','1152x864'].includes(S.imgSize)) S.imgSize = '1344x768';
+  delete S.imgModel; // photo models merged — every painter races, no picker
   if(!['auto','seedance-1.0-pro','seedance-1.0-lite','cogvideox-3'].includes(S.videoModel)) S.videoModel = 'auto';
   if(S.user && S.user.provider === 'api') S.user = null;
   delete S.api;
@@ -1551,17 +1551,16 @@ function renderModel(){
   const chip = $('#chatModelChip');
   if(chip) chip.textContent = S.model === 'prime-v1' ? 'Prime' : S.model === 'prime-v1-flash' ? 'Prime Flash' : 'Made by Yug Sunar';
   const gc = $('#genChips'); if(gc) gc.hidden = (S.mode !== 'image' && S.mode !== 'video');
-  const imgRows = $('#styleChips'), szRows = $('#sizeChips'), vidRow = $('#videoModelChips'), imgMRow = $('#imgModelChips');
+  const imgRows = $('#styleChips'), szRows = $('#sizeChips'), vidRow = $('#videoModelChips');
   if(imgRows) imgRows.hidden = S.mode !== 'image';
   if(szRows) szRows.hidden = S.mode !== 'image';
-  if(imgMRow) imgMRow.hidden = S.mode !== 'image';
   if(vidRow) vidRow.hidden = S.mode !== 'video';
   const ci = $('#chatInput'); if(ci) ci.placeholder = S.mode === 'image' ? 'Describe the image to paint… (a follow-up like “make it night” refines the last one)' : S.mode === 'video' ? 'Describe the video to make… (a 5-second clip — add “with narration” for a voice-over)' : 'Message XR Code...';
 }
 /* ---------- Image mode: style + ratio chips ---------- */
 const IMG_STYLES = [ ['auto','Auto'], ['photoreal','Photoreal'], ['anime','Anime'], ['cinematic','Cinematic'], ['digital','Art'], ['render3d','3D'], ['watercolor','Watercolor'], ['pixel','Pixel'] ];
-const IMG_RATIOS = [ ['1024x1024','1:1'], ['864x1152','3:4'], ['1152x864','4:3'], ['768x1344','9:16'], ['1344x768','16:9'] ];
-/* ---------- Image mode: model chips (arena-style — pick the painter) ---------- */
+const IMG_RATIOS = [ ['1344x768','16:9'], ['1024x1024','1:1'], ['864x1152','3:4'], ['1152x864','4:3'], ['768x1344','9:16'] ];
+/* ---------- Image mode: painter names (all merged — every model races, winner shown in caption) ---------- */
 const IMG_MODELS = [
   ['auto', 'Auto'],
   ['glm-image', 'GLM'],
@@ -1593,13 +1592,12 @@ const VIDEO_MODELS = [
 ];
 function paintChips(){
   $$('#styleChips .gen-chip').forEach(b => b.classList.toggle('on', (S.imgStyle || 'auto') === b.dataset.v));
-  $$('#sizeChips .gen-chip').forEach(b => b.classList.toggle('on', (S.imgSize || '1024x1024') === b.dataset.v));
-  $$('#imgModelChips .gen-chip').forEach(b => b.classList.toggle('on', (S.imgModel || 'auto') === b.dataset.v));
+  $$('#sizeChips .gen-chip').forEach(b => b.classList.toggle('on', (S.imgSize || '1344x768') === b.dataset.v));
   $$('#videoModelChips .gen-chip').forEach(b => b.classList.toggle('on', (S.videoModel || 'auto') === b.dataset.v));
 }
 function buildGenChips(){
-  const sc = $('#styleChips'), zc = $('#sizeChips'), vc = $('#videoModelChips'), ic = $('#imgModelChips');
-  if((!sc || !zc) || (sc.dataset.built && (!vc || vc.dataset.built) && (!ic || ic.dataset.built))) return;
+  const sc = $('#styleChips'), zc = $('#sizeChips'), vc = $('#videoModelChips');
+  if((!sc || !zc) || (sc.dataset.built && (!vc || vc.dataset.built))) return;
   if(sc && !sc.dataset.built){
     sc.dataset.built = '1';
     IMG_STYLES.forEach(([v, n]) => {
@@ -1611,14 +1609,6 @@ function buildGenChips(){
       const b = document.createElement('button'); b.type = 'button'; b.className = 'gen-chip ratio'; b.textContent = n; b.dataset.v = v;
       b.onclick = () => { S.imgSize = v; save(); paintChips(); };
       zc.append(b);
-    });
-  }
-  if(ic && !ic.dataset.built){
-    ic.dataset.built = '1';
-    IMG_MODELS.forEach(([v, n]) => {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'gen-chip'; b.textContent = n; b.dataset.v = v;
-      b.onclick = () => { S.imgModel = v; save(); paintChips(); };
-      ic.append(b);
     });
   }
   if(vc && !vc.dataset.built){
@@ -1993,7 +1983,7 @@ async function askBrain(c, text, atts){
         const res = await fetch(API_BASE + '/api/imagine', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: text, style: S.imgStyle || 'auto', size: S.imgSize || '1024x1024', base: (c.lastEnhanced || ''), model: S.imgModel || 'auto' })
+          body: JSON.stringify({ prompt: text, style: S.imgStyle || 'auto', size: S.imgSize || '1344x768', base: (c.lastEnhanced || '') })
         });
         d = await res.json().catch(() => null);
         if(res.status === 401 && d && d.error === 'auth'){      // members gate bounced this painting
