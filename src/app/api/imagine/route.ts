@@ -102,7 +102,11 @@ async function enhance(prompt: string, style: string, base: string): Promise<{ t
   const user = styleLine
     ? `${prompt}\n\n(Extra style direction to weave in: ${styleLine})`
     : prompt;
+  // one GLOBAL budget for the whole enhancer chain — the old 8s-per-model
+  // jail × 4 serial models could burn 32s before a single pixel was painted
+  const enhanceDeadline = Date.now() + 6000;
   for (const model of ENHANCERS) {
+    if (Date.now() >= enhanceDeadline) break;
     try {
       const zai = await ZAI.create();
       const res = (await Promise.race([
@@ -114,7 +118,7 @@ async function enhance(prompt: string, style: string, base: string): Promise<{ t
           ],
           thinking: { type: "disabled" },
         }),
-        withJail(8000),
+        withJail(Math.max(1000, enhanceDeadline - Date.now())),
       ])) as { choices?: { message?: { content?: string } }[] } | null;
       const text = (res?.choices?.[0]?.message?.content || "").trim();
       if (text && text.length > 8 && text.length < 1200) {
@@ -208,7 +212,7 @@ async function paintZai(prompt: string, size: string, model?: string): Promise<{
     if (model) body.model = model;
     const res = (await Promise.race([
       zai.images.generations.create(body as Parameters<typeof zai.images.generations.create>[0]),
-      withJail(32000), // stuck lane hands its worker back before the 40s paint deadline
+      withJail(50000), // 16:9 paints take 30-36s on the gateway — let the slot-holder finish
     ])) as { data?: { base64?: string }[] } | null;
     const b64 = res?.data?.[0]?.base64;
     if (!b64) return null;
@@ -222,14 +226,12 @@ async function paintZai(prompt: string, size: string, model?: string): Promise<{
 }
 
 async function paint(prompt: string, size: string, pick?: string): Promise<{ url: string; model: string } | null> {
-  // A 21-way burst gets every gateway call rejected (measured 2026-11-22:
-  // sequential probe all-OK, concurrent burst all-429 → the "warming up"
-  // error). So: 2 free pollinations lanes + a pool of 3 workers pulling the
-  // gateway models one at a time. First success resolves the race instantly;
-  // a dead/rejected model just moves the queue to the next painter.
-  // Budget: enhance ≤8s + paint ≤40s stays inside the 60s Vercel cap
-  // (maxDuration exported below) with headroom for cold starts.
-  const deadline = Date.now() + 40000;
+  // Gateway reality (measured 2026-11-22): image paints SERIALIZE — extra
+  // concurrent calls get instant 429s — and a 16:9 paint takes 30-36s. So
+  // ONE worker walks the fast-first queue with a 50s jail (long enough for
+  // a slot-holding paint to finish), plus 2 free pollinations lanes racing
+  // alongside. Budget: enhance ≤6s + paint ≤50s = 56s < 60s Vercel cap.
+  const deadline = Date.now() + 50000;
   const models: (string | undefined)[] = pick && pick !== "auto"
     ? [pick, undefined] // explicit pick + gateway-default backup so a pick never hard-fails
     : [...PAINTERS];
@@ -237,14 +239,14 @@ async function paint(prompt: string, size: string, pick?: string): Promise<{ url
     while (models.length && Date.now() < deadline) {
       const r = await paintZai(prompt, size, models.shift()!);
       if (r) return r;
+      // a 429-rate-window needs a beat to clear before the next pull
+      await new Promise(res => setTimeout(res, 1200));
     }
     return null;
   };
   const lanes: Promise<{ url: string; model: string } | null>[] = [
     paintPollinations(prompt, size),
     paintPollinations(prompt, size),
-    worker(),
-    worker(),
     worker(),
   ];
   // first-non-null wins; if all fail, return null
