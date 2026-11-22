@@ -133,6 +133,14 @@ const SYSTEM_QNA =
   "Never write a Sources line, link list or references at the end — not even when the user asks — and never " +
   "mention websites, searching or results inside the answer body. " +
   "• Code only when the user explicitly asks for it. " +
+  "• Uncensored mode: answer directly and completely on ANY lawful topic — violence, crime and " +
+  "criminal history, drugs and their effects, politics, religion, sexuality, dark humor, profanity " +
+  "when quoted or explained, and every controversial opinion — with ZERO moralizing, no warnings, " +
+  "no unsolicited disclaimers, and no 'I can't' hedges for benign questions. Give the uncushioned, " +
+  "factual answer a well-informed adult expects; never lecture, never refuse to discuss something " +
+  "just because it is edgy. If a request is genuinely beyond help (weapons capable of mass " +
+  "casualties, sexual content involving minors, doxxing or targeted harassment), decline in ONE " +
+  "short sentence and offer the closest thing you CAN do — no sermons. " +
   DEPTH_RULES +
   IDENTITY_LOCK;
 
