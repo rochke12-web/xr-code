@@ -7,6 +7,10 @@ import { assetDir } from "../../../lib/asset-dir";
 import { verifyRequest } from "../../../lib/request-auth";
 import { mediaOverLimit, addMedia } from "../../../lib/xrstore";
 
+// explicit Vercel budget — Hobby caps at 60s; without this export the
+// platform default can be shorter and the paint race dies mid-flight
+export const maxDuration = 60;
+
 // XR-Code Imagine — the built-in image generator (NoteGPT-style).
 // Pipeline: user idea → Kimi AI (kimi-k2) rewrites it into one vivid English
 // image prompt → Gemini 3 Pro Image ("nano banana pro") paints it.
@@ -44,33 +48,34 @@ const ASSET_DIR = assetDir();
 // job inside the fast lane's own floor.
 const ENHANCERS = ["glm-4.5-flash", "dpsk-4.1-flash", "kimi-k2", "glm-4.6"];
 // Arena lanes — every model id below was probe-verified against the gateway
-// 2026-11-22 (19/19 returned real images, 11.7-24s). Auto mode races ALL of
-// them at once + the free pollinations lane; first valid image wins. If the
-// gateway serializes per account, exactly one lane still gets its slot — so
-// Auto never dies. A specific model pick races just that lane (+ the free
-// lane as a silent backup so a pick can never hard-fail).
+// 2026-11-22 (19/19 returned real images, 11.7-24s at 512px; 16:9 renders run
+// ~30-45s on the heavy models). Ordered FASTEST-FIRST: the worker pool pulls
+// from the head of this queue, so an image lands well inside the Vercel cap
+// even when the heavy painters never get their turn. A specific model pick
+// races just that lane (+ the free lane as a silent backup so a pick can
+// never hard-fail).
 const PAINTERS: (string | undefined)[] = [
-  "gemini-3-pro-image-preview", // nano banana pro
+  "wan-2.7-image",              // 11.7s @512 — fastest verified
+  "grok-imagein-image",         // 11.8s
   "gemini-2.5-flash-image",     // nano banana flash
-  "glm-image",                  // GLM photo gen
-  "glm-4.5-image",
-  "mai-image-2.7",
-  "muse-image",
-  "seedream-5.0-pro",
-  "seedream-5.9-lite",
-  "qwen-image-2.0-pro",
-  "qwen-image-2.0",
-  "uni-1.1-max",
-  "uni-1.1",
-  "grok-imagein-image",
-  "krea-2-medium",
-  "krea-3-high",
-  "wan-2.7-image",
-  "flux-3-image-klein",
-  "hunyuan-image-3.0-instruct",
-  "ideogram-4.5",
-  "cogview-4",
-  undefined, // gateway default painter
+  "flux-3-image-klein",         // 12.2s
+  "muse-image",                 // 12.2s
+  "seedream-5.9-lite",          // 12.5s
+  "qwen-image-2.0-pro",         // 12.5s
+  "uni-1.1",                    // 12.8s
+  "mai-image-2.7",              // 13.2s
+  "qwen-image-2.0",             // 18.5s
+  "seedream-5.0-pro",           // 13.4s
+  "uni-1.1-max",                // 13.5s
+  "krea-3-high",                // 12.8s
+  "cogview-4",                  // 18.5s
+  "krea-2-medium",              // 24.1s
+  "glm-image",                  // GLM photo gen (slow at 16:9 — kept mid-queue)
+  "hunyuan-image-3.0-instruct", // 21.9s
+  "ideogram-4.5",               // 21.0s
+  "glm-4.5-image",              // 12.8s
+  "gemini-3-pro-image-preview", // nano banana pro — 33-39s @16:9, last resort
+  undefined,                    // gateway default painter
 ];
 
 function withJail(ms: number): Promise<null> {
@@ -203,7 +208,7 @@ async function paintZai(prompt: string, size: string, model?: string): Promise<{
     if (model) body.model = model;
     const res = (await Promise.race([
       zai.images.generations.create(body as Parameters<typeof zai.images.generations.create>[0]),
-      withJail(45000),
+      withJail(32000), // stuck lane hands its worker back before the 40s paint deadline
     ])) as { data?: { base64?: string }[] } | null;
     const b64 = res?.data?.[0]?.base64;
     if (!b64) return null;
@@ -222,7 +227,9 @@ async function paint(prompt: string, size: string, pick?: string): Promise<{ url
   // error). So: 2 free pollinations lanes + a pool of 3 workers pulling the
   // gateway models one at a time. First success resolves the race instantly;
   // a dead/rejected model just moves the queue to the next painter.
-  const deadline = Date.now() + 46000;
+  // Budget: enhance ≤8s + paint ≤40s stays inside the 60s Vercel cap
+  // (maxDuration exported below) with headroom for cold starts.
+  const deadline = Date.now() + 40000;
   const models: (string | undefined)[] = pick && pick !== "auto"
     ? [pick, undefined] // explicit pick + gateway-default backup so a pick never hard-fails
     : [...PAINTERS];
