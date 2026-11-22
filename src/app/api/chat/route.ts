@@ -208,7 +208,7 @@ const TOOL_RULES =
   "For every other request reply normally and never emit action JSON.";
 
 type Action =
-  | { action: "image" | "video"; prompt: string; size?: string; with_audio?: boolean }
+  | { action: "image" | "video"; prompt: string; size?: string; with_audio?: boolean; model?: string }
   | { action: "file" | "zip"; name: string; files: { name: string; content: string }[] }
   | { action: "exe" | "dll"; name: string; lang?: string; files: { name: string; content: string }[] }
   | { action: "search"; query: string };
@@ -236,6 +236,7 @@ function parseAction(reply: string | null): Action | null {
         prompt: o.prompt.trim().slice(0, 800),
         size: typeof o.size === "string" ? o.size : undefined,
         with_audio: o.with_audio === true,
+        model: typeof (o as { model?: unknown }).model === "string" ? (o as { model: string }).model.slice(0, 60) : undefined,
       };
     }
     if (o.action === "file" || o.action === "zip" || o.action === "exe" || o.action === "dll") {
@@ -335,7 +336,7 @@ async function produceFiles(act: { action: string; name?: string; files: { name:
 // one creation dispatcher for every tool site (image / video / file / zip / exe / dll)
 async function runCreation(act: Action): Promise<{ url: string; name?: string; size?: number; cover?: string; kind?: string } | null> {
   if (act.action === "image") return runImageGen(act.prompt, act.size);
-  if (act.action === "video") return runVideoGen(act.prompt, act.with_audio === true);
+  if (act.action === "video") return runVideoGen(act.prompt, act.with_audio === true, act.model);
   if (act.action === "file" || act.action === "zip") return produceFiles(act);
   // exe / dll — real Windows binary; if the compile fails the sources the
   // brain already wrote are still delivered as a zip (never an empty answer)
@@ -351,34 +352,60 @@ async function runCreation(act: Action): Promise<{ url: string; name?: string; s
   return null;
 }
 
-async function runVideoGen(prompt: string, withAudio: boolean): Promise<{ url: string; cover?: string } | null> {
+// VIDEO_MODEL ladder — free-tier video models from the arena leaderboard
+// (2026-11-22), arena display names mapped to gateway-style ids, best score
+// first. Self-healing: an unsupported id errors INSTANTLY at create() and the
+// chain falls through; the last rung is the gateway default (no model field),
+// which is the proven lane — video mode always ships something. Vercel logs
+// show which ids actually serve; prune the dead ones as evidence arrives.
+const VIDEO_MODELS: (string | undefined)[] = [
+  "grok-imagine-video-1.5",   // arena #4, 1488
+  "skyreels-v4",              // arena #8, 1459
+  "muse-video",               // arena #10, 1457
+  "happyhorse-1.0",           // arena #12, 1429
+  "veo-3-fast",               // arena #26, 1250 (fast+free beats slow on the ladder)
+  undefined,                  // gateway default — proven lane, always last
+];
+
+async function runVideoGen(prompt: string, withAudio: boolean, pick?: string): Promise<{ url: string; cover?: string } | null> {
   try {
-    // create the task — up to 3 attempts; on 429 rate-limit wait 45s before the next one
+    const ladder: (string | undefined)[] =
+      pick && pick !== "auto" ? [pick, undefined] : VIDEO_MODELS;
+    // create the task — walk the model ladder; on 429 rate-limit wait 45s and retry once
     let task: { id?: string } | null = null;
-    for (let a = 0; a < 3 && !task; a++) {
-      try {
-        const zai = await getZAI();
-        if (!zai) return null;
-        task = (await Promise.race([
-          zai.video.generations.create({
+    for (const m of ladder) {
+      for (let a = 0; a < 2 && !task; a++) {
+        try {
+          const zai = await getZAI();
+          if (!zai) return null;
+          const body: Record<string, unknown> = {
             prompt,
             quality: "speed",
             with_audio: withAudio,
             size: "1920x1080",
             fps: 30,
             duration: 5,
-          }),
-          new Promise<null>(r => setTimeout(() => r(null), 30000)),
-        ])) as { id?: string } | null;
-        if (!task?.id) console.error("[videogen] create attempt", a, "returned no id");
-      } catch (e) {
-        const msg = String(e);
-        console.error("[videogen] create attempt", a, "threw:", msg.slice(0, 200));
-        if (msg.includes("429") && a < 2) {
-          console.error("[videogen] rate-limited — waiting 45s");
-          await new Promise(r => setTimeout(r, 45000));
+          };
+          if (m) body.model = m;
+          task = (await Promise.race([
+            zai.video.generations.create(body as Parameters<typeof zai.video.generations.create>[0]),
+            new Promise<null>(r => setTimeout(() => r(null), 30000)),
+          ])) as { id?: string } | null;
+          if (!task?.id) console.error("[videogen] create attempt", a, m || "default", "returned no id");
+        } catch (e) {
+          const msg = String(e);
+          console.error("[videogen] create attempt", a, m || "default", "threw:", msg.slice(0, 200));
+          if (msg.includes("429") && a < 1) {
+            console.error("[videogen] rate-limited — waiting 45s");
+            await new Promise(r => setTimeout(r, 45000));
+          } else if (msg.includes("429")) {
+            return null; // 429 is account-global — no point walking the ladder
+          } else {
+            break; // invalid model / hard error → next rung of the ladder
+          }
         }
       }
+      if (task?.id) break;
     }
     if (!task?.id) return null;
     const zai = await getZAI();
