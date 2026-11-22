@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { assetDir } from "../../../../lib/asset-dir";
+import { loadAsset } from "../../../../lib/asset-store";
 
 // GET /api/asset/[id] → a generated asset from db/assets
 //  · legacy ids: 20-char hex tokens (png / jpeg / mp4, magic-byte sniffed)
@@ -68,6 +69,16 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     } catch {
       continue;
     }
+  }
+  // Firestore-backed assets (Vercel: read-only FS — painters store in assets/<id>)
+  const stored = await loadAsset(id);
+  if (stored && stored.buf.length > 0) {
+    return new NextResponse(new Uint8Array(stored.buf), {
+      headers: {
+        "Content-Type": stored.mime,
+        "Cache-Control": "public, max-age=31536000, immutable",
+      },
+    });
   }
   return NextResponse.json({ ok: false, error: "not found" }, { status: 404 });
 }

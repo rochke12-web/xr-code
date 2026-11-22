@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
-import fs from "fs";
-import path from "path";
-import { randomUUID } from "crypto";
-import { assetDir } from "../../../lib/asset-dir";
 import { verifyRequest } from "../../../lib/request-auth";
 import { mediaOverLimit, addMedia } from "../../../lib/xrstore";
+import { saveAsset } from "../../../lib/asset-store";
 
 // explicit Vercel budget — Hobby caps at 60s; without this export the
 // platform default can be shorter and the paint race dies mid-flight
@@ -38,9 +35,6 @@ const STYLES: Record<string, string> = {
 // painter sizes — every value fits BOTH the SDK whitelist AND the nano banana
 // pixel rule (each side 512–2880, multiple of 32, ≤ 2^22 px total)
 const SIZES = new Set(["1024x1024", "768x1344", "864x1152", "1344x768", "1152x864"]);
-
-// stable asset dir — same store the chat brain already uses
-const ASSET_DIR = assetDir();
 
 // enhancer lanes: flash models FIRST (2-5s), kimi as quality backup. The
 // primary painter is the zero-auth fast lane (~6s measured 2026-11-19), so
@@ -183,10 +177,8 @@ async function paintPollinations(prompt: string, size: string): Promise<{ url: s
       const head = buf.subarray(0, 4).toString("hex");
       if (!head.startsWith("ffd8") && !head.startsWith("8950")) return null;
       const clean = await deWatermark(buf);
-      fs.mkdirSync(ASSET_DIR, { recursive: true });
-      const id = randomUUID().replace(/-/g, "").slice(0, 20);
-      fs.writeFileSync(path.join(ASSET_DIR, id + ".jpg"), clean);
-      return { url: `/api/asset/${id}`, model: "fast-painter" };
+      const url = await saveAsset(clean, "jpg");
+      return { url, model: "fast-painter" };
     } catch {
       return null;
     }
@@ -216,10 +208,8 @@ async function paintZai(prompt: string, size: string, model?: string): Promise<{
     ])) as { data?: { base64?: string }[] } | null;
     const b64 = res?.data?.[0]?.base64;
     if (!b64) return null;
-    fs.mkdirSync(ASSET_DIR, { recursive: true });
-    const id = randomUUID().replace(/-/g, "").slice(0, 20);
-    fs.writeFileSync(path.join(ASSET_DIR, id + ".png"), Buffer.from(b64, "base64"));
-    return { url: `/api/asset/${id}`, model: model || "default-painter" };
+    const url = await saveAsset(Buffer.from(b64, "base64"), "png");
+    return { url, model: model || "default-painter" };
   } catch {
     return null;
   }
