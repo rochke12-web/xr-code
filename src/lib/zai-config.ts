@@ -10,6 +10,7 @@
 // lambda), and ZAI.create() runs with cwd pointed there for the duration.
 import { existsSync, writeFileSync } from "fs";
 import ZAI from "z-ai-web-dev-sdk";
+import { ZAI_CONFIG_B64 as BUNDLED_B64 } from "./zai-config-bundle";
 
 let checked = false;
 let materialized = false;
@@ -19,7 +20,9 @@ function ensureConfigFile(): boolean {
   checked = true;
   try {
     if (existsSync("/tmp/.z-ai-config")) { materialized = true; return true; }
-    const b64 = process.env.ZAI_CONFIG_B64;
+    // env var wins when present; the bundled copy is the built-in default so
+    // the gateway works on Vercel with zero dashboard setup
+    const b64 = process.env.ZAI_CONFIG_B64 || BUNDLED_B64;
     if (!b64) return false;
     writeFileSync("/tmp/.z-ai-config", Buffer.from(b64, "base64"));
     materialized = existsSync("/tmp/.z-ai-config");
