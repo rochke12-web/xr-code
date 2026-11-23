@@ -21,6 +21,11 @@ export const maxDuration = 60;
 // every ZAI lane instantly — one message must not burn ~12s walking dead
 // engines before reaching the Prime gateway / BYOK lanes.
 let ZAI_DEAD = false;
+// the gateway host is a network wall from Vercel: TCP connects hang, then die.
+// Once a connect failure is seen, skip every gateway lane for 2 minutes —
+// a warm lambda must not re-walk a dead host on every message.
+let GATEWAY_SICK_UNTIL = 0;
+const gatewaySick = () => Date.now() < GATEWAY_SICK_UNTIL;
 type ZAIClient = Awaited<ReturnType<typeof ZAI.create>>;
 async function getZAI(): Promise<ZAIClient | null> {
   if (ZAI_DEAD) return null;
@@ -567,6 +572,7 @@ async function duckWeb(q: string): Promise<SearchItem[]> {
 
 // hosted search index — last resort when both scrapes come up empty
 async function hostedSearch(q: string): Promise<SearchItem[]> {
+  if (gatewaySick()) return [];
   try {
     const zai = await getZAI();
     if (!zai) return [];
@@ -753,7 +759,7 @@ async function plChat(
           model: keyed ? model : "openai-fast",
           messages: [{ role: "system", content: sys }, ...msgs],
         }),
-        signal: AbortSignal.timeout(45000),
+        signal: AbortSignal.timeout(30000),
       }
     );
     if (!res.ok) return { text: null, quota: res.status === 429 };
@@ -835,6 +841,7 @@ async function glmChat(sys: string, msgs: { role: "user" | "assistant"; content:
   // to probe the other free lanes (FALLBACK_MODELS) or answer from Google /
   // honest outage. No unbounded retries here: one message must never spin
   // 16+ gateway calls.
+  if (gatewaySick()) return { text: null, quota: false }; // dead host — walk the chain now
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const zai = await getZAI();
@@ -848,7 +855,7 @@ async function glmChat(sys: string, msgs: { role: "user" | "assistant"; content:
           messages: [{ role: "system", content: sys }, ...msgs],
           ...(glmish ? { thinking: { type: "disabled" as const } } : {}),
         }),
-        new Promise<null>(r => setTimeout(() => r(null), 60000)),
+        new Promise<null>(r => setTimeout(() => r(null), 25000)),
       ])) as { choices?: { message?: { content?: string } }[] } | null;
       const text = String(res?.choices?.[0]?.message?.content || "").trim();
       if (text) {
@@ -864,6 +871,12 @@ async function glmChat(sys: string, msgs: { role: "user" | "assistant"; content:
     } catch (e) {
       const msg = String((e as Error)?.message || e);
       if (/\b429\b|too many requests/i.test(msg)) return { text: null, quota: true };
+      // connect failure (walled host / dead network) — latch the sick flag so
+      // the remaining lanes skip in ms, and bail without a retry
+      if (/timeout|timed out|connect|ECONN|UND_ERR|fetch failed|network/i.test(msg)) {
+        GATEWAY_SICK_UNTIL = Date.now() + 120_000;
+        return { text: null, quota: false };
+      }
       // engine hiccup — fall through to retry
     }
     if (attempt < 1) await new Promise(r => setTimeout(r, 1200));
@@ -1221,8 +1234,8 @@ export async function POST(req: Request) {
   const chain: string[] = plPick
     ? [`pl:${plPick}`, PL_FREE] // studio pick rides the reachable gateway; free net catches a dead/absent key
     : PRIME_MODELS.has(chosen)
-      ? [chosen, ...FALLBACK_MODELS, PL_FREE]
-      : [chosen, ...FALLBACK_MODELS.filter(m => m !== chosen), PRIME_FLASH, PL_FREE];
+      ? [chosen, PL_FREE, ...FALLBACK_MODELS]
+      : [PL_FREE, chosen, ...FALLBACK_MODELS.filter(m => m !== chosen), PRIME_FLASH];
   // one lane call, two transports: prime ids ride the Anthropic-style gateway,
   // everything else rides the ZAI SDK — spendLane also feeds the token tally
   let actText: string | null = null;
