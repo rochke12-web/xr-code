@@ -172,7 +172,9 @@ async function enhanceFast(sys: string, user: string): Promise<string | null> {
     if (!res?.ok) return null;
     const j = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const text = (j?.choices?.[0]?.message?.content || "").trim();
-    if (text && text.length > 8 && text.length < 1200) {
+    if (text && text.length > 8 && text.length < 1200 &&
+        // shared seed key budget errors must never become paint prompts
+        !/reached its budget|enter\.pollinations\.ai/i.test(text)) {
       return text.replace(/^["'`\s]+|["'`\s]+$/g, "");
     }
     return null;

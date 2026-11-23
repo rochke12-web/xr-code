@@ -766,6 +766,11 @@ async function plChat(
     const j = (await res.json().catch(() => null)) as { choices?: { message?: { content?: string } }[] } | null;
     const text = (j?.choices?.[0]?.message?.content || "").trim();
     if (!text) return { text: null, quota: false };
+    // the anonymous tier rides a SHARED seed key — when its budget is drained
+    // the error boilerplate arrives as a normal 200 reply. Never show it as
+    // chat content: treat it as a lane failure and walk on.
+    if (/reached its budget|enter\.pollinations\.ai\/(edit-key|keys)|raise the key budget/i.test(text))
+      return { text: null, quota: true };
     return { text, quota: false, tokens: Math.ceil(text.length / 4) };
   } catch {
     return { text: null, quota: false };
