@@ -707,7 +707,12 @@ const KNOWN_MODELS = new Set([PRIMARY, GLM_FIRST, PRIME_FLAG, PRIME_FLASH, PRIME
 // below answers by exact catalog id. A keyless pick falls through to the free
 // net in ms (401), so the chat works today and upgrades when the key lands.
 const PL_TEXT_KEY = () => process.env.POLLINATIONS_KEY || "";
-const PL_FREE = "pl:openai-fast"; // keyless safety net — always answers
+const PL_GEN = "https://gen.pollinations.ai/v1/chat/completions";
+const PL_TXT = "https://text.pollinations.ai/openai";
+// the keyless tiers ride shared seed keys — when drained they answer the error
+// boilerplate as a normal 200 reply. Never show it as content.
+const PL_BUDGET_ERR = /reached its budget|valid api key is required|raise the key budget|enter\.pollinations\.ai\/(edit-key|keys)/i;
+const PL_FREE = "pl:auto"; // keyless fleet — rotates every live lane until one answers
 const PL_RANKING: Record<string, string> = {
   "gemini-4-carbon": "google/gemini-4-carbon",       // arena #1
   "gemini-4-neon": "google/gemini-4-neon",           // #2
@@ -744,37 +749,56 @@ async function plChat(
   sys: string,
   msgs: { role: "user" | "assistant"; content: string }[]
 ): Promise<ChatResult> {
-  const keyed = model !== "openai-fast" && !!PL_TEXT_KEY();
-  try {
-    const res = await fetch(
-      keyed ? "https://gen.pollinations.ai/v1/chat/completions" : "https://text.pollinations.ai/openai",
-      {
+  const key = PL_TEXT_KEY();
+  // one POST against one lane; returns the cleaned text or why it failed
+  const call = async (url: string, m: string): Promise<{ text: string | null; budget: boolean }> => {
+    try {
+      const res = await fetch(url, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           Referer: "https://xr-code.vercel.app",
-          ...(keyed ? { authorization: `Bearer ${PL_TEXT_KEY()}` } : {}),
+          ...(key ? { authorization: `Bearer ${key}` } : {}),
         },
-        body: JSON.stringify({
-          model: keyed ? model : "openai-fast",
-          messages: [{ role: "system", content: sys }, ...msgs],
-        }),
+        body: JSON.stringify({ model: m, messages: [{ role: "system", content: sys }, ...msgs] }),
         signal: AbortSignal.timeout(30000),
-      }
-    );
-    if (!res.ok) return { text: null, quota: res.status === 429 };
-    const j = (await res.json().catch(() => null)) as { choices?: { message?: { content?: string } }[] } | null;
-    const text = (j?.choices?.[0]?.message?.content || "").trim();
-    if (!text) return { text: null, quota: false };
-    // the anonymous tier rides a SHARED seed key — when its budget is drained
-    // the error boilerplate arrives as a normal 200 reply. Never show it as
-    // chat content: treat it as a lane failure and walk on.
-    if (/reached its budget|enter\.pollinations\.ai\/(edit-key|keys)|raise the key budget/i.test(text))
-      return { text: null, quota: true };
-    return { text, quota: false, tokens: Math.ceil(text.length / 4) };
-  } catch {
-    return { text: null, quota: false };
+      });
+      if (!res.ok) return { text: null, budget: res.status === 429 };
+      const j = (await res.json().catch(() => null)) as
+        | { choices?: ({ message?: { content?: string } } | { content?: string })[] }
+        | null;
+      const raw = j?.choices?.[0] as { message?: { content?: string }; content?: string } | undefined;
+      const text = String(raw?.message?.content || raw?.content || "").trim();
+      if (!text) return { text: null, budget: false };
+      if (PL_BUDGET_ERR.test(text)) return { text: null, budget: true };
+      return { text, budget: false };
+    } catch {
+      return { text: null, budget: false };
+    }
+  };
+  // fleet order: keyed → the picked catalog model on the gen host (full ranking),
+  // then the classic host. Keyless → the picked model (in case its tier opens),
+  // then the two live keyless lanes: gen gpt-5.4-nano, classic openai-fast/openai.
+  const classic = model === "openai-fast" || model === "openai";
+  const fleet: { url: string; model: string }[] = classic
+    ? [
+        { url: PL_TXT, model },
+        { url: PL_GEN, model: "openai/gpt-5.4-nano" },
+        { url: PL_TXT, model: model === "openai-fast" ? "openai" : "openai-fast" },
+      ]
+    : [
+        { url: PL_GEN, model },
+        { url: PL_GEN, model: "openai/gpt-5.4-nano" },
+        { url: PL_TXT, model: "openai-fast" },
+        { url: PL_TXT, model: "openai" },
+      ];
+  let sawBudget = false;
+  for (const f of fleet) {
+    const r = await call(f.url, f.model);
+    if (r.text) return { text: r.text, quota: false, tokens: Math.ceil(r.text.length / 4) };
+    if (r.budget) sawBudget = true; // drained seed key — try the next lane
   }
+  return { text: null, quota: sawBudget };
 }
 // emergency lanes on the same gateway, different model families → separate
 // quota buckets: when the primary's bucket is dry another family often has

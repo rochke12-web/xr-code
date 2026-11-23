@@ -160,21 +160,36 @@ function kindHint(kind: "ui" | "logo"): string {
 // enhancers (or the subject fallback) take over.
 async function enhanceFast(sys: string, user: string): Promise<string | null> {
   try {
+    const body = JSON.stringify({ messages: [{ role: "system", content: sys }, { role: "user", content: user }] });
+    // fleet: gen-host gpt-5.4-nano first (own keyless bucket, rarely drained),
+    // then the classic openai lane — either answering is fine for a 90-word prompt
     const res = (await Promise.race([
-      fetch("https://text.pollinations.ai/openai", {
-        method: "POST",
-        headers: { "content-type": "application/json", Referer: "https://xr-code.vercel.app" },
-        body: JSON.stringify({ model: "openai", messages: [{ role: "system", content: sys }, { role: "user", content: user }] }),
-        signal: AbortSignal.timeout(5000),
-      }),
-      withJail(6000),
+      (async () => {
+        for (const [url, model] of [
+          ["https://gen.pollinations.ai/v1/chat/completions", "openai/gpt-5.4-nano"],
+          ["https://text.pollinations.ai/openai", "openai"],
+        ] as const) {
+          try {
+            const r = await fetch(url, {
+              method: "POST",
+              headers: { "content-type": "application/json", Referer: "https://xr-code.vercel.app" },
+              body: JSON.stringify({ model, ...JSON.parse(body) }),
+              signal: AbortSignal.timeout(5000),
+            });
+            if (!r.ok) continue;
+            return r;
+          } catch { /* next lane */ }
+        }
+        return null;
+      })(),
+      withJail(9000),
     ])) as Response | null;
     if (!res?.ok) return null;
     const j = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const text = (j?.choices?.[0]?.message?.content || "").trim();
     if (text && text.length > 8 && text.length < 1200 &&
         // shared seed key budget errors must never become paint prompts
-        !/reached its budget|enter\.pollinations\.ai/i.test(text)) {
+        !/reached its budget|valid api key is required|enter\.pollinations\.ai/i.test(text)) {
       return text.replace(/^["'`\s]+|["'`\s]+$/g, "");
     }
     return null;
