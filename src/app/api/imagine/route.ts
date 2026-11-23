@@ -479,15 +479,30 @@ export async function POST(req: Request) {
   }
 
   // ---- free-tier quota gate (10/day signed-in · 5/day anonymous) ----
-  const q = isMaster
+  // When a bucket's limit is reached the painter AUTO-SWITCHES to the next
+  // tier instead of stopping: signed-in 10/day → anonymous 5/day → calm stop.
+  // The user just sees painting continue (with a one-line heads-up).
+  let tierSwitched = false;
+  let q = isMaster
     ? { over: false, used: 0, limit: 0, day: "" }
     : await mediaOverLimit(uid, "image");
+  if (q.over && !anon && !isMaster) {
+    // signed-in bucket dry — switch to the anonymous fingerprint bucket
+    const fwd = (req.headers.get("x-forwarded-for") || "").split(",")[0].trim();
+    const fp = createHash("sha256")
+      .update(`${fwd}|${req.headers.get("user-agent") || ""}|xr-imagine-fp`)
+      .digest("hex")
+      .slice(0, 14);
+    uid = `fp:${fp}`;
+    q = await mediaOverLimit(uid, "image");
+    tierSwitched = !q.over;
+  }
   if (q.over) {
     return NextResponse.json({
       ok: false,
-      error: anon
-        ? "You've used today's 5 free images — sign in with Google for 10/day, or come back after 00:00 UTC."
-        : "You've used today's 10-image allowance for this account — it resets at 00:00 UTC.",
+      error: tierSwitched || !anon
+        ? "You've used today's image allowance — 10 for your account plus the 5 free tier — it all resets at 00:00 UTC."
+        : "You've used today's 5 free images — sign in with Google for 10/day, or come back after 00:00 UTC.",
       limit: true,
       usage: { used: q.used, limit: q.limit, day: q.day },
     }, { status: 429 });

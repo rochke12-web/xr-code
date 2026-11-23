@@ -617,13 +617,18 @@ html:not(.anim-off) .code-fold svg{transition:transform .3s var(--spring)}
   backdrop-filter:blur(16px);
   -webkit-backdrop-filter:blur(16px);
 }
-.composer input{
+.composer input,.composer textarea{
   flex:1;background:var(--bg2);border:1px solid var(--line);border-radius:14px;
   padding:14px 17px;font-size:14px;outline:none;min-width:0;caret-color:var(--accent);
   transition:border-color .25s,box-shadow .3s;
 }
-.composer input::placeholder{color:var(--muted)}
-.composer input:focus{border-color:var(--accent-2);box-shadow:0 0 0 3px var(--line-soft)}
+.composer textarea{
+  resize:none;overflow-y:auto;line-height:1.45;
+  min-height:47px;max-height:132px;           /* grows to ~4 visible lines, then scrolls */
+  transition:height .18s ease,border-color .25s,box-shadow .3s;
+}
+.composer input::placeholder,.composer textarea::placeholder{color:var(--muted)}
+.composer input:focus,.composer textarea:focus{border-color:var(--accent-2);box-shadow:0 0 0 3px var(--line-soft)}
 .gen-chips{flex:1 1 100%;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}
 .gen-chips[hidden]{display:none}
 .chip-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
@@ -914,7 +919,7 @@ body.kbd-open .composer{padding-bottom:10px}
   .sidebar{padding-bottom:env(safe-area-inset-bottom)}
 }
 @media (pointer:coarse){
-  .composer input,.big-search input,.chat-search input,.st-input{font-size:16px !important}
+  .composer input,.composer textarea,.big-search input,.chat-search input,.st-input{font-size:16px !important}
   .send-btn,.file-btn,.theme-quick{min-width:44px;min-height:44px}
   .nav button{padding:12px 12px}
   .sr-item{padding:11px 11px}
@@ -1027,7 +1032,7 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
           <div class="chip-row" id="sizeChips"></div>
           <div class="chip-row" id="videoModelChips" hidden></div>
         </div>
-        <input id="chatInput" autocomplete="off" placeholder="Message XR Code...">
+        <textarea id="chatInput" rows="1" autocomplete="off" placeholder="Message XR Code..."></textarea>
         <button class="file-btn" id="byokBtn" type="button" title="Your API key (BYOK)"><i class="ic" data-ic="i-key"></i></button>
         <button class="send-btn" type="submit" title="Send"><i class="ic" data-ic="i-send"></i></button>
       </form>
@@ -1569,6 +1574,10 @@ function renderModel(){
     'gemini-3.8-flash': 'Gemini 3.8 Flash', 'mimo-v2.6-pro': 'MiMo V2.6 Pro' };
   if(chip) chip.textContent = ENG_LABEL[S.model] || 'Made by Yug Sunar';
   const gc = $('#genChips'); if(gc) gc.hidden = (S.mode !== 'image' && S.mode !== 'video');
+  // photo AI: the style/model row is hidden — Auto always rides (the painter
+  // race + prompt brain pick the best look); the size row stays
+  const scRow = $('#styleChips'); if(scRow) scRow.style.display = (S.mode === 'image') ? 'none' : '';
+  if(S.mode === 'image') S.imgStyle = 'auto';
   const imgRows = $('#styleChips'), szRows = $('#sizeChips'), vidRow = $('#videoModelChips');
   if(imgRows) imgRows.hidden = S.mode !== 'image';
   if(szRows) szRows.hidden = S.mode !== 'image';
@@ -2313,7 +2322,21 @@ $('#homeForm').addEventListener('submit', e => {
   sendMsg($('#homeInput').value);
   $('#homeInput').value = '';
 });
-$('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('#chatInput').value); $('#chatInput').value = ''; });
+$('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('#chatInput').value); $('#chatInput').value = ''; fitChatTA(); });
+// composer: textarea grows with the message (smooth height animation) and
+// sends on Ctrl/⌘+Enter — plain Enter makes a new line
+const chatTA = $('#chatInput');
+function fitChatTA(){
+  if(!chatTA) return;
+  chatTA.style.height = 'auto';
+  chatTA.style.height = Math.min(chatTA.scrollHeight, 132) + 'px';
+}
+if(chatTA){
+  chatTA.addEventListener('input', fitChatTA);
+  chatTA.addEventListener('keydown', e => {
+    if((e.ctrlKey || e.metaKey) && e.key === 'Enter'){ e.preventDefault(); $('#chatForm').requestSubmit(); }
+  });
+}
 
 
 /* ---------- BYOK — your own API key (Settings) ---------- */
