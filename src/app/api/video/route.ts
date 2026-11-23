@@ -3,6 +3,7 @@ import { verifyRequest } from "../../../lib/request-auth";
 import { mediaOverLimit, addMedia } from "../../../lib/xrstore";
 import { runVideoJob } from "../../../lib/video-inline";
 import { ON_VERCEL, saveAssetBytes } from "../../../lib/asset-store";
+import { MASTER_EMAIL } from "../../../lib/admin";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -78,8 +79,12 @@ export async function POST(req: Request) {
   if (!gv.ok)
     return NextResponse.json({ ok: false, error: "auth", auth: gv.error }, { status: 401 });
   const uid = gv.uid || "";
+  const isMaster = (gv.email || "").toLowerCase() === MASTER_EMAIL;
 
-  const q = await mediaOverLimit(uid, "video");
+  // the master account films without a daily cap (usage still tallied)
+  const q = isMaster
+    ? { over: false, used: 0, limit: 0, day: "" }
+    : await mediaOverLimit(uid, "video");
   if (q.over) {
     return NextResponse.json({
       ok: true, limit: true, engine: "xr-code", text: OUTAGE_TEXT,

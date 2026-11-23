@@ -448,8 +448,10 @@ export async function POST(req: Request) {
   const gv = await verifyRequest(req);
   const anon = !gv.ok;
   let uid: string;
+  let isMaster = false; // the master account paints without a daily cap
   if (!anon) {
     uid = gv.uid || "";
+    if ((gv.email || "").toLowerCase() === "rochke12@gmail.com") isMaster = true;
   } else {
     const fwd = (req.headers.get("x-forwarded-for") || "").split(",")[0].trim();
     const fp = createHash("sha256")
@@ -460,7 +462,9 @@ export async function POST(req: Request) {
   }
 
   // ---- free-tier quota gate (10/day signed-in · 5/day anonymous) ----
-  const q = await mediaOverLimit(uid, "image");
+  const q = isMaster
+    ? { over: false, used: 0, limit: 0, day: "" }
+    : await mediaOverLimit(uid, "image");
   if (q.over) {
     return NextResponse.json({
       ok: false,
