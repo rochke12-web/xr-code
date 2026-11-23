@@ -430,7 +430,12 @@ button{touch-action:manipulation}
 .sidebar,.chat-list,.msgs,.search-list{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 
 /* ===== polish animations (skipped when the user prefers reduced motion) ===== */
+html:not(.anim-off) .msg{animation:riseIn .35s var(--ease) backwards}
 html:not(.anim-off) .msg .bubble{animation:riseIn .3s var(--ease) backwards}
+html:not(.anim-off) .msg .gen-media,html:not(.anim-off) .msg pre{animation:riseIn .3s var(--ease) backwards}
+/* every streamed word pops in — subtle fade+deblur, ChatGPT-style */
+.wfade{animation:wfade .18s ease-out both}
+@keyframes wfade{from{opacity:0;filter:blur(3px)}to{opacity:1;filter:none}}
 html:not(.anim-off) .logo-img{animation:logoBreathe 6s var(--ease) infinite}
 html:not(.anim-off) .gen-chip:hover{transform:translateY(-2px)}
 html:not(.anim-off) .gen-chip.on{box-shadow:0 0 14px -2px var(--glow)}
@@ -1966,17 +1971,30 @@ function typeReply(c, reply, pen){
   box.scrollTop = box.scrollHeight;
 
   const cur = document.createElement('span'); cur.className = 'stream-cursor';
-  let i = 0;
+  body.append(cur);
+  let i = 0, word = null;
   const iv = setInterval(() => {
     if(!document.contains(el)){           // user switched chats while typing
       clearInterval(iv);
       c.messages.push({ r: 'a', t: reply.text, code: reply.code, parts: reply.parts, asset: reply.asset, m: 'live' });
       save(); return;
     }
-    i += (reply.text.length > 900 ? 2 : 1);   // slow, human-like typing
-    body.textContent = reply.text.slice(0, i);
-    body.append(cur);
-    box.scrollTop = box.scrollHeight;
+    if(i < reply.text.length){
+      // stream word by word — each word fades/deblurs in as its first char lands
+      const step = reply.text.length > 900 ? 2 : 1;   // keep the human-like pace
+      for(let k = 0; k < step && i < reply.text.length; k++){
+        const ch = reply.text[i++];
+        if(word && /\s/.test(ch)){ word.textContent += ch; word = null; }  // seal the word
+        else if(!word){
+          word = document.createElement('span'); word.className = 'wfade';
+          word.textContent = ch;
+          body.insertBefore(word, cur);
+        } else {
+          word.textContent += ch;
+        }
+      }
+      box.scrollTop = box.scrollHeight;
+    }
     if(i >= reply.text.length){
       clearInterval(iv);
       cur.remove();
