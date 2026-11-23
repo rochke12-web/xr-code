@@ -692,6 +692,79 @@ const PRIME_VISION = "prime-vision"; // vision-tuned
 const PRIME_MODELS = new Set([PRIME_FLAG, PRIME_FLASH, PRIME_VISION, "prime-v1-vision"]);
 
 const KNOWN_MODELS = new Set([PRIMARY, GLM_FIRST, PRIME_FLAG, PRIME_FLASH, PRIME_VISION, "prime-v1-vision"]);
+
+// ---- Studio text ladder (gen.pollinations.ai) — the arena ranking ----
+// The ONLY text gateway reachable from Vercel: the z.ai gateway and the prime
+// gateway are network walls from AWS egress. Keyless, the anonymous tier
+// serves ONE model (openai-fast / GPT-OSS 20B on text.pollinations.ai); with
+// POLLINATIONS_KEY the full catalog opens (303 text models) and the ranking
+// below answers by exact catalog id. A keyless pick falls through to the free
+// net in ms (401), so the chat works today and upgrades when the key lands.
+const PL_TEXT_KEY = () => process.env.POLLINATIONS_KEY || "";
+const PL_FREE = "pl:openai-fast"; // keyless safety net — always answers
+const PL_RANKING: Record<string, string> = {
+  "gemini-4-carbon": "google/gemini-4-carbon",       // arena #1
+  "gemini-4-neon": "google/gemini-4-neon",           // #2
+  "gemini-4-argon": "google/gemini-4-argon",         // #3
+  "claude-fable-5": "anthropic/claude-fable-5.2",    // #31 (fable-5 was #4/#19)
+  "muse-wonder": "meta/muse-wonder-1.0",             // #6
+  "gpt-6-astra": "openai/gpt-6.2-astra",             // #7/#48
+  "claude-opus-5.5": "anthropic/claude-opus-5.5",    // #9
+  "claude-opus-4.7": "anthropic/claude-opus-4.7",    // #5/#11
+  "claude-opus-4.6": "anthropic/claude-opus-4.6",    // #8/#10
+  "gpt-6.1-sol": "openai/gpt-6.1-sol",               // #12
+  "muse-spark-1.2": "meta/muse-spark-1.2",           // #13
+  "muse-spark-1.3": "meta/muse-spark-1.3",           // #18
+  "kimi-k3.1-pro": "moonshotai/kimi-k3.1-pro",       // #17
+  "gpt-5.6-sol": "openai/gpt-5.6-sol",               // #22
+  "glm-5.3-flash": "z-ai/glm-5.3-flash",             // #30
+  "glm-5.3": "z-ai/glm-5.3",                         // #36
+  "grok-4.7": "x-ai/grok-4.7",                       // #98
+  "qwen3.8-max": "qwen/qwen3.8-max",                 // #34
+  "deepseek-v4.1-flash": "deepseek/deepseek-v4.1-flash", // #115
+  "minimax-m3.1": "minimax/minimax-m3.1-flash",      // ~#100
+  "gemini-3.8-flash": "google/gemini-3.8-flash",     // #25
+  "mimo-v2.6-pro": "xiaomi/mimo-v2.6-pro",           // #15
+};
+function plResolve(wanted: string): string | null {
+  const direct = PL_RANKING[wanted];
+  if (direct) return direct;
+  // raw catalog ids ("google/gemini-4-carbon") pass through untouched
+  if (/^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9.:-]{1,60}$/i.test(wanted)) return wanted;
+  return null;
+}
+async function plChat(
+  model: string,
+  sys: string,
+  msgs: { role: "user" | "assistant"; content: string }[]
+): Promise<ChatResult> {
+  const keyed = model !== "openai-fast" && !!PL_TEXT_KEY();
+  try {
+    const res = await fetch(
+      keyed ? "https://gen.pollinations.ai/v1/chat/completions" : "https://text.pollinations.ai/openai",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Referer: "https://xr-code.vercel.app",
+          ...(keyed ? { authorization: `Bearer ${PL_TEXT_KEY()}` } : {}),
+        },
+        body: JSON.stringify({
+          model: keyed ? model : "openai-fast",
+          messages: [{ role: "system", content: sys }, ...msgs],
+        }),
+        signal: AbortSignal.timeout(45000),
+      }
+    );
+    if (!res.ok) return { text: null, quota: res.status === 429 };
+    const j = (await res.json().catch(() => null)) as { choices?: { message?: { content?: string } }[] } | null;
+    const text = (j?.choices?.[0]?.message?.content || "").trim();
+    if (!text) return { text: null, quota: false };
+    return { text, quota: false, tokens: Math.ceil(text.length / 4) };
+  } catch {
+    return { text: null, quota: false };
+  }
+}
 // emergency lanes on the same gateway, different model families → separate
 // quota buckets: when the primary's bucket is dry another family often has
 // headroom. A dead lane 429s in ~100ms (a missing model 404s in ~200ms), so
@@ -807,6 +880,7 @@ async function spendLane(
   msgs: { role: "user" | "assistant"; content: string }[],
   tally: { n: number }
 ): Promise<ChatResult> {
+  if (engine.startsWith("pl:")) return plChat(engine.slice(3), sys, msgs);
   if (PRIME_MODELS.has(engine)) {
     const p = await primeChat(sys, msgs, engine);
     if (p) {
@@ -1023,7 +1097,7 @@ export async function POST(req: Request) {
   if (mode === "agent") {
     const MAX_STEPS = 4;
     const trace: string[] = [];
-    const agentModel = PRIMARY;
+    const agentModel = PL_TEXT_KEY() ? "pl:google/gemini-4-carbon" : PL_FREE;
     let engineOut = agentModel;
     for (let step = 0; step < MAX_STEPS; step++) {
       const r = await spendLane(agentModel, sys, chatText, TALLY);
@@ -1034,7 +1108,7 @@ export async function POST(req: Request) {
           return done({ ok: true, text: retry.text, engine: "xr-code", mode, vision: visionBlock || undefined });
         }
         // quota storm — probe the other free lanes once each; first live one wins
-        for (const fm of FALLBACK_MODELS) {
+        for (const fm of [PL_FREE, ...FALLBACK_MODELS]) {
           const fr = await spendLane(fm, sys, chatText, TALLY);
           if (fr.text) {
             return done({ ok: true, text: fr.text, engine: "xr-code", mode, vision: visionBlock || undefined });
@@ -1143,9 +1217,12 @@ export async function POST(req: Request) {
   // lanes) — the chat never goes dark. Z.ai-selected requests: the gateway
   // rides LAST as an extra emergency lane (separate quota bucket) before the
   // honest outage bubble.
-  const chain = PRIME_MODELS.has(chosen)
-    ? [chosen, ...FALLBACK_MODELS]
-    : [chosen, ...FALLBACK_MODELS.filter(m => m !== chosen), PRIME_FLASH];
+  const plPick = plResolve(chosen);
+  const chain: string[] = plPick
+    ? [`pl:${plPick}`, PL_FREE] // studio pick rides the reachable gateway; free net catches a dead/absent key
+    : PRIME_MODELS.has(chosen)
+      ? [chosen, ...FALLBACK_MODELS, PL_FREE]
+      : [chosen, ...FALLBACK_MODELS.filter(m => m !== chosen), PRIME_FLASH, PL_FREE];
   // one lane call, two transports: prime ids ride the Anthropic-style gateway,
   // everything else rides the ZAI SDK — spendLane also feeds the token tally
   let actText: string | null = null;

@@ -1041,6 +1041,15 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
             <h3><i class="ic big" data-ic="i-cpu"></i> Engine</h3>
             <div class="engine-list" id="engineList">
               <button type="button" data-model="auto"><b>Auto — XR flagship</b><small>the hosted brain · always the best default</small></button>
+              <button type="button" data-model="gemini-4-carbon"><b>Gemini 4 Carbon (High)</b><small>arena #1 · deepest reasoning</small></button>
+              <button type="button" data-model="gemini-4-neon"><b>Gemini 4 Neon (High)</b><small>arena #2 · flagship quality</small></button>
+              <button type="button" data-model="claude-fable-5"><b>Claude Fable 5.2 (Max)</b><small>storytelling &amp; long-form</small></button>
+              <button type="button" data-model="gpt-6-astra"><b>GPT-6 Astra (Max)</b><small>OpenAI flagship · sharp code</small></button>
+              <button type="button" data-model="claude-opus-5.5"><b>Claude Opus 5.5</b><small>Anthropic frontier</small></button>
+              <button type="button" data-model="muse-wonder"><b>Muse Wonder (Max)</b><small>creative &amp; expressive</small></button>
+              <button type="button" data-model="kimi-k3.1-pro"><b>Kimi K3.1 Pro (Max)</b><small>long-context reasoning</small></button>
+              <button type="button" data-model="glm-5.3-flash"><b>GLM-5.3 Flash</b><small>ultra-cheap workhorse</small></button>
+              <button type="button" data-model="grok-4.7"><b>Grok 4.7</b><small>xAI · witty &amp; fast</small></button>
               <button type="button" data-model="prime-v1"><b>Prime</b><small>flagship brain · deep reasoning &amp; big builds</small></button>
               <button type="button" data-model="prime-v1-flash"><b>Prime Flash</b><small>fast lane · quick answers &amp; code</small></button>
             </div>
@@ -1238,7 +1247,8 @@ let S = load() || defaults();
   delete S.zai; delete S.zaiKey;                            // API-key era removed
   delete S.models; delete S.routing; delete S.tokensSaved;  // model options removed
   delete S.startupDone; delete S.gemini; delete S.local;    // leftovers from old versions
-  if(!S.model || !/^(auto$|prime-)/.test(S.model)) S.model = 'auto';  // legacy glm-* values map to Auto
+  const CHAT_ENGINES = ['auto','prime-v1','prime-v1-flash','gemini-4-carbon','gemini-4-neon','gemini-4-argon','claude-fable-5','muse-wonder','gpt-6-astra','claude-opus-5.5','claude-opus-4.7','claude-opus-4.6','gpt-6.1-sol','muse-spark-1.2','muse-spark-1.3','kimi-k3.1-pro','gpt-5.6-sol','glm-5.3-flash','glm-5.3','grok-4.7','qwen3.8-max','deepseek-v4.1-flash','minimax-m3.1','gemini-3.8-flash','mimo-v2.6-pro'];
+  if(!S.model || CHAT_ENGINES.indexOf(S.model) < 0) S.model = 'auto';  // legacy glm-*/unknown values map to Auto
   if(S.model === 'prime-v1-vision' || S.model === 'prime-vision') S.model = 'auto';  // vision engine option retired
   if(S.mode === 'sight' || S.mode === 'imagine') S.mode = 'image';   // visual modes merged into Image Mode
   if(S.mode !== 'koder' && S.mode !== 'qna' && S.mode !== 'image' && S.mode !== 'video') S.mode = 'koder';   // four modes: koder | qna | image | video
@@ -1549,7 +1559,15 @@ function renderModel(){
   $$('#homeModeMenu button[data-mode],#chatModeMenu button[data-mode]').forEach(b => b.classList.toggle('current', b.dataset.mode === S.mode));
   $$('#homeModeMenu button[data-model],#chatModeMenu button[data-model],#engineList button[data-model]').forEach(b => b.classList.toggle('current', b.dataset.model === S.model));
   const chip = $('#chatModelChip');
-  if(chip) chip.textContent = S.model === 'prime-v1' ? 'Prime' : S.model === 'prime-v1-flash' ? 'Prime Flash' : 'Made by Yug Sunar';
+  const ENG_LABEL = { 'prime-v1': 'Prime', 'prime-v1-flash': 'Prime Flash', 'gemini-4-carbon': 'Gemini 4 Carbon',
+    'gemini-4-neon': 'Gemini 4 Neon', 'gemini-4-argon': 'Gemini 4 Argon', 'claude-fable-5': 'Claude Fable 5.2',
+    'muse-wonder': 'Muse Wonder', 'gpt-6-astra': 'GPT-6 Astra', 'claude-opus-5.5': 'Claude Opus 5.5',
+    'claude-opus-4.7': 'Claude Opus 4.7', 'claude-opus-4.6': 'Claude Opus 4.6', 'gpt-6.1-sol': 'GPT-6.1 Sol',
+    'muse-spark-1.2': 'Muse Spark 1.2', 'muse-spark-1.3': 'Muse Spark 1.3', 'kimi-k3.1-pro': 'Kimi K3.1 Pro',
+    'gpt-5.6-sol': 'GPT-5.6 Sol', 'glm-5.3-flash': 'GLM-5.3 Flash', 'glm-5.3': 'GLM-5.3', 'grok-4.7': 'Grok 4.7',
+    'qwen3.8-max': 'Qwen 3.8 Max', 'deepseek-v4.1-flash': 'DeepSeek V4.1 Flash', 'minimax-m3.1': 'MiniMax M3.1',
+    'gemini-3.8-flash': 'Gemini 3.8 Flash', 'mimo-v2.6-pro': 'MiMo V2.6 Pro' };
+  if(chip) chip.textContent = ENG_LABEL[S.model] || 'Made by Yug Sunar';
   const gc = $('#genChips'); if(gc) gc.hidden = (S.mode !== 'image' && S.mode !== 'video');
   const imgRows = $('#styleChips'), szRows = $('#sizeChips'), vidRow = $('#videoModelChips');
   if(imgRows) imgRows.hidden = S.mode !== 'image';
@@ -1645,7 +1663,15 @@ $$('#homeModeMenu button[data-model],#chatModeMenu button[data-model],#engineLis
     e.stopPropagation();
     S.model = b.dataset.model;
     saveSoon(); renderModel(); closeMenus();
-    toast('Engine: ' + ({ 'auto': 'Auto — XR flagship', 'prime-v1': 'Prime', 'prime-v1-flash': 'Prime Flash' }[S.model] || S.model));
+    toast('Engine: ' + ({ 'auto': 'Auto — XR flagship', 'prime-v1': 'Prime', 'prime-v1-flash': 'Prime Flash',
+      'gemini-4-carbon': 'Gemini 4 Carbon', 'gemini-4-neon': 'Gemini 4 Neon', 'gemini-4-argon': 'Gemini 4 Argon',
+      'claude-fable-5': 'Claude Fable 5.2', 'muse-wonder': 'Muse Wonder', 'gpt-6-astra': 'GPT-6 Astra',
+      'claude-opus-5.5': 'Claude Opus 5.5', 'claude-opus-4.7': 'Claude Opus 4.7', 'claude-opus-4.6': 'Claude Opus 4.6',
+      'gpt-6.1-sol': 'GPT-6.1 Sol', 'muse-spark-1.2': 'Muse Spark 1.2', 'muse-spark-1.3': 'Muse Spark 1.3',
+      'kimi-k3.1-pro': 'Kimi K3.1 Pro', 'gpt-5.6-sol': 'GPT-5.6 Sol', 'glm-5.3-flash': 'GLM-5.3 Flash',
+      'glm-5.3': 'GLM-5.3', 'grok-4.7': 'Grok 4.7', 'qwen3.8-max': 'Qwen 3.8 Max',
+      'deepseek-v4.1-flash': 'DeepSeek V4.1 Flash', 'minimax-m3.1': 'MiniMax M3.1', 'gemini-3.8-flash': 'Gemini 3.8 Flash',
+      'mimo-v2.6-pro': 'MiMo V2.6 Pro' }[S.model] || S.model));
   });
 });
 $$('.mmenu button.soon').forEach(b => {                    // upcoming vision lineup — teasers, not engines yet
