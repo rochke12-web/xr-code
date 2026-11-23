@@ -706,6 +706,37 @@ const KNOWN_MODELS = new Set([PRIMARY, GLM_FIRST, PRIME_FLAG, PRIME_FLASH, PRIME
 // POLLINATIONS_KEY the full catalog opens (303 text models) and the ranking
 // below answers by exact catalog id. A keyless pick falls through to the free
 // net in ms (401), so the chat works today and upgrades when the key lands.
+// ---- Search/QnA arena ranking (2026-11) — the Google-search league ----
+// QnA mode and every grounded answer ride these. #1 (Amazon-Web-Search-Agent)
+// is an agent, not a callable model — the top real model leads. Aliases map to
+// exact gen-host catalog ids; raw "publisher/model" ids pass through; keyless
+// picks fall through to the free fleet in ms.
+const SEARCH_RANKING: Record<string, string> = {
+  "qwen3.8-max": "qwen/qwen3.8-max",                    // arena #2 · blended $5/M
+  "gpt-5.6-sol": "openai/gpt-5.6-sol",                  // #3 · $16/M
+  "claude-opus-4.6": "anthropic/claude-opus-4.6",       // #4
+  "gpt-5.5": "openai/gpt-5.5",                          // #5
+  "claude-opus-5": "anthropic/claude-opus-5",           // #6
+  "claude-fable-5.1": "anthropic/claude-fable-5.1",     // #7
+  "gpt-6-astra": "openai/gpt-6-astra",                  // #8
+  "claude-opus-4.7": "anthropic/claude-opus-4.7",       // #9 · $0.21/task
+  "gpt-6.1-sol": "openai/gpt-6.1-sol",                  // #10 · $8/M
+  "claude-fable-5": "anthropic/claude-fable-5",         // #11
+  "claude-sonnet-4.6": "anthropic/claude-sonnet-4.6",   // #13 · $6/M
+  "claude-opus-5.5": "anthropic/claude-opus-5.5",       // #15
+  "gemini-3.1-pro": "google/gemini-3.1-pro-preview",    // #16 grounding · $12.83/M
+  "gemini-3-flash": "google/gemini-3-flash-preview",    // #23 grounding · $3.21/M
+  "gpt-6.2-astra": "openai/gpt-6.2-astra",              // #24
+  "claude-sonnet-5": "anthropic/claude-sonnet-5",       // #26 · $8/M
+  "gpt-6.2-sol": "openai/gpt-6.2-sol",                  // #28 · $4/M
+  "gpt-6-sol": "openai/gpt-6-sol",                      // #29 · $4/M
+  "grok-4.3": "x-ai/grok-4.3",                          // #33 · $2.19/M
+  "gpt-6-luna": "openai/gpt-6-luna",                    // #35 · $0.20/M — absurd value
+  "sonar": "perplexity/sonar",                          // Sonar Pro #42
+};
+const SEARCH_DEFAULT = "qwen/qwen3.8-max"; // top real model of the search ranking
+const SEARCH_RANKED = new Set(Object.values(SEARCH_RANKING));
+
 const PL_TEXT_KEY = () => process.env.POLLINATIONS_KEY || "";
 const PL_GEN = "https://gen.pollinations.ai/v1/chat/completions";
 const PL_TXT = "https://text.pollinations.ai/openai";
@@ -923,6 +954,7 @@ async function spendLane(
   tally: { n: number }
 ): Promise<ChatResult> {
   if (engine.startsWith("pl:")) return plChat(engine.slice(3), sys, msgs);
+  if (SEARCH_RANKED.has(engine) || engine.includes("/")) return plChat(engine, sys, msgs); // gen-host catalog lane
   if (PRIME_MODELS.has(engine)) {
     const p = await primeChat(sys, msgs, engine);
     if (p) {
@@ -1092,7 +1124,10 @@ export async function POST(req: Request) {
   const lastUser = [...safe].reverse().find(m => m.role === "user");
   // one brain, one engine: Kimi AI primary, always
   const wanted = typeof body?.model === "string" ? body.model.trim() : "";
-  const chosen = KNOWN_MODELS.has(wanted) ? wanted : PRIMARY;
+  const chosen = KNOWN_MODELS.has(wanted)
+    ? wanted
+    : SEARCH_RANKING[wanted] ||
+      (/^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9.:-]{1,60}$/i.test(wanted) ? wanted : PRIMARY);
   // the user is talking about THEIR attachment — web search would only distract.
   // GLM ALWAYS RIDES GOOGLE: Koder and QnA ground every real question in live
   // Google results and the reply ends with a canonical Sources list
@@ -1265,6 +1300,11 @@ export async function POST(req: Request) {
     : PRIME_MODELS.has(chosen)
       ? [chosen, PL_FREE, ...FALLBACK_MODELS]
       : [PL_FREE, chosen, ...FALLBACK_MODELS.filter(m => m !== chosen), PRIME_FLASH];
+  // QnA IS the search engine: the arena's top real search model leads the walk
+  // (its Google grounding rides along via googleContext); keyless it fails in
+  // ms and the free fleet answers.
+  if (mode === "qna" && !SEARCH_RANKED.has(chosen) && !plPick && !PRIME_MODELS.has(chosen))
+    chain.unshift(`pl:${SEARCH_DEFAULT}`);
   // one lane call, two transports: prime ids ride the Anthropic-style gateway,
   // everything else rides the ZAI SDK — spendLane also feeds the token tally
   let actText: string | null = null;
