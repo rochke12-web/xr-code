@@ -1040,6 +1040,7 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
         <div class="gen-chips" id="genChips" hidden>
           <div class="chip-row" id="styleChips"></div>
           <div class="chip-row" id="sizeChips"></div>
+          <div class="chip-row" id="photoModelChips" hidden></div>
           <div class="chip-row" id="videoModelChips" hidden></div>
         </div>
         <textarea id="chatInput" rows="1" autocomplete="off" placeholder="Message XR Code..."></textarea>
@@ -1064,6 +1065,9 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
               <button type="button" data-model="muse-wonder"><b>Muse Wonder (Max)</b><small>creative &amp; expressive</small></button>
               <button type="button" data-model="kimi-k3.1-pro"><b>Kimi K3.1 Pro (Max)</b><small>long-context reasoning</small></button>
               <button type="button" data-model="glm-5.3-flash"><b>GLM-5.3 Flash</b><small>ultra-cheap workhorse</small></button>
+              <button type="button" data-model="glm-5.3"><b>GLM-5.3</b><small>the full GLM flagship · arena #36</small></button>
+              <button type="button" data-model="glm-4.6"><b>GLM 4.6</b><small>free hosted lane · steady all-rounder</small></button>
+              <button type="button" data-model="glm-4.5-flash"><b>GLM 4.5 Flash</b><small>free hosted lane · the original first model</small></button>
               <button type="button" data-model="grok-4.7"><b>Grok 4.7</b><small>xAI · witty &amp; fast</small></button>
               <button type="button" data-model="prime-v1"><b>Prime</b><small>flagship brain · deep reasoning &amp; big builds</small></button>
               <button type="button" data-model="prime-v1-flash"><b>Prime Flash</b><small>fast lane · quick answers &amp; code</small></button>
@@ -1281,14 +1285,14 @@ let S = load() || defaults();
   delete S.zai; delete S.zaiKey;                            // API-key era removed
   delete S.models; delete S.routing; delete S.tokensSaved;  // model options removed
   delete S.startupDone; delete S.gemini; delete S.local;    // leftovers from old versions
-  const CHAT_ENGINES = ['auto','prime-v1','prime-v1-flash','gemini-4-carbon','gemini-4-neon','gemini-4-argon','claude-fable-5','muse-wonder','gpt-6-astra','claude-opus-5.5','claude-opus-4.7','claude-opus-4.6','gpt-6.1-sol','muse-spark-1.2','muse-spark-1.3','kimi-k3.1-pro','gpt-5.6-sol','glm-5.3-flash','glm-5.3','grok-4.7','qwen3.8-max','deepseek-v4.1-flash','minimax-m3.1','gemini-3.8-flash','mimo-v2.6-pro'];
+  const CHAT_ENGINES = ['auto','prime-v1','prime-v1-flash','gemini-4-carbon','gemini-4-neon','gemini-4-argon','claude-fable-5','muse-wonder','gpt-6-astra','claude-opus-5.5','claude-opus-4.7','claude-opus-4.6','gpt-6.1-sol','muse-spark-1.2','muse-spark-1.3','kimi-k3.1-pro','gpt-5.6-sol','glm-5.3-flash','glm-5.3','glm-4.6','glm-4.5-flash','grok-4.7','qwen3.8-max','deepseek-v4.1-flash','minimax-m3.1','gemini-3.8-flash','mimo-v2.6-pro'];
   if(!S.model || CHAT_ENGINES.indexOf(S.model) < 0) S.model = 'auto';  // legacy glm-*/unknown values map to Auto
   if(S.model === 'prime-v1-vision' || S.model === 'prime-vision') S.model = 'auto';  // vision engine option retired
   if(S.mode === 'sight' || S.mode === 'imagine') S.mode = 'image';   // visual modes merged into Image Mode
   if(S.mode !== 'koder' && S.mode !== 'qna' && S.mode !== 'image' && S.mode !== 'video') S.mode = 'koder';   // four modes: koder | qna | image | video
   if(!['auto','photoreal','anime','cinematic','digital','render3d','watercolor','pixel'].includes(S.imgStyle)) S.imgStyle = 'auto';
   if(!['1024x1024','768x1344','864x1152','1344x768','1152x864'].includes(S.imgSize)) S.imgSize = '1344x768';
-  delete S.imgModel; // photo models merged — every painter races, no picker
+  if(!['auto','glm-image','glm-4.5-image','cogview-4'].includes(S.imgModel)) S.imgModel = 'auto'; // photo painter pick — GLM family + Auto (all race by default)
   if(!['auto','gemini-omni-1.2-flash','gemini-omni-1.1-flash','grok-imagine-1.5','seedance-2.0','seedance-2.5','wan-3.0','flux-3-video','minimax-h3','happyhorse-1.0','kling-v3-pro','veo-3.1-fast','grok-imagine','wan-2.7','wan-2.6','p-video','ltx-2.5','kandinsky-6','seedance-1.0-pro','seedance-1.0-lite'].includes(S.videoModel)) S.videoModel = 'auto';
   if(S.user && S.user.provider === 'api') S.user = null;
   delete S.api;
@@ -1598,7 +1602,8 @@ function renderModel(){
     'muse-wonder': 'Muse Wonder', 'gpt-6-astra': 'GPT-6 Astra', 'claude-opus-5.5': 'Claude Opus 5.5',
     'claude-opus-4.7': 'Claude Opus 4.7', 'claude-opus-4.6': 'Claude Opus 4.6', 'gpt-6.1-sol': 'GPT-6.1 Sol',
     'muse-spark-1.2': 'Muse Spark 1.2', 'muse-spark-1.3': 'Muse Spark 1.3', 'kimi-k3.1-pro': 'Kimi K3.1 Pro',
-    'gpt-5.6-sol': 'GPT-5.6 Sol', 'glm-5.3-flash': 'GLM-5.3 Flash', 'glm-5.3': 'GLM-5.3', 'grok-4.7': 'Grok 4.7',
+    'gpt-5.6-sol': 'GPT-5.6 Sol', 'glm-5.3-flash': 'GLM-5.3 Flash', 'glm-5.3': 'GLM-5.3', 'glm-4.6': 'GLM 4.6',
+    'glm-4.5-flash': 'GLM 4.5 Flash', 'grok-4.7': 'Grok 4.7',
     'qwen3.8-max': 'Qwen 3.8 Max', 'deepseek-v4.1-flash': 'DeepSeek V4.1 Flash', 'minimax-m3.1': 'MiniMax M3.1',
     'gemini-3.8-flash': 'Gemini 3.8 Flash', 'mimo-v2.6-pro': 'MiMo V2.6 Pro' };
   if(chip) chip.textContent = ENG_LABEL[S.model] || 'Made by Yug Sunar';
@@ -1607,36 +1612,21 @@ function renderModel(){
   // race + prompt brain pick the best look); the size row stays
   const scRow = $('#styleChips'); if(scRow) scRow.style.display = (S.mode === 'image') ? 'none' : '';
   if(S.mode === 'image') S.imgStyle = 'auto';
-  const imgRows = $('#styleChips'), szRows = $('#sizeChips'), vidRow = $('#videoModelChips');
+  const imgRows = $('#styleChips'), szRows = $('#sizeChips'), phRow = $('#photoModelChips'), vidRow = $('#videoModelChips');
   if(imgRows) imgRows.hidden = S.mode !== 'image';
   if(szRows) szRows.hidden = S.mode !== 'image';
+  if(phRow) phRow.hidden = S.mode !== 'image';
   if(vidRow) vidRow.hidden = S.mode !== 'video';
   const ci = $('#chatInput'); if(ci) ci.placeholder = S.mode === 'image' ? 'Describe the image to paint… (a follow-up like “make it night” refines the last one)' : S.mode === 'video' ? 'Describe the video to make… (a 5-second clip — add “with narration” for a voice-over)' : 'Message XR Code...';
 }
 /* ---------- Image mode: style + ratio chips ---------- */
 const IMG_STYLES = [ ['auto','Auto'], ['photoreal','Photoreal'], ['anime','Anime'], ['cinematic','Cinematic'], ['digital','Art'], ['render3d','3D'], ['watercolor','Watercolor'], ['pixel','Pixel'] ];
 const IMG_RATIOS = [ ['1344x768','16:9'], ['1024x1024','1:1'], ['864x1152','3:4'], ['1152x864','4:3'], ['768x1344','9:16'] ];
-/* ---------- Image mode: painter names (all merged — every model races, winner shown in caption) ---------- */
-const IMG_MODELS = [
+/* ---------- Image mode: painter names (Auto races every painter; picking one leads the race) ---------- */
+const PHOTO_MODELS = [
   ['auto', 'Auto'],
-  ['glm-image', 'GLM'],
-  ['gemini-3-pro-image-preview', 'Nano Pro'],
-  ['gemini-2.5-flash-image', 'Nano Flash'],
-  ['mai-image-2.7', 'Mai 2.7'],
-  ['muse-image', 'Muse'],
-  ['seedream-5.0-pro', 'Seedream 5.0 Pro'],
-  ['seedream-5.9-lite', 'Seedream 5.9 Lite'],
-  ['qwen-image-2.0-pro', 'Qwen 2.0 Pro'],
-  ['qwen-image-2.0', 'Qwen 2.0'],
-  ['uni-1.1-max', 'Uni 1.1 Max'],
-  ['uni-1.1', 'Uni 1.1'],
-  ['grok-imagein-image', 'Grok'],
-  ['krea-2-medium', 'Krea 2 Medium'],
-  ['krea-3-high', 'Krea 3 High'],
-  ['wan-2.7-image', 'Wan 2.7'],
-  ['flux-3-image-klein', 'Flux 3 Klein'],
-  ['hunyuan-image-3.0-instruct', 'Hunyuan 3.0'],
-  ['ideogram-4.5', 'Ideogram 4.5'],
+  ['glm-image', 'GLM Image'],
+  ['glm-4.5-image', 'GLM 4.5 Image'],
   ['cogview-4', 'CogView-4'],
 ];
 /* ---------- Video mode: model chips (arena-style — pick the film engine) ---------- */
@@ -1663,10 +1653,11 @@ const VIDEO_MODELS = [
 function paintChips(){
   $$('#styleChips .gen-chip').forEach(b => b.classList.toggle('on', (S.imgStyle || 'auto') === b.dataset.v));
   $$('#sizeChips .gen-chip').forEach(b => b.classList.toggle('on', (S.imgSize || '1344x768') === b.dataset.v));
+  $$('#photoModelChips .gen-chip').forEach(b => b.classList.toggle('on', (S.imgModel || 'auto') === b.dataset.v));
   $$('#videoModelChips .gen-chip').forEach(b => b.classList.toggle('on', (S.videoModel || 'auto') === b.dataset.v));
 }
 function buildGenChips(){
-  const sc = $('#styleChips'), zc = $('#sizeChips'), vc = $('#videoModelChips');
+  const sc = $('#styleChips'), zc = $('#sizeChips'), pc = $('#photoModelChips'), vc = $('#videoModelChips');
   if((!sc || !zc) || (sc.dataset.built && (!vc || vc.dataset.built))) return;
   if(sc && !sc.dataset.built){
     sc.dataset.built = '1';
@@ -1679,6 +1670,14 @@ function buildGenChips(){
       const b = document.createElement('button'); b.type = 'button'; b.className = 'gen-chip ratio'; b.textContent = n; b.dataset.v = v;
       b.onclick = () => { S.imgSize = v; save(); paintChips(); };
       zc.append(b);
+    });
+  }
+  if(pc && !pc.dataset.built){
+    pc.dataset.built = '1';
+    PHOTO_MODELS.forEach(([v, n]) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'gen-chip'; b.textContent = n; b.dataset.v = v;
+      b.onclick = () => { S.imgModel = v; save(); paintChips(); toast('Painter: ' + n); };
+      pc.append(b);
     });
   }
   if(vc && !vc.dataset.built){
@@ -1721,7 +1720,7 @@ $$('#homeModeMenu button[data-model],#chatModeMenu button[data-model],#engineLis
       'claude-opus-5.5': 'Claude Opus 5.5', 'claude-opus-4.7': 'Claude Opus 4.7', 'claude-opus-4.6': 'Claude Opus 4.6',
       'gpt-6.1-sol': 'GPT-6.1 Sol', 'muse-spark-1.2': 'Muse Spark 1.2', 'muse-spark-1.3': 'Muse Spark 1.3',
       'kimi-k3.1-pro': 'Kimi K3.1 Pro', 'gpt-5.6-sol': 'GPT-5.6 Sol', 'glm-5.3-flash': 'GLM-5.3 Flash',
-      'glm-5.3': 'GLM-5.3', 'grok-4.7': 'Grok 4.7', 'qwen3.8-max': 'Qwen 3.8 Max',
+      'glm-5.3': 'GLM-5.3', 'glm-4.6': 'GLM 4.6', 'glm-4.5-flash': 'GLM 4.5 Flash', 'grok-4.7': 'Grok 4.7', 'qwen3.8-max': 'Qwen 3.8 Max',
       'deepseek-v4.1-flash': 'DeepSeek V4.1 Flash', 'minimax-m3.1': 'MiniMax M3.1', 'gemini-3.8-flash': 'Gemini 3.8 Flash',
       'mimo-v2.6-pro': 'MiMo V2.6 Pro' }[S.model] || S.model));
   });
@@ -2087,7 +2086,7 @@ async function askBrain(c, text, atts){
         const res = await fetch(API_BASE + '/api/imagine', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: text, style: S.imgStyle || 'auto', size: S.imgSize || '1344x768', base: (c.lastEnhanced || '') })
+          body: JSON.stringify({ prompt: text, style: S.imgStyle || 'auto', size: S.imgSize || '1344x768', model: S.imgModel || 'auto', base: (c.lastEnhanced || '') })
         });
         d = await res.json().catch(() => null);
         if(res.status === 401 && d && d.error === 'auth'){      // members gate bounced this painting
@@ -2105,7 +2104,7 @@ async function askBrain(c, text, atts){
     if(d){
       chip.textContent = 'Made by Yug Sunar';
       if(d.enhanced){ c.lastEnhanced = d.enhanced; save(); }   // remember for conversational refine ("make it night")
-      const eng = d.engine && /glm|gemini|seedream|qwen|muse|uni|grok|krea|wan|flux|hunyuan|ideogram|cogview|mai/i.test(d.engine) ? (IMG_MODELS.find(m => m[0] === d.engine) || [])[1] : '';
+      const eng = d.engine && /glm|gemini|seedream|qwen|muse|uni|grok|krea|wan|flux|hunyuan|ideogram|cogview|mai/i.test(d.engine) ? (PHOTO_MODELS.find(m => m[0] === d.engine) || [])[1] : '';
       const cap = (d.enhanced ? '✦ ' + d.enhanced : '✦ Here it is.') + (eng ? ' — painted by ' + eng + '.' : '');
       typeReply(c, Object.assign(splitFence(cap), { asset: { type: 'image', url: d.url, prompt: text } }), pen);
     }else{

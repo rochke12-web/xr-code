@@ -506,6 +506,32 @@ function searchQuery(safe: Msg[]): string {
 // and fills gaps with two silent fallbacks: DuckDuckGo HTML and the hosted
 // search index. Replies end clean — no Sources list (user directive).
 type SearchItem = { name: string; snippet: string; url: string; date?: string };
+
+// QnA verbatim mode — the user directive is explicit: QnA answers are
+// Google's answer, copy-pasted. The top result's title + snippet ship
+// word-for-word with its link, followed by the runner-up results — no model
+// synthesis in between. (Koder keeps the synthesized grounded brain.)
+function googleVerbatim(q: string, items: SearchItem[]): string {
+  const it = items[0];
+  const snip = String(it.snippet || "").trim();
+  // News RSS uses the headline as the snippet — don't print the same line twice
+  const body = snip && snip !== it.name ? `\n${snip}\n` : "\n";
+  const top = `${it.name}\n${body}${it.url}${it.date ? ` (${it.date})` : ""}`;
+  const more = items
+    .slice(1, 4)
+    .map((r, i) => {
+      const s = String(r.snippet || "").trim();
+      const line = s && s !== r.name ? `\n   ${s.slice(0, 280)}` : "";
+      return `${i + 2}. ${r.name}${line}\n   ${r.url}`;
+    })
+    .join("\n\n");
+  return (
+    `Google's answer to "${q.slice(0, 120)}" — straight from the top result:\n\n` +
+    top +
+    (more ? `\n\nMore from Google:\n\n${more}` : "")
+  );
+}
+
 const SEARCH_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
@@ -702,7 +728,7 @@ const PRIME_VISION = "prime-vision"; // vision-tuned
 // the gateway) instead of silently dropping to Auto.
 const PRIME_MODELS = new Set([PRIME_FLAG, PRIME_FLASH, PRIME_VISION, "prime-v1-vision"]);
 
-const KNOWN_MODELS = new Set([PRIMARY, GLM_FIRST, PRIME_FLAG, PRIME_FLASH, PRIME_VISION, "prime-v1-vision"]);
+const KNOWN_MODELS = new Set([PRIMARY, GLM_FIRST, "glm-4.6", PRIME_FLAG, PRIME_FLASH, PRIME_VISION, "prime-v1-vision"]);
 
 // ---- Studio text ladder (gen.pollinations.ai) — the arena ranking ----
 // The ONLY text gateway reachable from Vercel: the z.ai gateway and the prime
@@ -1148,6 +1174,18 @@ export async function POST(req: Request) {
       const grounded = await googleContext(searchQuery(safe));
       lastSearch = grounded.items;
       sys += grounded.block;
+      // QnA IS the Google paste: with live results in hand the answer ships
+      // verbatim from the top result — no model synthesis (user directive,
+      // "copy paste the googles answer in qna mode"). No results → the LLM
+      // chain answers below as usual.
+      if (mode === "qna" && lastSearch.length) {
+        return done({
+          ok: true,
+          text: googleVerbatim(searchQuery(safe), lastSearch),
+          engine: "google-search",
+          mode,
+        });
+      }
     }
   }
 
@@ -1310,7 +1348,10 @@ export async function POST(req: Request) {
   // ms and the free fleet answers.
   if (mode === "qna" && !SEARCH_RANKED.has(chosen) && !plPick && !PRIME_MODELS.has(chosen)) {
     chain.unshift(`pl:${SEARCH_DEFAULT}`); // ranked brain when keyed
-    chain.splice(1, 0, "pl:openai"); // keyless: GPT-OSS 120B synthesizes the answer (the 20B fast lane parrots)
+    // keyless: the qwen default 401s in ms without a key — the verified-live
+    // GLM lane synthesizes the answer first (probe 2026-11-24: 200 in ~1s),
+    // then the OpenAI fleet
+    chain.splice(1, 0, "pl:glm-5.3-flash", "pl:openai");
   }
   // one lane call, two transports: prime ids ride the Anthropic-style gateway,
   // everything else rides the ZAI SDK — spendLane also feeds the token tally

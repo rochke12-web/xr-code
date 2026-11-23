@@ -524,7 +524,13 @@ export async function POST(req: Request) {
   const size = typeof body.size === "string" && SIZES.has(body.size) ? body.size : "1344x768";
 
   const base = typeof body.base === "string" ? body.base.slice(0, 600) : "";
-  const pick = typeof body.model === "string" && body.model && body.model !== "auto" ? body.model : undefined;
+  // painter pick — only real gateway painter ids lead the race; anything else
+  // (stale client, typo) falls back to Auto so a pick can never hard-fail
+  const PAINTER_IDS = new Set(PAINTERS.filter((m): m is string => !!m));
+  const pick =
+    typeof body.model === "string" && body.model && body.model !== "auto" && PAINTER_IDS.has(body.model)
+      ? body.model
+      : undefined;
 
   console.log("[imagine] job:", JSON.stringify({ prompt: prompt.slice(0, 80), style, size, pick: pick || "auto", refine: !!base }));
   // intent brain: UI/logo requests get a DETERMINISTIC mockup prompt (subject
