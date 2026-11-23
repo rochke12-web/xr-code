@@ -314,7 +314,7 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
   min-height:47px;max-height:132px;           /* ~4 lines, then scrolls */
   transition:height .18s ease;
 }
-.big-search input::placeholder,.big-search textarea::placeholder{color:var(--muted);transition:color .3s}
+.big-search input::placeholder,.big-search textarea::placeholder{color:var(--muted);transition:color .3s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .big-search:focus-within input::placeholder,.big-search:focus-within textarea::placeholder{color:var(--faint)}
 .send-btn{
   display:grid;place-items:center;width:46px;height:46px;border-radius:13px;flex:none;
@@ -445,6 +445,18 @@ html:not(.anim-off) #btnSearch .ic{transition:transform .3s var(--spring)}
 html:not(.anim-off) #btnSearch:hover .ic{transform:scale(1.18)}
 html:not(.anim-off) .mini-btn:active,.gen-chip:active{transform:scale(.94)}
 @keyframes logoBreathe{0%,100%{filter:drop-shadow(0 0 0 rgba(255,255,255,0))}50%{filter:drop-shadow(0 0 13px var(--glow))}}
+/* ===== 144fps feel — compositor-only motion: everything animated stays on its own GPU layer ===== */
+html{scroll-behavior:smooth}
+html:not(.anim-off) .msg,html:not(.anim-off) .msg .bubble,html:not(.anim-off) .msg .gen-media,html:not(.anim-off) .msg pre{will-change:transform,opacity;backface-visibility:hidden}
+html:not(.anim-off) .msg{animation-timing-function:cubic-bezier(.22,1,.36,1)}
+.wfade{will-change:opacity,filter;backface-visibility:hidden}
+.mmenu,.byok-modal,.startup,.sandbox,.chat-search.open,.api-form.open,.toasts .toast{will-change:transform,opacity;backface-visibility:hidden}
+.nav-glider,.dots i,.stream-cursor,.logo,.send-btn .ic,.model-pill svg.ic:last-of-type,.theme-quick .ic,#btnSearch .ic,.big-search::before{will-change:transform}
+.gen-media img,.gen-chip,.model-pill,.send-btn,.file-card,.att-chip,.act-row button{backface-visibility:hidden}
+/* hero shimmer: clipped-text repaint tears glyphs on some GPUs — give it its own layer */
+.hero h2,.title-center h1{transform:translateZ(0);backface-visibility:hidden;will-change:background-position}
+/* keep scrolling lists on the compositor — no jank on long chats */
+.chat-scroll,.chat-list,.search-list,.settings-col{overscroll-behavior:contain}
 .search-list{flex:1;overflow-y:auto;min-height:60px;padding:8px 12px;display:flex;flex-direction:column;gap:2px}
 .sr-item{display:block;width:100%;text-align:left;padding:9px 11px;border-radius:10px;transition:background .18s,transform .2s}
 .sr-item:hover{background:var(--panel-2);transform:translateX(3px)}
@@ -1009,7 +1021,7 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
               <button type="button" data-mode="qna"><b>QnA Mode</b><small>sources never shown</small></button>
             </div>
           </div>
-          <textarea id="homeInput" rows="1" autocomplete="off" placeholder="What would you like to do with XR-Code?"></textarea>
+          <textarea id="homeInput" rows="1" autocomplete="off" placeholder="What would you like to do?"></textarea>
           <button class="file-btn" id="byokBtnHome" type="button" title="Your API key (BYOK)"><i class="ic" data-ic="i-key"></i></button>
           <button class="send-btn" type="submit" title="Send"><i class="ic" data-ic="i-chev"></i></button>
         </form>
