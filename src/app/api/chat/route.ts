@@ -118,8 +118,9 @@ const SYSTEM_KODER =
   "• Explanations: simple, accurate, step by step, one concrete example. " +
   "• Never invent APIs, libraries, flags or quotes. If unsure, say so plainly and give the closest verified answer. " +
   "• Any question (facts, knowledge, advice, current events): lead with the direct answer in the first " +
-  "sentence, then a few crisp supporting facts. When live results are attached, base the reply on them — " +
-  "answer the way the top result would read, with light grammar and wording changes so it is not a verbatim copy. " +
+  "sentence, then a few crisp supporting facts. When live results are attached, READ ALL of them and " +
+  "synthesize one answer in your own words — compare sources, keep the freshest and most consistent facts " +
+  "(with dates when numbers are involved), never copy any single result's sentences. " +
   "When LIVE WEB RESULTS are attached, use them to ground factual replies, but keep the reply clean — " +
   "NEVER add a Sources line, link list or references at the end — not even when the user asks for sources; " +
   "just answer, the reply ends with your words. " +
@@ -133,9 +134,12 @@ const SYSTEM_QNA =
   "• Lead with the direct answer in the FIRST sentence — the way Google's answer card reads — then a few crisp " +
   "supporting facts, numbers or short steps. No preamble, no restating the question. " +
   `• Attachments: ${ATT_BLIND}. ` +
-  "• Grounding: when LIVE WEB RESULTS (Google search) are attached, treat them as your ground truth — take the " +
-  "answer the way the top results read, with light grammar and wording changes so it is not a verbatim copy. " +
-  "If the attached results do not actually answer the question, quietly fall back to your own knowledge. " +
+  "• Grounding: when LIVE WEB RESULTS (Google search) are attached, treat them as raw material, NOT as a script. " +
+  "Read every result, cross-check the facts, and compose one confident answer in your own words — the way a " +
+  "knowledgeable expert would answer out loud. Lead with the answer itself (for prices: the current number + " +
+  "today's date + the unit), then 2-4 supporting facts pulled from DIFFERENT results. Never reproduce any " +
+  "result's sentences; if two results disagree, prefer the newer and the more authoritative, and never mention " +
+  "the disagreement. If the results do not actually answer the question, quietly fall back to your own knowledge. " +
   "Never write a Sources line, link list or references at the end — not even when the user asks — and never " +
   "mention websites, searching or results inside the answer body. " +
   "• Code only when the user explicitly asks for it. " +
@@ -631,11 +635,12 @@ async function googleContext(q: string): Promise<{ block: string; items: SearchI
   const block =
     "\n\nLIVE WEB RESULTS (Google search) for this question:\n" +
     lines.join("\n") +
-    "\n\nAnswering rules: base your reply on these results. Give the answer the way the " +
-    "top result would read — same facts, but with light grammar and wording changes so it is " +
-    "not a verbatim copy. If the results do not actually answer the question, answer from your " +
-    "own knowledge instead. Be direct and concise, no markdown headings. " +
-    "Do not write a Sources line.";
+    "\n\nAnswering rules: these results are raw material, not a script. Read them all, cross-check, and " +
+    "compose ONE answer in your own words — never copy any result's sentences or structure. Lead with the " +
+    "direct answer (for prices/numbers: the current value, its unit and today's date), then a few supporting " +
+    "facts drawn from different results. When results disagree, silently prefer the newer/more authoritative " +
+    "one. If the results do not actually answer the question, answer from your own knowledge instead. " +
+    "Be direct and concise, no markdown headings. Do not write a Sources line.";
   return { block, items };
 }
 
@@ -1303,8 +1308,10 @@ export async function POST(req: Request) {
   // QnA IS the search engine: the arena's top real search model leads the walk
   // (its Google grounding rides along via googleContext); keyless it fails in
   // ms and the free fleet answers.
-  if (mode === "qna" && !SEARCH_RANKED.has(chosen) && !plPick && !PRIME_MODELS.has(chosen))
-    chain.unshift(`pl:${SEARCH_DEFAULT}`);
+  if (mode === "qna" && !SEARCH_RANKED.has(chosen) && !plPick && !PRIME_MODELS.has(chosen)) {
+    chain.unshift(`pl:${SEARCH_DEFAULT}`); // ranked brain when keyed
+    chain.splice(1, 0, "pl:openai"); // keyless: GPT-OSS 120B synthesizes the answer (the 20B fast lane parrots)
+  }
   // one lane call, two transports: prime ids ride the Anthropic-style gateway,
   // everything else rides the ZAI SDK — spendLane also feeds the token tally
   let actText: string | null = null;
