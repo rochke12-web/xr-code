@@ -1255,7 +1255,7 @@ let S = load() || defaults();
   if(!['auto','photoreal','anime','cinematic','digital','render3d','watercolor','pixel'].includes(S.imgStyle)) S.imgStyle = 'auto';
   if(!['1024x1024','768x1344','864x1152','1344x768','1152x864'].includes(S.imgSize)) S.imgSize = '1344x768';
   delete S.imgModel; // photo models merged — every painter races, no picker
-  if(!['auto','seedance-1.0-pro','seedance-1.0-lite','cogvideox-3'].includes(S.videoModel)) S.videoModel = 'auto';
+  if(!['auto','gemini-omni-1.2-flash','gemini-omni-1.1-flash','grok-imagine-1.5','seedance-2.0','seedance-2.5','wan-3.0','flux-3-video','minimax-h3','happyhorse-1.0','kling-v3-pro','veo-3.1-fast','grok-imagine','wan-2.7','wan-2.6','p-video','ltx-2.5','kandinsky-6','seedance-1.0-pro','seedance-1.0-lite'].includes(S.videoModel)) S.videoModel = 'auto';
   if(S.user && S.user.provider === 'api') S.user = null;
   delete S.api;
   try{ localStorage.setItem(LSKEY, JSON.stringify(S)); }catch(e){}  // persist repairs immediately
@@ -1603,10 +1603,24 @@ const IMG_MODELS = [
 ];
 /* ---------- Video mode: model chips (arena-style — pick the film engine) ---------- */
 const VIDEO_MODELS = [
-  ['auto', 'Auto'],
-  ['seedance-1.0-pro', 'Seedance Pro'],
-  ['seedance-1.0-lite', 'Seedance Lite'],
-  ['cogvideox-3', 'CogVideoX-3'],
+  ['auto', 'Auto (Gemini Omni 1.2)'],
+  ['gemini-omni-1.2-flash', 'Gemini Omni 1.2 Flash'],
+  ['gemini-omni-1.1-flash', 'Gemini Omni 1.1 Flash'],
+  ['grok-imagine-1.5', 'Grok Imagine 1.5'],
+  ['seedance-2.0', 'Seedance 2.0 (720p)'],
+  ['seedance-2.5', 'Seedance 2.5 (720p)'],
+  ['wan-3.0', 'Wan 3.0'],
+  ['flux-3-video', 'FLUX 3 Video'],
+  ['minimax-h3', 'MiniMax H3'],
+  ['happyhorse-1.0', 'HappyHorse 1.0'],
+  ['kling-v3-pro', 'Kling V3 Pro'],
+  ['veo-3.1-fast', 'Veo 3.1 Fast'],
+  ['grok-imagine', 'Grok Imagine 720p'],
+  ['wan-2.7', 'Wan 2.7'],
+  ['wan-2.6', 'Wan 2.6'],
+  ['p-video', 'P-Video'],
+  ['ltx-2.5', 'LTX 2.5 Pro'],
+  ['kandinsky-6', 'Kandinsky 6 Lite'],
 ];
 function paintChips(){
   $$('#styleChips .gen-chip').forEach(b => b.classList.toggle('on', (S.imgStyle || 'auto') === b.dataset.v));

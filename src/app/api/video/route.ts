@@ -40,6 +40,43 @@ const PL_HEADERS = (key: string): Record<string, string> => ({
   Referer: "https://xr-code.vercel.app",
 });
 
+// ---- Studio video ranking (arena top text-to-video, 2026-11) ----
+// Aliases from the ranking map to exact gen-host catalog ids; raw
+// "publisher/model" ids pass through; legacy chip names map to their closest
+// catalog successor so stale saved clients keep filming.
+const VIDEO_RANKING: Record<string, string> = {
+  "gemini-omni-1.2-flash": "google/gemini-omni-1.2-flash", // arena #1 · $0.70
+  "gemini-omni-1.1-flash": "google/gemini-omni-1.1-flash", // #2/#3 · $1.00
+  "grok-imagine-1.5": "x-ai/grok-imagine-video-1.5",       // #4
+  "seedance-2.0": "bytedance/seedance-2.0",                // #5 · $1.66
+  "seedance-2.5": "bytedance/seedance-2.5",                // #6 · $2.31
+  "wan-3.0": "alibaba/wan-3.0",                            // #7 · $2.00
+  "flux-3-video": "black-forest-labs/flux-3-max",          // #9 · $0.85
+  "minimax-h3": "minimax/minimax-h3-max",                  // #11 · $0.80
+  "happyhorse-1.0": "alibaba/happyhorse-1.1",              // #12
+  "kling-v3-pro": "kwaivgi/kling-v3.0-pro",                // #31 successor
+  "kling-v3-std": "kwaivgi/kling-v3.0-std",
+  "veo-3.1-fast": "google/veo-3.1-fast",                   // #16 · $1.20
+  "grok-imagine": "x-ai/grok-imagine-video",               // #20 · $0.56
+  "wan-2.7": "alibaba/wan-2.7",                            // #22 · $0.80
+  "wan-2.6": "alibaba/wan-2.6",                            // #23 · $0.45
+  "p-video": "prunaai/p-video",                            // #32
+  "ltx-2.5": "lightricks/ltx-2.5-pro",                     // LTX-2 successor
+  "kandinsky-6": "kandinskylab/kandinsky-6.0-lite",        // Kandinsky successor
+  // legacy chip names → closest catalog successor
+  "seedance-1.0-pro": "bytedance/seedance-1-pro-fast",
+  "seedance-1.0-lite": "bytedance/seedance-2.0-mini",
+  "cogvideox-3": "", // retired → default
+};
+const VIDEO_DEFAULT = "google/gemini-omni-1.2-flash"; // arena #1
+function videoResolve(wanted: string): string {
+  const w = String(wanted || "").trim();
+  if (!w || w === "auto") return VIDEO_DEFAULT;
+  if (VIDEO_RANKING[w]) return VIDEO_RANKING[w] || VIDEO_DEFAULT;
+  if (/^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9.:-]{1,60}$/i.test(w)) return w; // raw catalog id
+  return VIDEO_DEFAULT;
+}
+
 async function plStart(prompt: string, model: string): Promise<{ jobId?: string; bytes?: Buffer; err?: string }> {
   const q = "model=" + encodeURIComponent(model) + "&duration=5";
   try {
@@ -117,17 +154,14 @@ export async function POST(req: Request) {
       }
     }
 
-    // arena-style model pick — 'auto' resolves to the gateway's real engine;
-    // anything else passes through (the gateway maps unknown names to its engine)
+    // arena-style model pick — ranking alias, raw catalog id or auto → the
+    // arena #1 engine (videoResolve; unknown names fall back to the default)
     const reqModel = /^[A-Za-z0-9._/-]{1,60}$/.test(String(body?.model || "")) ? String(body?.model) : "auto";
-    const model = reqModel === "auto" ? "cogvideox-3" : reqModel;
+    const model = videoResolve(reqModel);
 
     // ---- studio lane first: pollinations async video (works from Vercel) ----
     if (PL_KEY()) {
-      const arenaModel = reqModel === "auto"
-        ? "x-ai/grok-imagine-video-1.5" // arena free-tier #1 (score 1488)
-        : (reqModel.includes("/") ? reqModel : "x-ai/" + reqModel);
-      const start = await plStart(prompt, arenaModel);
+      const start = await plStart(prompt, model);
       if (start.bytes) {
         const url = await saveAssetBytes(start.bytes, "video/mp4");
         const usage = await addMedia(uid, "videos", 1); // counted only on success
