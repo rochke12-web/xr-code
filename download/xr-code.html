@@ -103,11 +103,6 @@ body{
 }
 button{font-family:inherit;color:inherit;background:none;border:none;cursor:pointer}
 input,textarea{font-family:inherit;color:inherit}
-/* boot splash — session-check clip plays on every load, then fades into the app */
-#bootSplash{position:fixed;inset:0;z-index:9999;background:#0a0a12;display:flex;align-items:center;justify-content:center;opacity:1;transition:opacity .55s ease}
-#bootSplash video{width:min(92vw,1100px);height:auto;max-height:82vh;border-radius:16px;box-shadow:0 24px 80px -24px rgba(0,0,0,.8)}
-#bootSplash.boot-done{opacity:0;pointer-events:none}
-@media (max-width:640px){#bootSplash video{width:100vw;height:auto;max-height:70vh;border-radius:0}}
 ::selection{background:var(--text);color:var(--bg)}
 html{scroll-behavior:smooth}
 
@@ -1219,26 +1214,6 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
 <div id="curEdge" aria-hidden="true"></div>
 
 <script>
-/* ===== boot splash — the session-check clip, every load ===== */
-(function(){
-  var b = document.createElement('div'); b.id = 'bootSplash';
-  var v = document.createElement('video');
-  v.src = 'boot.mp4?v=1'; v.muted = true; v.autoplay = true; v.loop = false;
-  v.setAttribute('playsinline', ''); v.preload = 'auto';
-  b.append(v);
-  document.body.prepend(b);
-  var done = false;
-  function fin(){
-    if(done) return; done = true;
-    b.classList.add('boot-done');
-    setTimeout(function(){ if(b.parentNode) b.remove(); }, 600);
-  }
-  v.addEventListener('ended', fin);       // clip finished — session checked, app is up
-  v.addEventListener('error', fin);       // clip missing/slow — never block the app
-  v.play().catch(fin);                    // autoplay refused — go straight in
-  setTimeout(fin, 8000);                  // hard cap
-  b.addEventListener('click', fin);       // impatient? tap through
-})();
 window.xrSessionExpired = function(){ window.parent.location.reload(); };
 window.xrAccRow = function(){ const row = document.createElement('div'); row.textContent = 'Signed in with Google'; return row; };
 setTimeout(function(){ if(window.__xrCloudPull) window.__xrCloudPull(); }, 600);
