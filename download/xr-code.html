@@ -305,12 +305,17 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .big-search:focus-within::before{opacity:1}
 @keyframes gs-spin{to{--gs:360deg}}
 .big-search .bs-logo{height:30px;width:auto;border-radius:8px;object-fit:contain;display:block;flex:none}
-.big-search input{
+.big-search input,.big-search textarea{
   flex:1;min-width:0;background:none;border:none;outline:none;
   font-size:15px;padding:13px 4px;color:var(--text);caret-color:var(--accent);
 }
-.big-search input::placeholder{color:var(--muted);transition:color .3s}
-.big-search:focus-within input::placeholder{color:var(--faint)}
+.big-search textarea{
+  resize:none;overflow-y:auto;line-height:1.45;
+  min-height:47px;max-height:132px;           /* ~4 lines, then scrolls */
+  transition:height .18s ease;
+}
+.big-search input::placeholder,.big-search textarea::placeholder{color:var(--muted);transition:color .3s}
+.big-search:focus-within input::placeholder,.big-search:focus-within textarea::placeholder{color:var(--faint)}
 .send-btn{
   display:grid;place-items:center;width:46px;height:46px;border-radius:13px;flex:none;
   background:var(--accent);color:var(--accent-ink);
@@ -919,7 +924,7 @@ body.kbd-open .composer{padding-bottom:10px}
   .sidebar{padding-bottom:env(safe-area-inset-bottom)}
 }
 @media (pointer:coarse){
-  .composer input,.composer textarea,.big-search input,.chat-search input,.st-input{font-size:16px !important}
+  .composer input,.composer textarea,.big-search input,.big-search textarea,.chat-search input,.st-input{font-size:16px !important}
   .send-btn,.file-btn,.theme-quick{min-width:44px;min-height:44px}
   .nav button{padding:12px 12px}
   .sr-item{padding:11px 11px}
@@ -999,7 +1004,7 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
               <button type="button" data-mode="qna"><b>QnA Mode</b><small>sources never shown</small></button>
             </div>
           </div>
-          <input id="homeInput" autocomplete="off" placeholder="What would you like to do with XR-Code?">
+          <textarea id="homeInput" rows="1" autocomplete="off" placeholder="What would you like to do with XR-Code?"></textarea>
           <button class="file-btn" id="byokBtnHome" type="button" title="Your API key (BYOK)"><i class="ic" data-ic="i-key"></i></button>
           <button class="send-btn" type="submit" title="Send"><i class="ic" data-ic="i-chev"></i></button>
         </form>
@@ -2321,7 +2326,22 @@ $('#homeForm').addEventListener('submit', e => {
   S.active = null;                       // fresh chat from home
   sendMsg($('#homeInput').value);
   $('#homeInput').value = '';
+  fitHomeTA();
 });
+// home composer mirrors the chat composer: grows with the message (smooth),
+// Enter makes a new line, Ctrl/⌘+Enter sends
+const homeTA = $('#homeInput');
+function fitHomeTA(){
+  if(!homeTA) return;
+  homeTA.style.height = 'auto';
+  homeTA.style.height = Math.min(homeTA.scrollHeight, 132) + 'px';
+}
+if(homeTA){
+  homeTA.addEventListener('input', fitHomeTA);
+  homeTA.addEventListener('keydown', e => {
+    if((e.ctrlKey || e.metaKey) && e.key === 'Enter'){ e.preventDefault(); $('#homeForm').requestSubmit(); }
+  });
+}
 $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('#chatInput').value); $('#chatInput').value = ''; fitChatTA(); });
 // composer: textarea grows with the message (smooth height animation) and
 // sends on Ctrl/⌘+Enter — plain Enter makes a new line
