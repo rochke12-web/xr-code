@@ -1042,6 +1042,33 @@ html.anim-off *,html.anim-off *::before,html.anim-off *::after{animation-duratio
 ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.32)}
 :root[data-theme="light"] ::-webkit-scrollbar-thumb{background:rgba(0,0,0,.16)}
 :root[data-theme="light"] ::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.34)}
+/* --- XR Flagship Pro: hide the raw engine wall until unlocked --- */
+html:not(.pro) #engineList button[data-model]:not([data-model="auto"]){display:none}
+html:not(.pro) #searchEngineList,html:not(.pro) .search-engines-h3{display:none}
+html:not(.pro) .pro-badge{display:none}
+.pro-badge{font-size:9px;letter-spacing:.18em;font-weight:700;color:var(--accent);border:1px solid var(--accent-2);border-radius:999px;padding:3px 10px;vertical-align:middle;margin-left:8px}
+.pro-card{margin-top:14px;border:1px solid var(--line);border-radius:16px;background:var(--bg2);box-shadow:inset 0 1px 0 var(--edge-soft);padding:16px 18px;animation:xr-rise .5s var(--ease) backwards}
+.pro-head{display:flex;align-items:center;gap:10px;font-size:14px}
+.pro-head b{font-weight:600;color:var(--text)}
+.pro-tag{font-size:9.5px;letter-spacing:.2em;font-weight:700;color:var(--accent-ink);background:var(--accent);border-radius:999px;padding:4px 11px}
+.pro-copy{font-size:12.5px;color:var(--muted);line-height:1.6;margin-top:8px}
+.plan-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.plan-chip{display:inline-flex;align-items:baseline;gap:5px;border:1px solid var(--line);border-radius:12px;padding:9px 14px;background:var(--panel);transition:border-color .2s,transform .25s var(--spring),box-shadow .3s}
+.plan-chip b{font-size:16px;font-weight:700;color:var(--text)}
+.plan-chip small{font-size:10.5px;color:var(--muted)}
+.plan-chip.best{border-color:var(--accent-2);box-shadow:0 0 16px -6px var(--glow)}
+.plan-chip:hover{transform:translateY(-2px);border-color:var(--accent-2)}
+.pro-actions{margin-top:12px;display:flex;flex-direction:column;gap:9px}
+.pro-cta{align-self:flex-start;border:1px solid var(--line);border-radius:12px;padding:10px 18px;font-weight:700;font-size:13px;color:var(--accent-ink);background:var(--accent);cursor:pointer;transition:transform .25s var(--spring),box-shadow .3s}
+.pro-cta:hover{transform:translateY(-2px);box-shadow:0 10px 28px -10px var(--glow)}
+.pro-cta:active{transform:scale(.96)}
+.pro-redeem{display:flex;gap:8px}
+.pro-redeem[hidden]{display:none}
+.pro-redeem input{flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:10px 13px;font-size:12.5px;font-family:var(--font-mono);color:var(--text);outline:none;transition:border-color .25s}
+.pro-redeem input:focus{border-color:var(--accent-2)}
+.pro-redeem button{border:1px solid var(--line);border-radius:11px;padding:10px 16px;font-weight:600;font-size:12.5px;color:var(--text);cursor:pointer;transition:border-color .2s,transform .2s}
+.pro-redeem button:hover{border-color:var(--accent-2);transform:translateY(-1px)}
+.pro-note{font-size:10.5px;color:var(--faint);line-height:1.5}
 /* --- focus rings glow white --- */
 a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible{outline:1.5px solid var(--accent-2);outline-offset:2px;border-radius:10px}
 </style>
@@ -1143,7 +1170,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible{
       <div class="settings-wrap">
         <div class="settings-col">
           <div class="panel">
-            <h3><i class="ic big" data-ic="i-cpu"></i> Engine</h3>
+            <h3><i class="ic big" data-ic="i-cpu"></i> Engine <span class="pro-badge" id="proBadge" hidden>PRO ACTIVE</span></h3>
             <div class="engine-list" id="engineList">
               <button type="button" data-model="auto"><b>Auto — XR flagship</b><small>the hosted brain · always the best default</small></button>
               <button type="button" data-model="gemini-4-carbon"><b>Gemini 4 Carbon (High)</b><small>arena #1 · deepest reasoning</small></button>
@@ -1161,7 +1188,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible{
               <button type="button" data-model="prime-v1"><b>Prime</b><small>flagship brain · deep reasoning &amp; big builds</small></button>
               <button type="button" data-model="prime-v1-flash"><b>Prime Flash</b><small>fast lane · quick answers &amp; code</small></button>
             </div>
-            <h3><i class="ic big" data-ic="i-globe"></i> Search &amp; QnA ranking</h3>
+            <h3 class="search-engines-h3"><i class="ic big" data-ic="i-globe"></i> Search &amp; QnA ranking</h3>
             <div class="engine-list" id="searchEngineList">
               <button type="button" data-model="qwen3.8-max"><b>Qwen3.8-Max</b><small>search arena #2 · the QnA default brain</small></button>
               <button type="button" data-model="gpt-5.6-sol"><b>GPT-5.6 Sol (xHigh)</b><small>search arena #3 · $16/M blended</small></button>
@@ -1181,6 +1208,23 @@ a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible{
               <button type="button" data-model="sonar"><b>Sonar (Perplexity)</b><small>purpose-built search answerer</small></button>
             </div>
             <p class="note">The engine rides every mode. Auto is recommended — it always picks the best brain for the job. QnA mode rides the Search ranking: its Google grounding is always on, sources stay hidden. Premium search models need POLLINATIONS_KEY — keyless, the free fleet answers.</p>
+            <div class="pro-card" id="proCard">
+              <div class="pro-head"><span class="pro-tag">XR FLAGSHIP</span><b>Every brain. One key.</b></div>
+              <p class="pro-copy">Unlock all 14 flagship engines + 16 search brains — Gemini, Claude, GPT, Grok, Kimi, Muse, Prime and the full GLM family — with priority lanes and every future model the moment it lands.</p>
+              <div class="plan-row">
+                <span class="plan-chip"><b>$9</b><small>/ month</small></span>
+                <span class="plan-chip best"><b>$79</b><small>/ year · save 27%</small></span>
+                <span class="plan-chip"><b>$199</b><small>lifetime</small></span>
+              </div>
+              <div class="pro-actions">
+                <button type="button" class="pro-cta" id="proUnlockBtn">Unlock XR Flagship</button>
+                <div class="pro-redeem" id="proRedeemRow" hidden>
+                  <input id="proKey" autocomplete="off" placeholder="Paste your Pro key...">
+                  <button type="button" id="proRedeemBtn">Redeem</button>
+                </div>
+                <small class="pro-note">Payment is handled by the master — DM to get your key, then redeem it here. Auto + the free GLM lanes stay free for everyone, forever.</small>
+              </div>
+            </div>
           </div>
           <div class="panel">
             <h3><i class="ic big" data-ic="i-sun"></i> Theme</h3>
@@ -1361,6 +1405,7 @@ function defaults(){
     chats: [],
     active: null,
     model: 'auto',             // engine: 'auto' (flagship brain) | 'prime-v1' | 'prime-v1-flash'
+    pro: false,                // XR Flagship subscription — unlocks every engine
     mode: 'koder',             // 'koder' | 'qna' | 'image'
     imgStyle: 'auto',          // Image mode style preset
     imgSize: '1344x768',       // Image mode canvas ratio (16:9 default)
@@ -2855,6 +2900,36 @@ $('#brandTitle').onclick = () => showView('home');
 $('#themeQuick').onclick = () => setTheme(S.theme === 'dark' ? 'light' : 'dark');
 
 $$('#themeSeg button').forEach(b => b.onclick = () => setTheme(b.dataset.th));
+
+/* ---------- XR Flagship Pro — subscription unlock ---------- */
+const PRO_CODES = ['XR-FLAGSHIP-2026'];           // keys the master issues after payment
+function syncPro(){
+  const pro = !!S.pro;
+  document.documentElement.classList.toggle('pro', pro);
+  const card = $('#proCard'); if(card) card.hidden = pro;
+  const badge = $('#proBadge'); if(badge) badge.hidden = !pro;
+  if(!pro && S.model !== 'auto' && S.model !== 'glm-4.6' && S.model !== 'glm-4.5-flash'){
+    S.model = 'auto'; save();               // a premium engine picked before — falls back to the free fleet
+  }
+}
+const proUnlockBtn = $('#proUnlockBtn'), proRedeemRow = $('#proRedeemRow'), proKey = $('#proKey');
+if(proUnlockBtn) proUnlockBtn.onclick = () => {
+  proRedeemRow.hidden = !proRedeemRow.hidden;
+  if(!proRedeemRow.hidden) proKey.focus();
+};
+const proRedeemBtn = $('#proRedeemBtn');
+if(proRedeemBtn) proRedeemBtn.onclick = () => {
+  const v = (proKey.value || '').trim().toUpperCase();
+  if(PRO_CODES.indexOf(v) > -1){
+    S.pro = true; save(); syncPro();
+    toast('XR Flagship unlocked — every engine is yours');
+  }else{
+    toast('That key is not valid — DM the master to get a Pro key');
+  }
+  proKey.value = '';
+};
+if(proKey) proKey.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); if(proRedeemBtn) proRedeemBtn.click(); } });
+syncPro();
 $('#googleSignOut').onclick = () => window.parent.postMessage({ type: 'xr-google-signout' }, window.location.origin);
 $('#exportBtn').onclick = exportChats;
 $('#clearBtn').onclick = clearAll;
