@@ -357,6 +357,20 @@ main{flex:1;min-width:0;display:flex;flex-direction:column}
 .att-chip .rm:hover{color:var(--danger);background:var(--panel-3);transform:scale(1.15)}
 .att-chip img{width:26px;height:26px;object-fit:cover;border-radius:6px;flex:none}
 .msg .att-line{display:flex;flex-wrap:wrap;gap:6px}
+/* the attach strip injected into both forms — full-width row, invisible when empty */
+.attach-row{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 100%;min-width:0}
+.attach-row:empty{display:none}
+@media(max-width:640px){
+  .att-chip .nm{max-width:110px}
+  /* phone: chips own row, input own row, send right-aligned — nothing crushed */
+  .big-search{padding:10px 12px 12px}
+  .big-search input,.big-search textarea{flex:1 1 100%;order:6}
+  .big-search .file-btn{order:5}
+  .big-search .send-btn{order:7;margin-left:auto}
+  .composer input,.composer textarea{flex:1 1 100%;order:6}
+  .composer .send-btn{order:7;margin-left:auto}
+  .composer .file-btn,.composer .model-pill{order:5}
+}
 .composer.drop,.big-search.drop{box-shadow:inset 0 0 0 2px var(--accent),var(--shadow)}
 .hero .ver{font-family:var(--font-mono);font-size:11px;color:var(--muted);letter-spacing:.14em}
 .hero .ver b{color:var(--accent);font-weight:600}
@@ -2731,15 +2745,19 @@ if(chatTA){
   }
   async function addFiles(list){
     for(const f of Array.from(list || [])){
-      if(ATT.length >= MAX_FILES){ toast('Up to ' + MAX_FILES + ' files at once'); break; }
-      const isVid = (f.type || '').indexOf('video/') === 0 || VID_RE.test(f.name);
-      if(f.size > (isVid ? VID_BYTES : MAX_BYTES)){ toast(f.name + ' is too large (max ' + (isVid ? 16 : 8) + ' MB)'); continue; }
-      const a = { n: f.name, sz: f.size, ty: f.type || '' };
-      if((f.type || '').indexOf('image/') === 0){
-        const im = await shrinkImage(f);                 // downscaled copy: chip preview + real vision
-        a.d = im.d;
-        a.send = [{ mt: im.mt, b64: im.b64 }];           // actual pixels ride along — the brain sees them
-      }else if(isVid){
+      try{
+        if(ATT.length >= MAX_FILES){ toast('Up to ' + MAX_FILES + ' files at once'); break; }
+        const isVid = (f.type || '').indexOf('video/') === 0 || VID_RE.test(f.name);
+        const IMG_RE = /\.(jpe?g|png|gif|webp|bmp|heic|heif|avif)$/i;
+        const isImg = (f.type || '').indexOf('image/') === 0 || (!f.type && IMG_RE.test(f.name));  // phone cameras often send empty MIME
+        const cap = isImg ? 25 * 1024 * 1024 : (isVid ? VID_BYTES : MAX_BYTES);   // images shrink before send — allow big camera photos
+        if(f.size > cap){ toast(f.name + ' is too large (max ' + (isVid ? 16 : isImg ? 25 : 8) + ' MB)'); continue; }
+        const a = { n: f.name, sz: f.size, ty: f.type || (isImg ? 'image/jpeg' : '') };
+        if(isImg){
+          const im = await shrinkImage(f);                 // downscaled copy: chip preview + real vision
+          a.d = im.d;
+          a.send = [{ mt: im.mt, b64: im.b64 }];           // actual pixels ride along — the brain sees them
+        }else if(isVid){
         a.vid = true;
         a.send = await videoFrames(f);                   // keyframes — the brain watches the clip
       }else if((f.type || '').indexOf('audio/') === 0 || AUD_RE.test(f.name)){
@@ -2754,8 +2772,9 @@ if(chatTA){
       }else if((f.type || '').indexOf('text/') === 0 || (f.type || '').indexOf('json') > -1 || TXT_RE.test(f.name)){
         a.txt = await readText(f);
       }
-      ATT.push(a);
-      draw();
+        ATT.push(a);
+        draw();
+      }catch(e){ toast('Could not attach ' + f.name); }   // one bad file must never kill the loop
     }
   }
   function draw(){
