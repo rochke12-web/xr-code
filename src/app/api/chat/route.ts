@@ -512,24 +512,29 @@ type SearchItem = { name: string; snippet: string; url: string; date?: string };
 // word-for-word with its link, followed by the runner-up results — no model
 // synthesis in between. (Koder keeps the synthesized grounded brain.)
 function googleVerbatim(q: string, items: SearchItem[]): string {
-  const it = items[0];
+  // pick the result that actually ANSWERS, not merely headlines: for rate /
+  // price / number questions the winning snippet is the one carrying a figure
+  // (news headlines like "price rises by Rs 500" have no rate in them and
+  // produced the broken "monkey rate of gold" answers).
+  const wantsFigure = /(price|rate|cost|worth|value|salary|population|temperature|weather|score|height|weight|age|gdp|capita|inflation|exchange)/i.test(q);
+  let it = items[0];
+  if (wantsFigure) {
+    const scored = items
+      .map(x => {
+        const s = `${x.name} ${x.snippet || ""}`;
+        const nums = (s.match(/\d[\d,.]*\s*(rs|npr|usd|\$|€|£|%|per|k|million|billion|tola|gram|kg|km|cm|°)/gi) || []).length;
+        // fresh results matter, but a snippet with a real figure beats a headline
+        const fresh = x.date ? 1 : 0;
+        return { x, score: nums * 3 + fresh + (x.snippet && x.snippet !== x.name ? 2 : 0) };
+      })
+      .sort((a, b) => b.score - a.score);
+    if (scored[0] && scored[0].score > 2) it = scored[0].x;
+  }
   const snip = String(it.snippet || "").trim();
   // News RSS uses the headline as the snippet — don't print the same line twice
-  const body = snip && snip !== it.name ? `\n${snip}\n` : "\n";
-  const top = `${it.name}\n${body}${it.url}${it.date ? ` (${it.date})` : ""}`;
-  const more = items
-    .slice(1, 4)
-    .map((r, i) => {
-      const s = String(r.snippet || "").trim();
-      const line = s && s !== r.name ? `\n   ${s.slice(0, 280)}` : "";
-      return `${i + 2}. ${r.name}${line}\n   ${r.url}`;
-    })
-    .join("\n\n");
-  return (
-    `Google's answer to "${q.slice(0, 120)}" — straight from the top result:\n\n` +
-    top +
-    (more ? `\n\nMore from Google:\n\n${more}` : "")
-  );
+  const body = snip && snip !== it.name ? `\n${snip}` : "";
+  // NO sources, NO links (user directive) — the answer text only
+  return `Google's answer to "${q.slice(0, 120)}":\n\n${it.name}${body}`;
 }
 
 const SEARCH_UA =
