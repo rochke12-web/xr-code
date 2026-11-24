@@ -72,8 +72,8 @@ async function genScene(prompt, spec, label) {
         prompt,
         quality: spec.quality || "speed",
         with_audio: spec.withAudio !== false,
-        size: spec.size || "1920x1080",
-        fps: 30,
+        size: spec.size || "1280x720",
+        fps: 60,
         duration: Number(spec.duration) > 0 ? Number(spec.duration) : 5,
         watermark_enabled: false,   // user directive: never watermark
       };
@@ -173,8 +173,8 @@ async function assemble(files, spec, narrations) {
   for (let i = 0; i < files.length; i++) {
     const out = path.join(dir, `norm_${i}.mp4`);
     const r = await run("ffmpeg", ["-y", "-loglevel", "error", "-i", files[i],
-      "-vf", `fade=t=in:st=0:d=0.25,fade=t=out:st=${Math.max(0, dur - 0.25)}:d=0.25,scale=` + (spec.size || "1920x1080").replace("x", ":") + ":force_original_aspect_ratio=increase,crop=" + (spec.size || "1920x1080").replace("x", ":"),
-      "-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+      "-vf", `fade=t=in:st=0:d=0.25,fade=t=out:st=${Math.max(0, dur - 0.25)}:d=0.25,scale=` + (spec.size || "1280x720").replace("x", ":") + ":force_original_aspect_ratio=increase,crop=" + (spec.size || "1280x720").replace("x", ":"),
+      "-r", "60", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
       "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-t", String(dur), out], { timeout: 300000 });
     if (r.code !== 0) throw new Error("normalize failed: " + r.err.slice(-300));
     norm.push(out);
