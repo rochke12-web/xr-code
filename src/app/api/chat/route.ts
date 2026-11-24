@@ -523,18 +523,29 @@ function googleVerbatim(q: string, items: SearchItem[]): string {
       .map(x => {
         const s = `${x.name} ${x.snippet || ""}`;
         const nums = (s.match(/\d[\d,.]*\s*(rs|npr|usd|\$|€|£|%|per|k|million|billion|tola|gram|kg|km|cm|°)/gi) || []).length;
+        const sn = String(x.snippet || "");
         // fresh results matter, but a snippet with a real figure beats a headline
         const fresh = x.date ? 1 : 0;
-        return { x, score: nums * 3 + fresh + (x.snippet && x.snippet !== x.name ? 2 : 0) };
+        // the DIRECT answer beats forecast tables: snippets that say
+        // today / currently / now, or name the asked quantity itself
+        const nowish = /\b(today|current|currently|right now|now)\b/i.test(sn) ? 5 : 0;
+        const direct = /(is currently|temperature of|rate of|price of|feels like)/i.test(sn) ? 6 : 0;
+        const sentence = /\b(is|are|expected|with|at|around|peaking|dropping)\b/i.test(sn) ? 2 : 0;
+        // forecast tables / truncation junk ("71° · Hazy ; … Read more") are
+        // fragments, not answers — punish them hard
+        const table = /…|Read more|-°F|\|/.test(sn) ? -8 : 0;
+        return { x, score: nums * 3 + nowish + direct + sentence + fresh + table + (sn && sn !== x.name ? 2 : 0) };
       })
       .sort((a, b) => b.score - a.score);
     if (scored[0] && scored[0].score > 2) it = scored[0].x;
   }
   const snip = String(it.snippet || "").trim();
-  // News RSS uses the headline as the snippet — don't print the same line twice
-  const body = snip && snip !== it.name ? `\n${snip}` : "";
+  // "copy paste the answer of google, copy exact" — when the snippet IS the
+  // answer sentence (temperature / rate figures), ship only the snippet;
+  // headlines-only results (snippet === name) fall back to the headline.
+  const answer = snip && snip !== it.name && snip.length > 60 ? snip : it.name;
   // NO sources, NO links (user directive) — the answer text only
-  return `Google's answer to "${q.slice(0, 120)}":\n\n${it.name}${body}`;
+  return `Google's answer to "${q.slice(0, 120)}":\n\n${answer}`;
 }
 
 const SEARCH_UA =
@@ -641,14 +652,16 @@ async function googleSearch(q: string): Promise<SearchItem[]> {
     merged.push(it);
     if (merged.length >= 8) break;
   }
-  if (merged.length < 3) {
-    for (const it of await hostedSearch(q)) {
-      const key = it.url.replace(/[?#].*$/, "").toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      merged.push(it);
-      if (merged.length >= 8) break;
-    }
+  // hosted results ALWAYS ride along (was: only when merged.length < 3): their
+  // snippets carry the real answer figures (actual temperature / rate), while
+  // news+duck alone often fill the pool with bare headlines — exactly what
+  // broke QnA verbatim ("butwal temperature" had no temperature in it).
+  for (const it of await hostedSearch(q)) {
+    const key = it.url.replace(/[?#].*$/, "").toLowerCase();
+    if (!it.url || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(it);
+    if (merged.length >= 12) break;
   }
   return merged;
 }
