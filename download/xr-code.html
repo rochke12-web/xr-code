@@ -1386,7 +1386,11 @@ window.xrHWID = (function(){
   }catch(e){ return 'anonfallback0xr'; }
 })();
 window.xrGuestHeaders = function(){ return { 'x-xr-hwid': window.xrHWID }; };
+// guest state: the lock screen writes sessionStorage 'xr-guest-mode' — the
+// srcdoc iframe shares its origin, so read it directly at boot (no race with
+// the parent's postMessage); the message listener stays for live updates
 window.__xrGuest = false;
+try{ window.__xrGuest = window.sessionStorage.getItem('xr-guest-mode') === '1'; }catch(e){}
 window.addEventListener('message', function(ev){
   if(ev.origin !== window.location.origin) return;
   if(ev.data && ev.data.type === 'xr-guest-mode' && ev.data.guest){ window.__xrGuest = true; if(window.renderAccounts) renderAccounts(); }
