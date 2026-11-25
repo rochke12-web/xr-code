@@ -541,10 +541,22 @@ function googleVerbatim(q: string, items: SearchItem[]): string {
     if (scored[0] && scored[0].score > 2) it = scored[0].x;
   }
   const snip = String(it.snippet || "").trim();
+  // truncation junk ("… Read more", "; …") is cut, not shipped — the answer
+  // sentence in front of it is what Google actually showed
+  const clean = (s: string) => s.replace(/\s*[;|]?\s*(…|\.\.\.)\s*(Read more)?\s*$/i, "").trim();
   // "copy paste the answer of google, copy exact" — when the snippet IS the
   // answer sentence (temperature / rate figures), ship only the snippet;
   // headlines-only results (snippet === name) fall back to the headline.
-  const answer = snip && snip !== it.name && snip.length > 60 ? snip : it.name;
+  let answer = snip && snip !== it.name && clean(snip).length > 40 ? clean(snip) : it.name;
+  // A bare headline is NOT Google's answer ("Butwal, P5, NP Current Weather -
+  // The Weather Network" carries no temperature). Before settling for one,
+  // hunt the rest of the pool for a figure-bearing answer snippet.
+  if (answer === it.name) {
+    const fig = items
+      .map(x => clean(String(x.snippet || "")))
+      .find(s => s && s.length > 40 && /\d/.test(s) && !/Read more$/.test(s));
+    if (fig) answer = fig;
+  }
   // EXACT paste (user directive): the snippet alone — zero chrome, zero
   // prefix, zero sources. Whatever Google showed is what the user reads.
   return answer;
