@@ -15,4 +15,8 @@ export const XR_SECRETS = {
   // Server-side only — this file is never imported by client components.
   PRIME_API_BASE: "https://r1de49ege2k1-d.space-z.ai",
   PRIME_API_KEY: "sk-gw-2d2877685ca7eadff273f709a82781f0042556ead44b7d8a",
+  // OpenRouter — every model on one OpenAI-compatible endpoint (openrouter.ai).
+  // Set OPENROUTER_API_KEY as a Vercel env var (it wins over this fallback);
+  // empty fallback = the OR lanes skip in ms and the existing chains answer.
+  OPENROUTER_API_KEY: "",
 };

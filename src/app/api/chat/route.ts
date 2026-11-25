@@ -901,6 +901,86 @@ async function plChat(
 // probing them is nearly free. Tried in order; the first live one answers.
 const FALLBACK_MODELS = [GLM_FIRST, "dpsk-4.1-flash", "dpsk-4.1", "glm-4.6", "argon-1.0"];
 
+// ---- OpenRouter — every model on one OpenAI-compatible endpoint ----
+// "for my every fields use openrouter every model possible": every text field
+// of the brain (koder / qna / sight / agent + the vision preprocessor) gets
+// OpenRouter lanes. ANY catalog id rides the `or:` namespace ("or:qwen/qwen3-
+// 235b-a22b", "or:openrouter/auto" — the auto-router picks per request), plus
+// the short aliases below. No key (OPENROUTER_API_KEY env) → lanes skip in ms
+// and the existing chains answer untouched — the chat never goes dark.
+const OR_KEY = () => process.env.OPENROUTER_API_KEY || XR_SECRETS.OPENROUTER_API_KEY || "";
+const OR_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OR_RANKING: Record<string, string> = {
+  "or:": "openrouter/auto", // bare "or:" rides the auto-router
+  "or:auto": "openrouter/auto", // per-request best pick on OpenRouter itself
+  "or:sonar": "perplexity/sonar", // built-in live web search
+  "or:kimi": "moonshotai/kimi-k2", // the hosted brain's family, via OR
+  "or:glm": "z-ai/glm-4.6",
+  "or:deepseek": "deepseek/deepseek-chat-v3.1",
+  "or:deepseek-r1": "deepseek/deepseek-r1",
+  "or:llama": "meta-llama/llama-3.3-70b-instruct",
+  "or:qwen": "qwen/qwen3-235b-a22b",
+  "or:mistral": "mistralai/mistral-large-2411",
+  "or:grok": "x-ai/grok-4",
+  "or:gemini-flash": "google/gemini-2.5-flash",
+  "or:gemini-pro": "google/gemini-2.5-pro",
+  "or:gpt": "openai/gpt-4o",
+  "or:gpt-mini": "openai/gpt-4o-mini",
+  "or:claude": "anthropic/claude-sonnet-4.5",
+  "or:haiku": "anthropic/claude-3.5-haiku",
+};
+// "or:<anything>" → the raw catalog id ("every model possible"); aliases resolve
+// through the ranking. Everything else → null (not an OpenRouter pick).
+function orResolve(wanted: string): string | null {
+  if (!wanted.startsWith("or:")) return null;
+  const id = OR_RANKING[wanted] || wanted.slice(3);
+  return /^[a-z0-9][a-z0-9._/-]*$/i.test(id) ? id : null;
+}
+type ORMsg = { role: "system" | "user" | "assistant"; content: string | ({ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } })[] };
+// one POST to OpenRouter; text + real usage or null (caller walks the chain)
+async function orChat(
+  model: string,
+  sys: string,
+  msgs: { role: "user" | "assistant"; content: string }[],
+  imgs: { mt: string; b64: string }[] = []
+): Promise<{ text: string; tokens: number } | null> {
+  if (!OR_KEY()) return null; // keyless — skip in ms, chain continues
+  try {
+    const messages: ORMsg[] = [{ role: "system", content: sys }, ...msgs];
+    if (msgs.length) {
+      const last = messages[messages.length - 1];
+      if (imgs.length && typeof last.content === "string") {
+        // multimodal: vision preprocessor rides the same endpoint
+        const content: Extract<ORMsg["content"], unknown[]> = [{ type: "text", text: last.content }];
+        for (const im of imgs) content.push({ type: "image_url", image_url: { url: `data:${im.mt};base64,${im.b64}` } });
+        last.content = content;
+      }
+    }
+    const res = (await Promise.race([
+      fetch(OR_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OR_KEY()}`,
+          "HTTP-Referer": "https://xr-code.vercel.app",
+          "X-Title": "XR-Code",
+        },
+        body: JSON.stringify({ model, messages, max_tokens: 4096 }),
+        signal: AbortSignal.timeout(30000),
+      }),
+      new Promise<null>(r => setTimeout(() => r(null), 32000)),
+    ])) as Response | null;
+    if (!res || !res.ok) return null; // 401 keyless / 404 unknown id / 429 dry — walk the chain
+    const j = (await res.json().catch(() => null)) as { choices?: { message?: { content?: string } }[]; usage?: { total_tokens?: number } } | null;
+    const text = String(j?.choices?.[0]?.message?.content || "").trim();
+    if (!text) return null;
+    const fallback = estTokens(sys) + msgs.reduce((a, m) => a + estTokens(m.content), 0) + imgs.length * 850 + estTokens(text);
+    return { text, tokens: typeof j?.usage?.total_tokens === "number" ? j.usage.total_tokens : fallback };
+  } catch {
+    return null;
+  }
+}
+
 // Anthropic-style /v1/messages caller. Returns text or null (null = any
 // failure — the caller's chain just moves to the next engine).
 async function primeChat(sys: string, msgs: { role: "user" | "assistant"; content: string }[], model: string): Promise<{ text: string; tokens: number } | null> {
@@ -1017,6 +1097,13 @@ async function spendLane(
   msgs: { role: "user" | "assistant"; content: string }[],
   tally: { n: number }
 ): Promise<ChatResult> {
+  if (engine.startsWith("or:")) {
+    const m = orResolve(engine);
+    if (!m) return { text: null, quota: false };
+    const r = await orChat(m, sys, msgs);
+    tally.n += r?.tokens || 0;
+    return { text: r?.text || null, quota: false, tokens: r?.tokens || 0 };
+  }
   if (engine.startsWith("pl:")) return plChat(engine.slice(3), sys, msgs);
   if (SEARCH_RANKED.has(engine) || engine.includes("/")) return plChat(engine, sys, msgs); // gen-host catalog lane
   if (PRIME_MODELS.has(engine)) {
@@ -1081,6 +1168,21 @@ function imagesOf(content: unknown): { mt: string; b64: string }[] {
 async function describeImages(imgs: { mt: string; b64: string }[]): Promise<string> {
   if (!imgs.length) return "";
   try {
+    // OpenRouter vision lane first (keyed): any multimodal catalog model on
+    // the one endpoint — same "every field rides OpenRouter" rule as the text
+    // lanes. Keyless → skips in ms and the GLM preprocessor answers below.
+    if (OR_KEY()) {
+      const r = await orChat(
+        "google/gemini-2.5-flash",
+        "You are the vision preprocessor of a chat app. For EACH attached image, in order, " +
+          "write exactly one line: 'Image N: <description>'. Describe concretely what is shown " +
+          "(objects, colors, scene, layout) and transcribe ALL visible text verbatim. " +
+          "No preamble, no extra lines.",
+        [{ role: "user", content: "Describe the attached images." }],
+        imgs
+      );
+      if (r) return r.text;
+    }
     const zai = await getZAI();
     if (!zai) return ""; // vision preprocessing down → fall back to blind text notes
     const content: Extract<VisionMessage["content"], unknown[]> = [
@@ -1227,7 +1329,9 @@ export async function POST(req: Request) {
   const lastUser = [...safe].reverse().find(m => m.role === "user");
   // one brain, one engine: Kimi AI primary, always
   const wanted = typeof body?.model === "string" ? body.model.trim() : "";
-  const chosen = KNOWN_MODELS.has(wanted)
+  const chosen = orResolve(wanted) // OpenRouter picks — "or:<any catalog id>"
+    ? wanted
+    : KNOWN_MODELS.has(wanted)
     ? wanted
     : SEARCH_RANKING[wanted] ||
       (/^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9.:-]{1,60}$/i.test(wanted) ? wanted : PRIMARY);
@@ -1416,15 +1520,22 @@ export async function POST(req: Request) {
   // rides LAST as an extra emergency lane (separate quota bucket) before the
   // honest outage bubble.
   const plPick = plResolve(chosen);
-  const chain: string[] = plPick
-    ? [`pl:${plPick}`, PL_FREE] // studio pick rides the reachable gateway; free net catches a dead/absent key
-    : PRIME_MODELS.has(chosen)
-      ? [chosen, PL_FREE, ...FALLBACK_MODELS]
-      : [PL_FREE, chosen, ...FALLBACK_MODELS.filter(m => m !== chosen), PRIME_FLASH];
+  const orPick = orResolve(chosen);
+  // OpenRouter emergency rungs ride EVERY chain once the key lands ("every
+  // field"): keyed they add two cheap multimodal lanes to each walk; keyless
+  // they never even attach (no wasted calls against the free nets).
+  const OR_RUNGS = OR_KEY() ? ["or:google/gemini-2.5-flash", "or:openai/gpt-4o-mini"] : [];
+  const chain: string[] = orPick
+    ? [chosen, PL_FREE, ...FALLBACK_MODELS] // OpenRouter pick leads; free net catches a dead/dry key
+    : plPick
+      ? [`pl:${plPick}`, PL_FREE, ...OR_RUNGS]
+      : PRIME_MODELS.has(chosen)
+        ? [chosen, PL_FREE, ...OR_RUNGS, ...FALLBACK_MODELS]
+        : [PL_FREE, chosen, ...OR_RUNGS, ...FALLBACK_MODELS.filter(m => m !== chosen), PRIME_FLASH];
   // QnA IS the search engine: the arena's top real search model leads the walk
   // (its Google grounding rides along via googleContext); keyless it fails in
   // ms and the free fleet answers.
-  if (mode === "qna" && !SEARCH_RANKED.has(chosen) && !plPick && !PRIME_MODELS.has(chosen)) {
+  if (mode === "qna" && !SEARCH_RANKED.has(chosen) && !plPick && !orPick && !PRIME_MODELS.has(chosen)) {
     chain.unshift(`pl:${SEARCH_DEFAULT}`); // ranked brain when keyed
     // keyless: the qwen default 401s in ms without a key — the verified-live
     // GLM lane synthesizes the answer first (probe 2026-11-24: 200 in ~1s),
