@@ -514,7 +514,7 @@ type SearchItem = { name: string; snippet: string; url: string; date?: string };
 // Google's answer, copy-pasted. The top result's title + snippet ship
 // word-for-word with its link, followed by the runner-up results — no model
 // synthesis in between. (Koder keeps the synthesized grounded brain.)
-function googleVerbatim(q: string, items: SearchItem[]): string {
+function googleVerbatim(q: string, items: SearchItem[]): string | null {
   // pick the result that actually ANSWERS, not merely headlines: for rate /
   // price / number questions the winning snippet is the one carrying a figure
   // (news headlines like "price rises by Rs 500" have no rate in them and
@@ -549,19 +549,18 @@ function googleVerbatim(q: string, items: SearchItem[]): string {
   // "copy paste the answer of google, copy exact" — when the snippet IS the
   // answer sentence (temperature / rate figures), ship only the snippet;
   // headlines-only results (snippet === name) fall back to the headline.
-  let answer = snip && snip !== it.name && clean(snip).length > 40 ? clean(snip) : it.name;
-  // A bare headline is NOT Google's answer ("Butwal, P5, NP Current Weather -
-  // The Weather Network" carries no temperature). Before settling for one,
-  // hunt the rest of the pool for a figure-bearing answer snippet.
-  if (answer === it.name) {
+  let answer = snip && snip !== it.name && clean(snip).length > 40 ? clean(snip) : "";
+  // hunt the rest of the pool for a figure-bearing answer snippet
+  if (!answer) {
     const fig = items
       .map(x => clean(String(x.snippet || "")))
       .find(s => s && s.length > 40 && /\d/.test(s) && !/Read more$/.test(s));
     if (fig) answer = fig;
   }
-  // EXACT paste (user directive): the snippet alone — zero chrome, zero
-  // prefix, zero sources. Whatever Google showed is what the user reads.
-  return answer;
+  // No real snippet anywhere → null: a bare news headline is NOT Google's
+  // answer ("… Recreates 'Luv Kush' Song … - INDIA New England News" answers
+  // nothing) — the caller falls through to the grounded brain instead.
+  return answer || null;
 }
 
 const SEARCH_UA =
@@ -1252,14 +1251,11 @@ export async function POST(req: Request) {
       // "copy paste the googles answer in qna mode"). No results → the LLM
       // chain answers below as usual.
       if (mode === "qna" && lastSearch.length) {
+        // verbatim paste when the pool holds a real answer snippet; null
+        // (bare headlines only) → the grounded brain answers from the
+        // attached search block in the app's own words.
         const verbatim = googleVerbatim(searchQuery(safe), lastSearch);
-        // a bare headline is NOT an answer ("Butwal, P5, NP Current Weather -
-        // The Weather Network" carries no temperature): when the verbatim pool
-        // holds no real snippet, fall through to the grounded brain instead —
-        // the search block is attached, so the answer composes from the live
-        // results in the app's own words.
-        const bare = !/\d/.test(verbatim) && lastSearch.some(x => x.name === verbatim);
-        if (!bare) {
+        if (verbatim) {
           return done({
             ok: true,
             text: verbatim,
