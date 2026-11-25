@@ -127,6 +127,18 @@ const SYSTEM_KODER =
   "then a one-line why-it-works. " +
   "• Explanations: simple, accurate, step by step, one concrete example. " +
   "• Never invent APIs, libraries, flags or quotes. If unsure, say so plainly and give the closest verified answer. " +
+  "• MOTION GRAPHICS VIDEOS — when the user asks for an animated explainer / motion-graphics video (especially " +
+  "video mode: 'make a video about X', 'animated explainer'), reply with ONLY this JSON directive (no code fences):\n" +
+  '{"action":"mograph","style":"<creator-motion-graphics | clean-tech | data-story>","title":"<short title>","duration":<seconds 10-60>,"code":"<JS story>"}\n' +
+  "The code is browser JavaScript rendered on a 1280x720 canvas with t = seconds. It MUST define exactly:\n" +
+  "var EDIT = { D: <duration seconds>, SPANS: [[0, D]], draw: function(ctx, t) { ... } };\n" +
+  "Rules for the code: SELF-CONTAINED — define your own colors, helper functions and easing inside it " +
+  "(u = Math.max(0, Math.min(1, (t - a) / (b - a))) for an entrance from a to b); pick fonts via ctx.font using the " +
+  "style's families (creator-motion-graphics: 'Anton' + 'Instrument Serif' italic + 'Inter'; clean-tech: 'Inter Tight' + " +
+  "'JetBrains Mono'; data-story: 'Archivo' + 'IBM Plex Mono'). Every frame is a PURE function of t — seeded " +
+  "determinism only (no Math.random, no images, no network, no DOM calls besides the ctx argument). Chain 3-6 scenes " +
+  "across the duration, each with an animated entrance, on-screen time, and an exit; add kinetic captions for the key " +
+  "words. The app plays it and records it to WebM for the user. " +
   "• Any question (facts, knowledge, advice, current events): lead with the direct answer in the first " +
   "sentence, then a few crisp supporting facts. When live results are attached, READ ALL of them and " +
   "synthesize one answer in your own words — compare sources, keep the freshest and most consistent facts " +
@@ -233,6 +245,7 @@ type Action =
   | { action: "image" | "video"; prompt: string; size?: string; with_audio?: boolean; model?: string }
   | { action: "file" | "zip"; name: string; files: { name: string; content: string }[] }
   | { action: "exe" | "dll"; name: string; lang?: string; files: { name: string; content: string }[] }
+  | { action: "mograph"; style: string; title: string; duration: number; code: string }
   | { action: "search"; query: string };
 
 // a real directive is a SHORT reply that IS a JSON object — long answers with a
@@ -243,7 +256,8 @@ function parseAction(reply: string | null): Action | null {
   if (!reply) return null;
   const s = reply.trim().replace(/^```[a-z]*\s*/i, "").replace(/\s*```$/, "").trim();
   const isFileDir = s.startsWith('{"action":"file"') || s.startsWith('{"action":"zip"') || s.startsWith('{"action":"exe"') || s.startsWith('{"action":"dll"');
-  if (s.length > (isFileDir ? 600000 : 600) || !s.startsWith("{")) return null;
+  const isMo = s.startsWith('{"action":"mograph"'); // motion-graphics story code rides the directive too
+  if (s.length > (isFileDir ? 600000 : isMo ? 200000 : 600) || !s.startsWith("{")) return null;
   try {
     const o = JSON.parse(s) as Record<string, unknown>;
     if (o.action === "search" && typeof o.query === "string" && o.query.trim().length > 1) {
@@ -259,6 +273,19 @@ function parseAction(reply: string | null): Action | null {
         size: typeof o.size === "string" ? o.size : undefined,
         with_audio: o.with_audio === true,
         model: typeof (o as { model?: unknown }).model === "string" ? (o as { model: string }).model.slice(0, 60) : undefined,
+      };
+    }
+    if (o.action === "mograph") {
+      const code = String((o as { code?: unknown }).code ?? "");
+      if (code.length < 200 || !/EDIT\s*=/.test(code) || !/draw\s*[:(]/.test(code)) return null;
+      const style = String((o as { style?: unknown }).style || "creator-motion-graphics");
+      return {
+        action: "mograph",
+        style: (["creator-motion-graphics", "clean-tech", "data-story"] as const).includes(style as "clean-tech") ? style : "creator-motion-graphics",
+        title: String((o as { title?: unknown }).title || "Motion graphics").slice(0, 80),
+        duration: Math.max(4, Math.min(120, Number((o as { duration?: unknown }).duration) || 20)),
+        // srcdoc-safe: a literal </script inside the story code would close the player document early
+        code: code.replace(/<\/script/gi, "<\\/script").slice(0, 150000),
       };
     }
     if (o.action === "file" || o.action === "zip" || o.action === "exe" || o.action === "dll") {
@@ -1457,6 +1484,17 @@ export async function POST(req: Request) {
         });
         continue;
       }
+      // motion graphics — rendered client-side from the story code (no server asset)
+      if (a.action === "mograph") {
+        return done({
+          ok: true,
+          text: "Motion graphics ready — playing in the studio. Hit record inside to save the WebM.",
+          engine: "xr-code",
+          mode,
+          mograph: { style: a.style, title: a.title, duration: a.duration, code: a.code },
+          trace,
+        });
+      }
       // image / video generation
       trace.push(`${a.action} ✓`);
       const asset = await runCreation(a, uid, master);
@@ -1610,6 +1648,17 @@ export async function POST(req: Request) {
     const out = googleOutage();
     if (out) return out;
     return done({ ok: true, text: outageReply(mode), engine: "xr-code", mode, vision: visionBlock || undefined });
+  }
+
+  // motion graphics — story code ships to the client, rendered + recorded in-browser
+  if (act.action === "mograph") {
+    return done({
+      ok: true,
+      text: "Motion graphics ready — playing in the studio. Hit record inside to save the WebM.",
+      engine: engineUsed || "xr-code",
+      mode,
+      mograph: { style: act.style, title: act.title, duration: act.duration, code: act.code },
+    });
   }
 
   // creation request — build the real asset, then present it in one natural line
