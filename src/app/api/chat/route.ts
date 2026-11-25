@@ -550,12 +550,14 @@ function googleVerbatim(q: string, items: SearchItem[]): string | null {
   // answer sentence (temperature / rate figures), ship only the snippet;
   // headlines-only results (snippet === name) fall back to the headline.
   let answer = snip && snip !== it.name && clean(snip).length > 40 ? clean(snip) : "";
-  // hunt the rest of the pool for a figure-bearing answer snippet
+  // hunt the rest of the pool for a figure-bearing answer snippet — SNIPPETS
+  // ONLY: news items ride snippet === name (a headline), and a headline with a
+  // digit in it ("Part 1 … massive budget") is still not an answer
   if (!answer) {
     const fig = items
-      .map(x => clean(String(x.snippet || "")))
-      .find(s => s && s.length > 40 && /\d/.test(s) && !/Read more$/.test(s));
-    if (fig) answer = fig;
+      .map(x => ({ s: clean(String(x.snippet || "")), x }))
+      .find(t => t.s && t.s !== t.x.name && t.s.length > 40 && /\d/.test(t.s) && !/Read more$/.test(t.s));
+    if (fig) answer = fig.s;
   }
   // No real snippet anywhere → null: a bare news headline is NOT Google's
   // answer ("… Recreates 'Luv Kush' Song … - INDIA New England News" answers
