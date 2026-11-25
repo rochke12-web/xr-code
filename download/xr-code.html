@@ -1650,6 +1650,46 @@ window.XR_MG_OPEN = function(m){
   fr.srcdoc = doc;
 };
 
+/* ---------- video job poller — async renders, no more 502 loops ---------- */
+/* The server only CREATES the render task (a multi-minute render can never fit
+ * Vercel's 60s function window — the old inline wait got every video 502'd,
+ * which the client answered with "busy · retrying…" for minutes). The ticket
+ * from d.videoJob is polled here at 6s cadence; the finished clip swaps into
+ * the chat and syncs to the account like any other asset. */
+window.XR_VIDEO_POLL = function(c, tid){
+  if(!tid) return;
+  const msg = c.messages[c.messages.length - 1];       // the "rendering…" reply just typed
+  const box = $('#msgs');
+  const ph = document.createElement('div'); ph.className = 'msg a';
+  const who = document.createElement('span'); who.className = 'who'; who.textContent = 'XR Code';
+  const body = document.createElement('div'); body.className = 'bubble';
+  body.textContent = '🎬 Rendering your video — this usually takes 1-3 minutes…';
+  ph.append(who, body);
+  if(currentChat().id === c.id) box.append(ph);
+  box.scrollTop = box.scrollHeight;
+  let tries = 0;
+  const iv = setInterval(async () => {
+    tries++;
+    if(tries > 100){ clearInterval(iv); if(ph.isConnected) ph.remove(); return; }  // ~10 min, then give up quietly
+    try{
+      const r = await fetch(API_BASE + '/api/video-status?tid=' + encodeURIComponent(tid), { cache: 'no-store' });
+      const j = await r.json().catch(() => null);
+      if(!j || !j.ok) return;                                          // auth blip — keep polling
+      if(!j.done) return;                                              // still rendering
+      clearInterval(iv);
+      ph.remove();
+      if(j.url){
+        if(msg && msg.r === 'a'){ msg.asset = { type: 'video', url: j.url, cover: j.cover }; save(); }
+        if(currentChat().id === c.id && curView === 'chat') renderChat();
+        toast('Your video is ready');
+      }else{
+        if(msg && msg.r === 'a'){ msg.t += '\n\n(The video engine failed to finish this render — ask again and I\'ll take another run.)'; save(); }
+        if(currentChat().id === c.id && curView === 'chat') renderChat();
+      }
+    }catch(e){ /* network blip — next tick retries */ }
+  }, 6000);
+};
+
 /* ---------- toasts ---------- */
 function toast(msg){
   const t = document.createElement('div');
@@ -2527,6 +2567,7 @@ async function askBrain(c, text, atts){
     NET.live = true; renderStatus();
     typeReply(c, Object.assign(splitFence((d.text || '').trim()), { asset: d.asset }), pen);
     if(d.mograph && d.mograph.code){ try{ window.XR_MG_OPEN(d.mograph); }catch(e){} }  // motion studio opens over the chat
+    if(d.videoJob && d.videoJob.tid){ try{ window.XR_VIDEO_POLL(c, d.videoJob.tid); }catch(e){} }  // async render — clip swaps in when ready
     return;
   }
   chip.textContent = 'offline';

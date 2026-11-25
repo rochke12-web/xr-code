@@ -8,6 +8,7 @@ import { firebaseDb, verifiedGoogleSession } from "../../../lib/firebase-server"
 import { reserveDailyMessage } from "../../../lib/daily-message-policy.mjs";
 import { guestIdentity, reserveGuestMessage } from "../../../lib/guest-mode";
 import { XR_SECRETS } from "../../../lib/xrsecrets";
+import { startVideoGen } from "../../../lib/videogen";
 import { addUsage, overLimit, DAILY_TOKEN_LIMIT, estTokens, mediaOverLimit, addMedia } from "../../../lib/xrstore";
 import { loadByok, byokChat } from "../../../lib/xrkeys";
 import { MASTER_EMAIL } from "../../../lib/admin";
@@ -36,6 +37,7 @@ const gatewaySick = () => Date.now() < GATEWAY_SICK_UNTIL;
 // from slow lanes again.
 let REQ_END = 0;
 const pastDeadline = () => REQ_END > 0 && Date.now() > REQ_END;
+const leftMs = () => Math.max(0, REQ_END - Date.now());
 type ZAIClient = Awaited<ReturnType<typeof ZAI.create>>;
 async function getZAI(): Promise<ZAIClient | null> {
   if (ZAI_DEAD) return null;
@@ -382,10 +384,15 @@ async function produceFiles(act: { action: string; name?: string; files: { name:
   }
 }
 
+// VIDEO factory moved to lib/videogen.ts — split for serverless: the POST
+// only CREATES the task (≤30s); the finished clip arrives via /api/video-status
+// polling from the client. The old inline 6-minute poll loop blew Vercel's
+// 60s kill → 502 → the client's "busy · retrying…" loop.
 // one creation dispatcher for every tool site (image / video / file / zip / exe / dll)
 async function runCreation(act: Action, uid: string, unlimited = false): Promise<{ url: string; name?: string; size?: number; cover?: string; kind?: string; limit?: string } | null> {
   if (act.action === "image") return runImageGen(act.prompt, act.size);
-  if (act.action === "video") return runVideoGen(act.prompt, act.with_audio === true, act.model, uid, unlimited);
+  // video never reaches here — the POST intercepts and returns a job ticket
+  if (act.action === "video") return null;
   if (act.action === "file" || act.action === "zip") return produceFiles(act);
   // exe / dll — real Windows binary; if the compile fails the sources the
   // brain already wrote are still delivered as a zip (never an empty answer)
@@ -401,111 +408,6 @@ async function runCreation(act: Action, uid: string, unlimited = false): Promise
   return null;
 }
 
-// VIDEO_MODEL ladder — free-tier video models from the arena leaderboard
-// (2026-11-22), arena display names mapped to gateway-style ids, best score
-// first. Self-healing: an unsupported id errors INSTANTLY at create() and the
-// chain falls through; the last rung is the gateway default (no model field),
-// which is the proven lane — video mode always ships something. Vercel logs
-// show which ids actually serve; prune the dead ones as evidence arrives.
-const VIDEO_MODELS: (string | undefined)[] = [
-  "grok-imagine-video-1.5",   // arena #4, 1488
-  "skyreels-v4",              // arena #8, 1459
-  "muse-video",               // arena #10, 1457
-  "happyhorse-1.0",           // arena #12, 1429
-  "veo-3-fast",               // arena #26, 1250 (fast+free beats slow on the ladder)
-  undefined,                  // gateway default — proven lane, always last
-];
-
-async function runVideoGen(prompt: string, withAudio: boolean, pick: string | undefined, uid: string, unlimited = false): Promise<{ url: string; cover?: string; limit?: string } | null> {
-  try {
-    // free-tier gate — user directive: 3 videos/day per account, counted only
-    // on SUCCESS (a failed render never eats the allowance). The master
-    // account (owner) films without a daily cap.
-    const q = unlimited
-      ? { over: false, used: 0, limit: 0, day: "" }
-      : await mediaOverLimit(uid, "video");
-    if (q.over) {
-      return { url: "", limit: `You've used all ${q.limit} free videos for today on this account — it resets at 00:00 UTC. Images are still open (10/day), and your chats are safe.` };
-    }
-    const ladder: (string | undefined)[] =
-      pick && pick !== "auto" ? [pick, undefined] : VIDEO_MODELS;
-    // create the task — walk the model ladder; on 429 rate-limit wait 45s and retry once
-    let task: { id?: string } | null = null;
-    for (const m of ladder) {
-      for (let a = 0; a < 2 && !task; a++) {
-        try {
-          const zai = await getZAI();
-          if (!zai) return null;
-          const body: Record<string, unknown> = {
-            prompt,
-            quality: "speed",
-            with_audio: withAudio,
-            size: "1920x1080",
-            fps: 30,
-            duration: 5,
-          };
-          if (m) body.model = m;
-          task = (await Promise.race([
-            zai.video.generations.create(body as Parameters<typeof zai.video.generations.create>[0]),
-            new Promise<null>(r => setTimeout(() => r(null), 30000)),
-          ])) as { id?: string } | null;
-          if (!task?.id) console.error("[videogen] create attempt", a, m || "default", "returned no id");
-        } catch (e) {
-          const msg = String(e);
-          console.error("[videogen] create attempt", a, m || "default", "threw:", msg.slice(0, 200));
-          if (/fetch failed|UND_ERR_CONNECT|ECONNREFUSED|ETIMEDOUT/i.test(msg)) {
-            ZAI_DEAD = true; // gateway host unreachable from this network (Vercel→gateway blocked) — skip all gateway rungs instantly
-            return null;
-          }
-          if (msg.includes("429") && a < 1) {
-            console.error("[videogen] rate-limited — waiting 45s");
-            await new Promise(r => setTimeout(r, 45000));
-          } else if (msg.includes("429")) {
-            return null; // 429 is account-global — no point walking the ladder
-          } else {
-            break; // invalid model / hard error → next rung of the ladder
-          }
-        }
-      }
-      if (task?.id) break;
-    }
-    if (!task?.id) return null;
-    const zai = await getZAI();
-    if (!zai) return null;
-    // speed-critical polling: query immediately (tasks CAN finish fast), then
-    // every 3s — the old 10s-then-check loop added up to ~20s of dead air to
-    // every job even when the engine had already finished rendering
-    for (let i = 0; i < 120; i++) {
-      if (i > 0) await new Promise(r => setTimeout(r, 3000));
-      // query — retry once on a null race so a single blip doesn't waste a poll cycle
-      let r: { task_status?: string; video_result?: { url?: string; cover_image_url?: string }[] } | null = null;
-      for (let q = 0; q < 2 && !r; q++) {
-        try {
-          r = (await Promise.race([
-            zai.async.result.query(task.id),
-            new Promise<null>(x => setTimeout(() => x(null), 8000)),
-          ])) as { task_status?: string; video_result?: { url?: string; cover_image_url?: string }[] } | null;
-        } catch (e) {
-          console.error("[videogen] query threw:", String(e).slice(0, 200));
-        }
-      }
-      if (r?.task_status === "SUCCESS") {
-        const url = r.video_result?.[0]?.url;
-        if (!url) { console.error("[videogen] SUCCESS but no url"); return null; }
-        // count against the 3/day cap only after a real render lands
-        try { await addMedia(uid, "videos", 1); } catch { /* quota store hiccup never eats the video */ }
-        return { url, cover: r.video_result?.[0]?.cover_image_url };
-      }
-      if (r?.task_status === "FAIL") { console.error("[videogen] task FAIL"); return null; }
-    }
-    console.error("[videogen] polling window exhausted");
-    return null; // timed out — composer apologizes
-  } catch (e) {
-    console.error("[videogen] outer error:", String(e).slice(0, 200));
-    if (/fetch failed|UND_ERR_CONNECT|ECONNREFUSED|ETIMEDOUT/i.test(String(e))) ZAI_DEAD = true;
-    return null;
-  }
-}
 
 // does this message deserve live web results?
 // knowledge / current-info questions — yes. pure code tasks and math/reasoning — no.
@@ -1004,9 +906,9 @@ async function orChat(
           "X-Title": "XR-Code",
         },
         body: JSON.stringify({ model, messages, max_tokens: 4096 }),
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(Math.min(30_000, Math.max(6_000, leftMs() - 4_000))),
       }),
-      new Promise<null>(r => setTimeout(() => r(null), 32000)),
+      new Promise<null>(r => setTimeout(() => r(null), Math.min(32_000, Math.max(7_000, leftMs() - 3_000)))),
     ])) as Response | null;
     if (!res || !res.ok) return null; // 401 keyless / 404 unknown id / 429 dry — walk the chain
     const j = (await res.json().catch(() => null)) as { choices?: { message?: { content?: string } }[]; usage?: { total_tokens?: number } } | null;
@@ -1047,9 +949,9 @@ async function primeChat(sys: string, msgs: { role: "user" | "assistant"; conten
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${PRIME_KEY}` },
         body: JSON.stringify({ model, max_tokens: 4096, system: sys, messages: clean }),
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(Math.min(25_000, Math.max(6_000, leftMs() - 4_000))),
       }),
-      new Promise<null>(r => setTimeout(() => r(null), 27000)),
+      new Promise<null>(r => setTimeout(() => r(null), Math.min(27_000, Math.max(7_000, leftMs() - 3_000)))),
     ])) as Response | null;
     if (!res || !res.ok) return null;
     const d = (await res.json()) as { content?: { type?: string; text?: string }[]; usage?: { input_tokens?: number; output_tokens?: number } };
@@ -1135,7 +1037,7 @@ async function spendLane(
   msgs: { role: "user" | "assistant"; content: string }[],
   tally: { n: number }
 ): Promise<ChatResult> {
-  if (pastDeadline()) return { text: null, quota: false }; // window nearly gone — end the walk
+  if (leftMs() < 12_000) return { text: null, quota: false }; // not enough window for even a fast lane — end the walk
   if (engine.startsWith("or:")) {
     const m = orResolve(engine);
     if (!m) return { text: null, quota: false };
@@ -1247,7 +1149,7 @@ async function describeImages(imgs: { mt: string; b64: string }[]): Promise<stri
       zai.chat.completions.createVision(
         visionBody as unknown as Parameters<typeof zai.chat.completions.createVision>[0]
       ),
-      new Promise<null>(r => setTimeout(() => r(null), 32000)),
+      new Promise<null>(r => setTimeout(() => r(null), Math.min(20_000, Math.max(8_000, leftMs() - 20_000)))),
     ])) as { choices?: { message?: { content?: string } }[] } | null;
     return String(res?.choices?.[0]?.message?.content || "").trim();
   } catch {
@@ -1313,7 +1215,7 @@ export async function POST(req: Request) {
   }
   const uid = guest ? guest.gid : (user?.uid || "");
   const TALLY = { n: 0 }; // tokens spent by this request → swept into the id's daily bucket on exit
-  REQ_END = Date.now() + 48_000; // always exit inside Vercel's 60s window — never a 502 from slow lanes
+  REQ_END = Date.now() + 45_000; // always exit inside Vercel's 60s window — never a 502 from slow lanes
   // ---- token-exhaustion algorithm — the soft landing, three stages ----
   // 1) BEFORE any engine call: a dry bucket stops calmly — the reply bubble
   //    says exactly when it resets (00:00 UTC) and that nothing is lost; a
@@ -1484,6 +1386,21 @@ export async function POST(req: Request) {
         });
         continue;
       }
+      // video — start the render task only, ship the job ticket; the clip
+      // lands in the chat when /api/video-status sees SUCCESS
+      if (a.action === "video") {
+        const v = await startVideoGen(a.prompt, a.with_audio === true, a.model, uid, master);
+        if (v?.limit) return done({ ok: true, limit: true, text: v.limit, mode, trace });
+        if (v?.tid) return done({
+          ok: true,
+          text: "On it — your video is rendering now. It usually takes 1-3 minutes; it drops right here the moment it's ready.",
+          engine: "xr-code",
+          mode,
+          trace,
+          videoJob: { tid: v.tid },
+        });
+        return done({ ok: true, text: "The video engines didn't pick up this one — try again in a moment, or ask me for a motion-graphics clip instead.", engine: "xr-code", mode, trace });
+      }
       // motion graphics — rendered client-side from the story code (no server asset)
       if (a.action === "mograph") {
         return done({
@@ -1648,6 +1565,20 @@ export async function POST(req: Request) {
     const out = googleOutage();
     if (out) return out;
     return done({ ok: true, text: outageReply(mode), engine: "xr-code", mode, vision: visionBlock || undefined });
+  }
+
+  // video — start the render task only; the client polls /api/video-status
+  if (act.action === "video") {
+    const v = await startVideoGen(act.prompt, act.with_audio === true, act.model, uid, master);
+    if (v?.limit) return done({ ok: true, limit: true, text: v.limit, mode });
+    if (v?.tid) return done({
+      ok: true,
+      text: "On it — your video is rendering now. It usually takes 1-3 minutes; it drops right here the moment it's ready.",
+      engine: engineUsed || "xr-code",
+      mode,
+      videoJob: { tid: v.tid },
+    });
+    return done({ ok: true, text: "The video engines didn't pick up this one — try again in a moment, or ask me for a motion-graphics clip instead.", engine: engineUsed || "xr-code", mode });
   }
 
   // motion graphics — story code ships to the client, rendered + recorded in-browser
