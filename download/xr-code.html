@@ -1393,7 +1393,17 @@ window.__xrGuest = false;
 try{ window.__xrGuest = window.sessionStorage.getItem('xr-guest-mode') === '1'; }catch(e){}
 window.addEventListener('message', function(ev){
   if(ev.origin !== window.location.origin) return;
-  if(ev.data && ev.data.type === 'xr-guest-mode' && ev.data.guest){ window.__xrGuest = true; if(window.renderAccounts) renderAccounts(); }
+  if(ev.data && ev.data.type === 'xr-guest-mode'){
+    // guest:false = the user signed in mid-session — drop the guest tier
+    // entirely: member ledger (100/day + video) applies from the next send,
+    // guest counters and warnings clear, the badge swaps to the member view
+    const goingGuest = !!ev.data.guest;
+    if(goingGuest || window.__xrGuest){
+      window.__xrGuest = goingGuest;
+      if(!goingGuest){ window.__xrGuestUsed = undefined; window.__xrGuestLimit = undefined; window.__xrLowWarned = false; }
+      if(window.renderAccounts) renderAccounts();
+    }
+  }
 });
 window.xrAccRow = function(){ const row = document.createElement('div'); row.textContent = window.__xrGuest ? 'Guest session — chats stay on this device' : 'Signed in with Google'; return row; };
 setTimeout(function(){ if(window.__xrCloudPull) window.__xrCloudPull(); }, 600);

@@ -60,6 +60,11 @@ export default function GoogleSigninGate({ children }: { children: ReactNode }) 
       const res = await fetch('/api/google-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken }) })
       if (!res.ok) throw new Error('Could not create a secure session')
       try { sessionStorage.removeItem(guestKey) } catch { /* private mode */ }
+      // tell the app iframe the upgrade is live: guest → member tier (100/day
+      // + video unlocks) without a reload — the app flips its guest state and
+      // the badge swaps to the signed-in counters
+      const frame = document.querySelector<HTMLIFrameElement>('iframe[title="XR-Code"]')
+      if (frame?.contentWindow) { frame.contentWindow.postMessage({ type: 'xr-guest-mode', guest: false }, window.location.origin) }
       setEmail(credential.user.email || '')
       setStatus('ready')
     } catch (e) {

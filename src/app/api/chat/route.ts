@@ -1250,12 +1250,21 @@ export async function POST(req: Request) {
       // "copy paste the googles answer in qna mode"). No results → the LLM
       // chain answers below as usual.
       if (mode === "qna" && lastSearch.length) {
-        return done({
-          ok: true,
-          text: googleVerbatim(searchQuery(safe), lastSearch),
-          engine: "google-search",
-          mode,
-        });
+        const verbatim = googleVerbatim(searchQuery(safe), lastSearch);
+        // a bare headline is NOT an answer ("Butwal, P5, NP Current Weather -
+        // The Weather Network" carries no temperature): when the verbatim pool
+        // holds no real snippet, fall through to the grounded brain instead —
+        // the search block is attached, so the answer composes from the live
+        // results in the app's own words.
+        const bare = !/\d/.test(verbatim) && lastSearch.some(x => x.name === verbatim);
+        if (!bare) {
+          return done({
+            ok: true,
+            text: verbatim,
+            engine: "google-search",
+            mode,
+          });
+        }
       }
     }
   }
