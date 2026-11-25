@@ -1416,7 +1416,16 @@ window.addEventListener('message', function(ev){
     const goingGuest = !!ev.data.guest;
     if(goingGuest || window.__xrGuest){
       window.__xrGuest = goingGuest;
-      if(!goingGuest){ window.__xrGuestUsed = undefined; window.__xrGuestLimit = undefined; window.__xrLowWarned = false; }
+      if(!goingGuest){
+        window.__xrGuestUsed = undefined; window.__xrGuestLimit = undefined; window.__xrLowWarned = false;
+        // guest mode was TEMPORARY: tag this device's pre-login chats so they
+        // stay local forever — the cloud store keys only member chats to the
+        // Gmail account (the upgrade must not leak guest chatter into it)
+        try{
+          (S.chats || []).forEach(c => { if(c) c.guest = true; });
+          localStorage.setItem(LSKEY, JSON.stringify(S));
+        }catch(e){}
+      }
       if(window.renderAccounts) renderAccounts();
     }
   }
@@ -1549,7 +1558,7 @@ function load(){ try{ const v = JSON.parse(localStorage.getItem(LSKEY)); return 
       const r = await fetch(API_BASE + '/api/chats', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chats: S.chats })
+        body: JSON.stringify({ chats: S.chats.filter(c => !(c && c.guest)) })  // guest-tagged chats never sync — temporary by design
       });
       if(r.ok) updateSyncUI();
     }catch(e){}
@@ -2628,12 +2637,15 @@ function fitHomeTA(){
 if(homeTA){
   homeTA.addEventListener('input', fitHomeTA);
   homeTA.addEventListener('keydown', e => {
-    if((e.ctrlKey || e.metaKey) && e.key === 'Enter'){ e.preventDefault(); $('#homeForm').requestSubmit(); }
+    // Enter sends · Shift+Enter = one line down · Ctrl/⌘+Enter also sends
+    if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); $('#homeForm').requestSubmit(); }
+    else if((e.ctrlKey || e.metaKey) && e.key === 'Enter'){ e.preventDefault(); $('#homeForm').requestSubmit(); }
   });
 }
 $('#chatForm').addEventListener('submit', e => { e.preventDefault(); sendMsg($('#chatInput').value); $('#chatInput').value = ''; fitChatTA(); });
 // composer: textarea grows with the message (smooth height animation) and
-// sends on Ctrl/⌘+Enter — plain Enter makes a new line
+// sends on Enter — Shift+Enter makes a new line (one line down), Ctrl/⌘+Enter
+// also sends
 const chatTA = $('#chatInput');
 function fitChatTA(){
   if(!chatTA) return;
@@ -2643,7 +2655,9 @@ function fitChatTA(){
 if(chatTA){
   chatTA.addEventListener('input', fitChatTA);
   chatTA.addEventListener('keydown', e => {
-    if((e.ctrlKey || e.metaKey) && e.key === 'Enter'){ e.preventDefault(); $('#chatForm').requestSubmit(); }
+    // Enter sends · Shift+Enter = one line down · Ctrl/⌘+Enter also sends
+    if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); $('#chatForm').requestSubmit(); }
+    else if((e.ctrlKey || e.metaKey) && e.key === 'Enter'){ e.preventDefault(); $('#chatForm').requestSubmit(); }
   });
 }
 

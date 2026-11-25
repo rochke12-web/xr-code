@@ -27,6 +27,15 @@ let ZAI_DEAD = false;
 // a warm lambda must not re-walk a dead host on every message.
 let GATEWAY_SICK_UNTIL = 0;
 const gatewaySick = () => Date.now() < GATEWAY_SICK_UNTIL;
+// per-request deadline — the "busy · retrying…" killer. The lane chain's
+// worst case (fleet fallbacks × 30s timeouts) used to blow past Vercel's
+// 60s function kill window → the function died mid-walk → 502 → the client
+// silently re-sent for ~47s ("busy · retrying…"). Now POST sets a deadline
+// and every lane checks it: the request always exits with a REAL answer
+// (or the honest outage bubble) inside the window — a 502 never happens
+// from slow lanes again.
+let REQ_END = 0;
+const pastDeadline = () => REQ_END > 0 && Date.now() > REQ_END;
 type ZAIClient = Awaited<ReturnType<typeof ZAI.create>>;
 async function getZAI(): Promise<ZAIClient | null> {
   if (ZAI_DEAD) return null;
@@ -641,7 +650,7 @@ async function hostedSearch(q: string): Promise<SearchItem[]> {
     if (!zai) return [];
     const res = await Promise.race([
       zai.functions.invoke("web_search", { query: q.slice(0, 300), num: 8 }),
-      new Promise<unknown>(r => setTimeout(() => r(null), 12000)),
+      new Promise<unknown>(r => setTimeout(() => r(null), 6000)),
     ]);
     const items = Array.isArray(res) ? (res as { name?: unknown; snippet?: unknown; url?: unknown; date?: unknown }[]) : [];
     return items
@@ -858,7 +867,7 @@ async function plChat(
           ...(key ? { authorization: `Bearer ${key}` } : {}),
         },
         body: JSON.stringify({ model: m, messages: [{ role: "system", content: sys }, ...msgs] }),
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(15000),
       });
       if (!res.ok) return { text: null, budget: res.status === 429 };
       const j = (await res.json().catch(() => null)) as
@@ -873,24 +882,24 @@ async function plChat(
       return { text: null, budget: false };
     }
   };
-  // fleet order: keyed → the picked catalog model on the gen host (full ranking),
-  // then the classic host. Keyless → the picked model (in case its tier opens),
-  // then the two live keyless lanes: gen gpt-5.4-nano, classic openai-fast/openai.
+  // fleet order: keyed → the picked catalog model on the gen host, then the
+  // classic host. Keyless → the picked model (in case its tier opens), then
+  // the live keyless lane. Trimmed to TWO hops with a 15s per-call timeout —
+  // 4 hops × 30s could eat the whole function window before the chain even
+  // reached the emergency lanes.
   const classic = model === "openai-fast" || model === "openai";
   const fleet: { url: string; model: string }[] = classic
     ? [
         { url: PL_TXT, model },
-        { url: PL_GEN, model: "openai/gpt-5.4-nano" },
         { url: PL_TXT, model: model === "openai-fast" ? "openai" : "openai-fast" },
       ]
     : [
         { url: PL_GEN, model },
         { url: PL_GEN, model: "openai/gpt-5.4-nano" },
-        { url: PL_TXT, model: "openai-fast" },
-        { url: PL_TXT, model: "openai" },
       ];
   let sawBudget = false;
   for (const f of fleet) {
+    if (pastDeadline()) break; // window nearly gone — leave the answer to a later lane
     const r = await call(f.url, f.model);
     if (r.text) return { text: r.text, quota: false, tokens: Math.ceil(r.text.length / 4) };
     if (r.budget) sawBudget = true; // drained seed key — try the next lane
@@ -1099,6 +1108,7 @@ async function spendLane(
   msgs: { role: "user" | "assistant"; content: string }[],
   tally: { n: number }
 ): Promise<ChatResult> {
+  if (pastDeadline()) return { text: null, quota: false }; // window nearly gone — end the walk
   if (engine.startsWith("or:")) {
     const m = orResolve(engine);
     if (!m) return { text: null, quota: false };
@@ -1276,6 +1286,7 @@ export async function POST(req: Request) {
   }
   const uid = guest ? guest.gid : (user?.uid || "");
   const TALLY = { n: 0 }; // tokens spent by this request → swept into the id's daily bucket on exit
+  REQ_END = Date.now() + 48_000; // always exit inside Vercel's 60s window — never a 502 from slow lanes
   // ---- token-exhaustion algorithm — the soft landing, three stages ----
   // 1) BEFORE any engine call: a dry bucket stops calmly — the reply bubble
   //    says exactly when it resets (00:00 UTC) and that nothing is lost; a
@@ -1570,6 +1581,7 @@ export async function POST(req: Request) {
     }
   }
   for (const engine of act ? [] : chain) {
+    if (pastDeadline()) break; // window nearly gone — the outage bubble below answers honestly
     const r = await spendLane(engine, sys, chatText, TALLY);
     if (r.quota) {
       if (engine !== chosen) continue; // fallback lane dry — next lane
