@@ -149,10 +149,13 @@ export async function addMedia(uid: string, kind: "videos" | "images", n = 1): P
 }
 
 // pre-flight quota probe; kind = 'video' | 'image'. NEVER throws.
-export async function mediaOverLimit(uid: string, kind: "video" | "image"): Promise<{ over: boolean; used: number; limit: number; day: string }> {
+// `limit` overrides the tier default — guest mode paints 1/day per device
+// while members keep 10/day (see guest-mode.ts + the imagine route).
+export async function mediaOverLimit(uid: string, kind: "video" | "image", limit?: number): Promise<{ over: boolean; used: number; limit: number; day: string }> {
   const m = await getMediaUsage(uid);
   if (kind === "video") return { over: m.videos >= DAILY_VIDEO_LIMIT, used: m.videos, limit: DAILY_VIDEO_LIMIT, day: m.day };
-  return { over: m.images >= DAILY_IMAGE_LIMIT, used: m.images, limit: DAILY_IMAGE_LIMIT, day: m.day };
+  const cap = typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0 ? limit : DAILY_IMAGE_LIMIT;
+  return { over: m.images >= cap, used: m.images, limit: cap, day: m.day };
 }
 
 /* ---------- cloud chat store ---------- */

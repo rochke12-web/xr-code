@@ -6,6 +6,7 @@ import { saveAsset, saveAssetBytes, makeZip } from "../../../lib/asset-store";
 import { produceBinary } from "../../../lib/xrbuild";
 import { firebaseDb, verifiedGoogleSession } from "../../../lib/firebase-server";
 import { reserveDailyMessage } from "../../../lib/daily-message-policy.mjs";
+import { guestIdentity, reserveGuestMessage } from "../../../lib/guest-mode";
 import { XR_SECRETS } from "../../../lib/xrsecrets";
 import { addUsage, overLimit, DAILY_TOKEN_LIMIT, estTokens, mediaOverLimit, addMedia } from "../../../lib/xrstore";
 import { loadByok, byokChat } from "../../../lib/xrkeys";
@@ -1104,21 +1105,58 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const user = await verifiedGoogleSession(req);
-  if (!user) return NextResponse.json({ ok: false, error: "auth" }, { status: 401 });
-  const master = (user.email || "").toLowerCase() === MASTER_EMAIL; // owner — no daily caps
+  let body: { messages?: RawMsg[]; model?: string; mode?: string } | null = null;
   try {
-    if (!master) {
-      const quota = await reserveDailyMessage(firebaseDb(), user.uid, new Date(), user.email);
-      if (!quota.allowed) return NextResponse.json({ ok: false, error: quota.reason }, { status: quota.reason === 'disabled' ? 403 : 429 });
-    }
-  } catch (e) {
-    // surface the REAL storage error in the server logs — a silent 503 here was
-    // indistinguishable from an engine outage ("busy · retrying…" forever)
-    console.error("[chat] quota reserve failed:", String((e as Error)?.message || e).slice(0, 300));
-    return NextResponse.json({ ok: false, error: "quota_unavailable" }, { status: 503 });
+    body = await req.json();
+  } catch {
+    /* no / invalid body */
   }
-  const uid = user.uid;
+  const user = await verifiedGoogleSession(req);
+  // guest mode — the maximum-limitation tier: no Google session still talks,
+  // but 50 messages/day per device (HWID) and video mode stays members-only.
+  // Same fail-closed Firestore quota store as the members path.
+  const guestVideoAsk =
+    typeof body?.mode === "string" && body.mode.trim().toLowerCase() === "video";
+  let guest: { gid: string; used: number; limit: number } | null = null;
+  let master = false; // owner — no daily caps
+  if (!user) {
+    if (guestVideoAsk) {
+      // video is members-only in guest mode — refuse BEFORE reserving a text
+      // from the device bucket (a rejected ask never eats the 50)
+      return NextResponse.json({
+        ok: false, limit: true, guest: true,
+        text: "Video mode needs a signed-in Google account — guests get 50 messages and 1 image a day. Sign in from the lock screen to unlock filming.",
+      }, { status: 403 });
+    }
+    try {
+      const id = guestIdentity(req);
+      const gq = await reserveGuestMessage(firebaseDb(), id.gid, new Date());
+      if (!gq.allowed) {
+        return NextResponse.json({
+          ok: false, error: gq.reason, guest: true, limit: true,
+          guest_usage: { used: gq.count, limit: gq.limit, day: gq.day },
+        }, { status: 429 });
+      }
+      guest = { gid: id.gid, used: gq.count, limit: gq.limit };
+    } catch (e) {
+      console.error("[chat] guest quota reserve failed:", String((e as Error)?.message || e).slice(0, 300));
+      return NextResponse.json({ ok: false, error: "quota_unavailable" }, { status: 503 });
+    }
+  } else {
+    master = (user.email || "").toLowerCase() === MASTER_EMAIL;
+    try {
+      if (!master) {
+        const quota = await reserveDailyMessage(firebaseDb(), user.uid, new Date(), user.email);
+        if (!quota.allowed) return NextResponse.json({ ok: false, error: quota.reason }, { status: quota.reason === 'disabled' ? 403 : 429 });
+      }
+    } catch (e) {
+      // surface the REAL storage error in the server logs — a silent 503 here was
+      // indistinguishable from an engine outage ("busy · retrying…" forever)
+      console.error("[chat] quota reserve failed:", String((e as Error)?.message || e).slice(0, 300));
+      return NextResponse.json({ ok: false, error: "quota_unavailable" }, { status: 503 });
+    }
+  }
+  const uid = guest ? guest.gid : (user?.uid || "");
   const TALLY = { n: 0 }; // tokens spent by this request → swept into the id's daily bucket on exit
   // ---- per-account daily quota (user directive: 10M tokens/day per Google account id) ----
   // Pre-flight gate: a dry bucket is refused BEFORE any engine is called —
@@ -1141,14 +1179,9 @@ export async function POST(req: Request) {
     } catch {
       /* accounting never breaks a reply */
     }
+    if (guest) (o as { guest?: unknown }).guest = { used: guest.used, limit: guest.limit }; // remaining guest texts for the badge
     return NextResponse.json(o);
   };
-  let body: { messages?: RawMsg[]; model?: string; mode?: string } | null = null;
-  try {
-    body = await req.json();
-  } catch {
-    /* no / invalid body */
-  }
   const raw = Array.isArray(body?.messages) ? (body!.messages as RawMsg[]) : null;
   const safe: Msg[] = raw
     ? raw

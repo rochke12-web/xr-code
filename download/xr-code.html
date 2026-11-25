@@ -1358,7 +1358,40 @@ a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible{
 
 <script>
 window.xrSessionExpired = function(){ window.parent.location.reload(); };
-window.xrAccRow = function(){ const row = document.createElement('div'); row.textContent = 'Signed in with Google'; return row; };
+/* ---------- guest mode plumbing — device HWID + tier state ----------
+ * The lock screen (outside the iframe) posts 'xr-guest-mode' in; guests then
+ * tag every engine call with a stable hardware id (x-xr-hwid) so the server
+ * can hold the guest quotas (50 texts · 1 image per device per UTC day).
+ */
+window.xrHWID = (function(){
+  try{
+    var k = 'xr-hwid', v = localStorage.getItem(k);
+    if(v && /^[A-Za-z0-9_-]{8,64}$/.test(v)) return v;
+    var seed = [navigator.userAgent, navigator.language, (navigator.languages || []).join(','), navigator.platform, String(navigator.hardwareConcurrency || ''), screen.width + 'x' + screen.height + 'x' + (screen.colorDepth || 24), (Intl.DateTimeFormat().resolvedOptions() || {}).timeZone || '', String(new Date().getTimezoneOffset())];
+    try{                                       // canvas pixel hash — the real silicon signature
+      var cv = document.createElement('canvas'); cv.width = 220; cv.height = 40;
+      var cx = cv.getContext('2d');
+      if(cx){
+        cx.textBaseline = 'top'; cx.font = "13px 'Arial'"; cx.fillStyle = '#f60'; cx.fillRect(0, 0, 90, 20);
+        cx.fillStyle = '#0af'; cx.fillText('XR-Code::hwid::v1', 4, 8);
+        cx.strokeStyle = 'rgba(0,120,255,.9)'; cx.beginPath(); cx.arc(60, 20, 14, 0, 6.3); cx.stroke();
+        seed.push(cv.toDataURL());
+      }
+    }catch(e){}
+    var s = seed.join('|'), h1 = 0x811c9dc5, h2 = 0x01000193;
+    for(var i = 0; i < s.length; i++){ h1 = ((h1 ^ s.charCodeAt(i)) >>> 0); h1 = ((h1 * 16777619) >>> 0); h2 = ((h2 + s.charCodeAt(i) * (i + 7)) >>> 0); }
+    v = (h1.toString(36) + h2.toString(36) + '00000000').replace(/[^a-z0-9]/gi, '').slice(0, 24);
+    try{ localStorage.setItem(k, v); }catch(e){}
+    return v;
+  }catch(e){ return 'anonfallback0xr'; }
+})();
+window.xrGuestHeaders = function(){ return { 'x-xr-hwid': window.xrHWID }; };
+window.__xrGuest = false;
+window.addEventListener('message', function(ev){
+  if(ev.origin !== window.location.origin) return;
+  if(ev.data && ev.data.type === 'xr-guest-mode' && ev.data.guest){ window.__xrGuest = true; if(window.renderAccounts) renderAccounts(); }
+});
+window.xrAccRow = function(){ const row = document.createElement('div'); row.textContent = window.__xrGuest ? 'Guest session — chats stay on this device' : 'Signed in with Google'; return row; };
 setTimeout(function(){ if(window.__xrCloudPull) window.__xrCloudPull(); }, 600);
 /* ===== SOURCE GUARD — blocks devtools shortcuts + view-source ===== */
 (function(){
@@ -2187,11 +2220,15 @@ async function askBrain(c, text, atts){
     try{
       const res = await fetch(API_BASE + '/api/video', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: Object.assign({ 'Content-Type': 'application/json' }, window.xrGuestHeaders ? window.xrGuestHeaders() : {}),
         body: JSON.stringify({ prompt: text, mode: 'clip', duration: 5, withAudio: !!wantNarrate, narrate: !!wantNarrate, quality: 'speed', size: '1280x720', model: S.videoModel || 'auto' })
       });
       q = await res.json().catch(() => null);
-      if(res.status === 401 && q && q.error === 'auth'){ chip.textContent = 'Made by Yug Sunar'; pen.remove(); window.xrSessionExpired(); return; }
+      if(res.status === 401 && q && q.error === 'auth'){        // members gate bounced this film
+        chip.textContent = 'Made by Yug Sunar'; pen.remove();
+        if(window.__xrGuest){ typeReply(c, splitFence("Video mode needs a signed-in Google account — guests get 50 messages and 1 image a day. Sign in from the lock screen to unlock filming."), null); return; }
+        window.xrSessionExpired(); return;
+      }
       if(q && q.limit){
         chip.textContent = 'Made by Yug Sunar'; pen.remove();
         typeReply(c, splitFence(q.text || "You've used today's video allowance — it resets at 00:00 UTC."), null);
@@ -2233,12 +2270,13 @@ async function askBrain(c, text, atts){
       try{
         const res = await fetch(API_BASE + '/api/imagine', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: Object.assign({ 'Content-Type': 'application/json' }, window.xrGuestHeaders ? window.xrGuestHeaders() : {}),
           body: JSON.stringify({ prompt: text, style: S.imgStyle || 'auto', size: S.imgSize || '1344x768', model: S.imgModel || 'auto', base: (c.lastEnhanced || '') })
         });
         d = await res.json().catch(() => null);
         if(res.status === 401 && d && d.error === 'auth'){      // members gate bounced this painting
           chip.textContent = 'Made by Yug Sunar'; pen.remove();
+          if(window.__xrGuest){ typeReply(c, splitFence("Sign in with Google to paint more — guests get 1 image a day. Your daily guest image resets at 00:00 UTC."), null); return; }
           window.xrSessionExpired(); return;
         }
         if(d && d.limit){                                        // 10/day cap hit — calm bubble
@@ -2283,7 +2321,7 @@ async function askBrain(c, text, atts){
   chip.textContent = 'thinking…';
   const call = () => fetch(API_BASE + '/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: Object.assign({ 'Content-Type': 'application/json' }, window.xrGuestHeaders ? window.xrGuestHeaders() : {}),
     body: JSON.stringify({ messages: ctx, model: S.model || 'auto', mode: S.mode || 'koder' })   // engine + mode ride together
   });
   let d = null, failed = null, triedQuotaRetry = false;
@@ -2300,7 +2338,18 @@ async function askBrain(c, text, atts){
       d = await res.json().catch(() => null);
       if(res.status === 401 && d && d.error === 'auth'){        // members gate bounced this send
         chip.textContent = 'Made by Yug Sunar'; pen.remove();
+        if(window.__xrGuest){ typeReply(c, splitFence("Your guest session hit a sign-in wall — reload the page and continue as guest again."), null); return; }
         window.xrSessionExpired(); return;
+      }
+      if(d && d.guest && (window.__xrGuestUsed !== d.guest.used || window.__xrGuestLimit !== d.guest.limit)){
+        window.__xrGuest = true;                                // server-side guest ledger — feeds the badge
+        window.__xrGuestUsed = d.guest.used; window.__xrGuestLimit = d.guest.limit;
+        if(window.renderAccounts) renderAccounts();
+      }
+      if(d && d.error === 'guest_daily_limit'){                 // guest hardware bucket dry (50/day per device)
+        chip.textContent = 'daily limit'; pen.remove();
+        typeReply(c, splitFence("You've used all 50 guest messages for today on this device — the counter resets at 00:00 UTC. Sign in with Google for 100/day, or come back tomorrow."), null);
+        return;
       }
       if(d && d.error === 'daily_limit'){                       // per-account daily message cap (resets 00:00 UTC)
         chip.textContent = 'daily limit'; pen.remove();
@@ -2397,6 +2446,18 @@ function renderAccounts(){
   s.textContent = (window.__xrCloudOn ? 'Chats sync automatically to your Google account · ' : 'Chats save automatically on this device · ') + (NET.live ? 'Made by Yug Sunar' : 'offline');
   i.append(n, s);
   r.append(i); box.append(r);
+  if(window.__xrGuest){                              // guest tier badge with the live daily ledger
+    const g = document.createElement('div'); g.className = 'acc-row';
+    const gi = document.createElement('div'); gi.className = 'ai2';
+    const gn = document.createElement('div'); gn.className = 'an'; gn.textContent = 'Guest mode';
+    const gs = document.createElement('div'); gs.className = 'as';
+    const lim = window.__xrGuestLimit || 50;
+    gs.textContent = (typeof window.__xrGuestUsed === 'number'
+      ? Math.max(0, lim - window.__xrGuestUsed) + ' of ' + lim + ' messages left today · '
+      : lim + ' messages a day · ') + '1 image a day · resets 00:00 UTC';
+    gi.append(gn, gs);
+    g.append(gi); box.append(g);
+  }
   if(window.xrAccRow) box.append(window.xrAccRow());
 }
 function updateSyncUI(tok, lim){

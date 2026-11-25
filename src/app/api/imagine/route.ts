@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { verifyRequest } from "../../../lib/request-auth";
-import { mediaOverLimit, addMedia } from "../../../lib/xrstore";
+import { mediaOverLimit, addMedia, DAILY_IMAGE_LIMIT } from "../../../lib/xrstore";
+import { guestIdentity, GUEST_IMAGE_LIMIT } from "../../../lib/guest-mode";
 import { saveAsset } from "../../../lib/asset-store";
 import { orderLanes, recordLane } from "../../../lib/arena-lanes";
-import { createHash } from "crypto";
 import { createZai, zaiConfigState } from "../../../lib/zai-config";
 
 // explicit Vercel budget — Hobby caps at 60s; without this export the
@@ -460,49 +460,42 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   // Google session gate — verified account only. Fail closed.
   // Arena-style access — free photo generation for ANY user: signed-in Google
-  // accounts get the 10/day tier; everyone else still paints, 5/day keyed to
-  // a fingerprint (IP+UA hash). Same Firestore quota store, different bucket.
+  // accounts get the 10/day tier; guests paint 1/day keyed to a device HWID
+  // (IP+UA hash fallback). Same Firestore quota store, different bucket.
   const gv = await verifyRequest(req);
   const anon = !gv.ok;
   let uid: string;
+  let tierLimit = DAILY_IMAGE_LIMIT; // members paint 10/day
   let isMaster = false; // the master account paints without a daily cap
   if (!anon) {
     uid = gv.uid || "";
     if ((gv.email || "").toLowerCase() === "rochke12@gmail.com") isMaster = true;
   } else {
-    const fwd = (req.headers.get("x-forwarded-for") || "").split(",")[0].trim();
-    const fp = createHash("sha256")
-      .update(`${fwd}|${req.headers.get("user-agent") || ""}|xr-imagine-fp`)
-      .digest("hex")
-      .slice(0, 14);
-    uid = `fp:${fp}`;
+    uid = guestIdentity(req).gid;
+    tierLimit = GUEST_IMAGE_LIMIT; // user directive: 1 photo/day per HWID
   }
 
-  // ---- free-tier quota gate (10/day signed-in · 5/day anonymous) ----
+  // ---- free-tier quota gate (10/day signed-in · 1/day guest HWID) ----
   // When a bucket's limit is reached the painter AUTO-SWITCHES to the next
-  // tier instead of stopping: signed-in 10/day → anonymous 5/day → calm stop.
+  // tier instead of stopping: signed-in 10/day → guest 1/day → calm stop.
   // The user just sees painting continue (with a one-line heads-up).
   let tierSwitched = false;
   let q = isMaster
     ? { over: false, used: 0, limit: 0, day: "" }
-    : await mediaOverLimit(uid, "image");
+    : await mediaOverLimit(uid, "image", tierLimit);
   if (q.over && !anon && !isMaster) {
-    // signed-in bucket dry — switch to the anonymous fingerprint bucket
-    const fwd = (req.headers.get("x-forwarded-for") || "").split(",")[0].trim();
-    const fp = createHash("sha256")
-      .update(`${fwd}|${req.headers.get("user-agent") || ""}|xr-imagine-fp`)
-      .digest("hex")
-      .slice(0, 14);
-    uid = `fp:${fp}`;
-    q = await mediaOverLimit(uid, "image");
+    // signed-in bucket dry — switch to the guest fingerprint bucket (1/day)
+    uid = guestIdentity(req).gid;
+    tierLimit = GUEST_IMAGE_LIMIT;
+    q = await mediaOverLimit(uid, "image", tierLimit);
     tierSwitched = !q.over;
   }
   if (q.over) {
     return NextResponse.json({
       ok: false,
       error: tierSwitched || !anon
-        ? "You've used today's image allowance — 10 for your account plus the 5 free tier — it all resets at 00:00 UTC."
-        : "You've used today's 5 free images — sign in with Google for 10/day, or come back after 00:00 UTC.",
+        ? "You've used today's image allowance — 10 for your account plus the 1 free guest tier — it all resets at 00:00 UTC."
+        : "You've used today's 1 free guest image — sign in with Google for 10/day, or come back after 00:00 UTC.",
       limit: true,
       usage: { used: q.used, limit: q.limit, day: q.day },
     }, { status: 429 });
