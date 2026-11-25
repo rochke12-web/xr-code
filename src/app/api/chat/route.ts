@@ -545,8 +545,9 @@ function googleVerbatim(q: string, items: SearchItem[]): string {
   // answer sentence (temperature / rate figures), ship only the snippet;
   // headlines-only results (snippet === name) fall back to the headline.
   const answer = snip && snip !== it.name && snip.length > 60 ? snip : it.name;
-  // NO sources, NO links (user directive) — the answer text only
-  return `Google's answer to "${q.slice(0, 120)}":\n\n${answer}`;
+  // EXACT paste (user directive): the snippet alone — zero chrome, zero
+  // prefix, zero sources. Whatever Google showed is what the user reads.
+  return answer;
 }
 
 const SEARCH_UA =
@@ -1158,24 +1159,31 @@ export async function POST(req: Request) {
   }
   const uid = guest ? guest.gid : (user?.uid || "");
   const TALLY = { n: 0 }; // tokens spent by this request → swept into the id's daily bucket on exit
-  // ---- per-account daily quota (user directive: 10M tokens/day per Google account id) ----
-  // Pre-flight gate: a dry bucket is refused BEFORE any engine is called —
-  // an over-quota id burns nothing. The calm ok:true bubble keeps the served
-  // client's "unreachable" failure branch out of the story.
-  if (false && overLimit(uid).over)
+  // ---- token-exhaustion algorithm — the soft landing, three stages ----
+  // 1) BEFORE any engine call: a dry bucket stops calmly — the reply bubble
+  //    says exactly when it resets (00:00 UTC) and that nothing is lost; a
+  //    refused request burns zero engine tokens.
+  // 2) ≥80% used: every reply rides a usage.low flag — the app shows ONE
+  //    quiet heads-up per session ("allowance running low · resets 00:00 UTC").
+  // 3) done() sweeps each response's tally into the bucket; errors never add,
+  //    so exhaustion is always earned by real answers, never by failures.
+  if (overLimit(uid).over)
     return NextResponse.json({
       ok: true,
       limit: true,
       engine: "xr-code",
       text:
-        "You've used up today's 10M-token allowance for this account — it resets at 00:00 UTC. " +
+        "You've used up today's " + (guest ? "guest" : "account") + " token allowance — it resets at 00:00 UTC. " +
         "Your chats are saved and safe; send your message again after the reset.",
     });
   // every successful exit goes through done() so the spent tokens land in the id's bucket
   const done = (o: Record<string, unknown>) => {
     try {
       const u = addUsage(uid, TALLY.n);
-      (o as { usage?: unknown }).usage = { used: u.tokens, limit: DAILY_TOKEN_LIMIT, day: u.day };
+      (o as { usage?: unknown }).usage = {
+        used: u.tokens, limit: DAILY_TOKEN_LIMIT, day: u.day,
+        low: u.tokens / DAILY_TOKEN_LIMIT >= 0.8, // soft-warning threshold → client heads-up
+      };
     } catch {
       /* accounting never breaks a reply */
     }

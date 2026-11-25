@@ -2350,6 +2350,10 @@ async function askBrain(c, text, atts){
         window.__xrGuestUsed = d.guest.used; window.__xrGuestLimit = d.guest.limit;
         if(window.renderAccounts) renderAccounts();
       }
+      if(d && d.usage && d.usage.limit && d.usage.used / d.usage.limit >= 0.8 && !window.__xrLowWarned){
+        window.__xrLowWarned = true;                            // token soft landing — ONE quiet heads-up per session
+        toast('Daily allowance running low — ' + Math.max(1, Math.floor(100 - 100 * d.usage.used / d.usage.limit)) + '% left · resets 00:00 UTC');
+      }
       if(d && d.error === 'guest_daily_limit'){                 // guest hardware bucket dry (50/day per device)
         chip.textContent = 'daily limit'; pen.remove();
         typeReply(c, splitFence("You've used all 50 guest messages for today on this device — the counter resets at 00:00 UTC. Sign in with Google for 100/day, or come back tomorrow."), null);
