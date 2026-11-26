@@ -4,7 +4,7 @@ import { createZai } from "../../../lib/zai-config";
 import type { VisionMessage } from "z-ai-web-dev-sdk";
 import { saveAsset, saveAssetBytes, makeZip } from "../../../lib/asset-store";
 import { produceBinary } from "../../../lib/xrbuild";
-import { firebaseDb, verifiedGoogleSession } from "../../../lib/firebase-server";
+import { firebaseDb, verifiedGoogleSession, firebaseConfigured } from "../../../lib/firebase-server";
 import { reserveDailyMessage } from "../../../lib/daily-message-policy.mjs";
 import { guestIdentity, reserveGuestMessage } from "../../../lib/guest-mode";
 import { XR_SECRETS } from "../../../lib/xrsecrets";
@@ -1196,8 +1196,15 @@ export async function POST(req: Request) {
       }
       guest = { gid: id.gid, used: gq.count, limit: gq.limit };
     } catch (e) {
-      console.error("[chat] guest quota reserve failed:", String((e as Error)?.message || e).slice(0, 300));
-      return NextResponse.json({ ok: false, error: "quota_unavailable" }, { status: 503 });
+      // fail-open ONLY when Firebase isn't configured at all (local dev /
+      // missing env) — that used to 503 and read as "busy · retrying…".
+      // Real storage failures still fail closed.
+      if (!firebaseConfigured()) {
+        console.warn("[chat] Firebase not configured — quota check skipped (fail-open)");
+      } else {
+        console.error("[chat] guest quota reserve failed:", String((e as Error)?.message || e).slice(0, 300));
+        return NextResponse.json({ ok: false, error: "quota_unavailable" }, { status: 503 });
+      }
     }
   } else {
     master = (user.email || "").toLowerCase() === MASTER_EMAIL;
@@ -1208,9 +1215,14 @@ export async function POST(req: Request) {
       }
     } catch (e) {
       // surface the REAL storage error in the server logs — a silent 503 here was
-      // indistinguishable from an engine outage ("busy · retrying…" forever)
-      console.error("[chat] quota reserve failed:", String((e as Error)?.message || e).slice(0, 300));
-      return NextResponse.json({ ok: false, error: "quota_unavailable" }, { status: 503 });
+      // indistinguishable from an engine outage ("busy · retrying…" forever).
+      // Missing Firebase config (local dev) fails OPEN instead of 503.
+      if (!firebaseConfigured()) {
+        console.warn("[chat] Firebase not configured — quota check skipped (fail-open)");
+      } else {
+        console.error("[chat] quota reserve failed:", String((e as Error)?.message || e).slice(0, 300));
+        return NextResponse.json({ ok: false, error: "quota_unavailable" }, { status: 503 });
+      }
     }
   }
   const uid = guest ? guest.gid : (user?.uid || "");

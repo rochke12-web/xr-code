@@ -17,6 +17,12 @@ function firebaseApp() {
 }
 export function firebaseAuth() { return getAuth(firebaseApp()); }
 export function firebaseDb() { return getFirestore(firebaseApp()); }
+// true when credentials exist — callers use it to fail-open (skip quota)
+// instead of 503-ing every request when only the env var is missing.
+export function firebaseConfigured() {
+  try { return !!JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || ""); }
+  catch { return false; }
+}
 
 export async function verifiedGoogleSession(req: Request) {
   const token = (req.headers.get('cookie') || '').split(/;\s*/)
