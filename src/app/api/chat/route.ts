@@ -854,21 +854,33 @@ const OR_RANKING: Record<string, string> = {
   "or:": "openrouter/auto", // bare "or:" rides the auto-router
   "or:auto": "openrouter/auto", // per-request best pick on OpenRouter itself
   "or:sonar": "perplexity/sonar", // built-in live web search
-  "or:kimi": "moonshotai/kimi-k2", // the hosted brain's family, via OR
-  "or:glm": "z-ai/glm-4.6",
-  "or:deepseek": "deepseek/deepseek-chat-v3.1",
-  "or:deepseek-r1": "deepseek/deepseek-r1",
-  "or:llama": "meta-llama/llama-3.3-70b-instruct",
-  "or:qwen": "qwen/qwen3-235b-a22b",
-  "or:mistral": "mistralai/mistral-large-2411",
-  "or:grok": "x-ai/grok-4",
-  "or:gemini-flash": "google/gemini-2.5-flash",
-  "or:gemini-pro": "google/gemini-2.5-pro",
-  "or:gpt": "openai/gpt-4o",
-  "or:gpt-mini": "openai/gpt-4o-mini",
-  "or:claude": "anthropic/claude-sonnet-4.5",
-  "or:haiku": "anthropic/claude-3.5-haiku",
+  // ---- LMArena text leaderboard defaults — Nov 2026 snapshot (benchlm.ai,
+  // fetched 2026-11-26; every slug verified live against the OpenRouter catalog) ----
+  "or:arena": "google/gemini-4-carbon", // #1 · 1538.9 · Google
+  "or:gemini-pro": "google/gemini-4-carbon", // #1
+  "or:gemini-flash": "google/gemini-4-neon", // #3 · 1522.9
+  "or:claude": "anthropic/claude-opus-5.5", // #4 · 1514.1 · Anthropic
+  "or:opus": "anthropic/claude-opus-5", // #6 · 1506.2
+  "or:fable": "anthropic/claude-fable-5.1", // #5 · 1511.8
+  "or:muse": "meta/muse-wonder", // #7 · 1503.7 · Meta
+  "or:kimi": "moonshotai/kimi-k3.1-pro", // the hosted brain's family, via OR
+  "or:glm": "z-ai/glm-5.3",
+  "or:deepseek": "deepseek/deepseek-v4.1-flash",
+  "or:qwen": "qwen/qwen4-max",
+  "or:grok": "x-ai/grok-4.7",
+  "or:gpt": "openai/gpt-5.6-luna",
+  "or:gpt-mini": "openai/gpt-5.6-terra",
+  "or:haiku": "anthropic/claude-haiku-5.5",
+  "or:mistral": "mistralai/mistral-large-4-0",
 };
+// the default lane order = the leaderboard itself, Elo high → low. Three rungs
+// (not all ten) so the chain still fits the request window; each keyed lane
+// that 429s costs ~100ms. Keyless → never attached, behavior unchanged.
+const ARENA_CHAIN = [
+  "or:google/gemini-4-carbon", // #1 · 1538.9
+  "or:anthropic/claude-opus-5.5", // #4 · 1514.1
+  "or:google/gemini-4-argon", // #2 · 1527.7
+];
 // "or:<anything>" → the raw catalog id ("every model possible"); aliases resolve
 // through the ranking. Everything else → null (not an OpenRouter pick).
 function orResolve(wanted: string): string | null {
@@ -1501,17 +1513,18 @@ export async function POST(req: Request) {
   // honest outage bubble.
   const plPick = plResolve(chosen);
   const orPick = orResolve(chosen);
-  // OpenRouter emergency rungs ride EVERY chain once the key lands ("every
-  // field"): keyed they add two cheap multimodal lanes to each walk; keyless
-  // they never even attach (no wasted calls against the free nets).
-  const OR_RUNGS = OR_KEY() ? ["or:google/gemini-2.5-flash", "or:openai/gpt-4o-mini"] : [];
+  // OpenRouter default rungs = the LMArena leaderboard ("just use the default
+  // models that arena ai leaderboard"): keyed, the top-Elo models lead every
+  // non-OR pick chain and the rest of the fleet catches the misses; keyless
+  // they never attach (no wasted calls against the free nets).
+  const OR_RUNGS = OR_KEY() ? ARENA_CHAIN : [];
   const chain: string[] = orPick
-    ? [chosen, PL_FREE, ...FALLBACK_MODELS] // OpenRouter pick leads; free net catches a dead/dry key
+    ? [chosen, ...ARENA_CHAIN, PL_FREE, ...FALLBACK_MODELS] // OpenRouter pick leads; leaderboard + free net catch a dead/dry key
     : plPick
       ? [`pl:${plPick}`, PL_FREE, ...OR_RUNGS]
       : PRIME_MODELS.has(chosen)
-        ? [chosen, PL_FREE, ...OR_RUNGS, ...FALLBACK_MODELS]
-        : [PL_FREE, chosen, ...OR_RUNGS, ...FALLBACK_MODELS.filter(m => m !== chosen), PRIME_FLASH];
+        ? [chosen, ...OR_RUNGS, PL_FREE, ...FALLBACK_MODELS]
+        : [...OR_RUNGS, PL_FREE, chosen, ...FALLBACK_MODELS.filter(m => m !== chosen), PRIME_FLASH];
   // QnA IS the search engine: the arena's top real search model leads the walk
   // (its Google grounding rides along via googleContext); keyless it fails in
   // ms and the free fleet answers.
